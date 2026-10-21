@@ -28,6 +28,16 @@ export async function fetchBoard(code, input, limit = 10) {
   return res.json();
 }
 
+// All-time board: each player's best daily score ever (database function all_time_board).
+// input: one input type, or 'all'.
+export async function fetchAllTime(input, limit = 10) {
+  const res = await fetch(`${SUPABASE.url}/rest/v1/rpc/all_time_board`, {
+    method: 'POST', headers: headers(true), body: JSON.stringify({ p_input: input === 'all' ? null : input, p_limit: limit })
+  });
+  if (!res.ok) throw new Error(`Board request failed with ${res.status}`);
+  return res.json();
+}
+
 // A random id kept in this browser so a player's runs replace their own best, not someone else's.
 const ID_KEY = 'dialed-in:player', NAME_KEY = 'dialed-in:name';
 let sessionId = null;

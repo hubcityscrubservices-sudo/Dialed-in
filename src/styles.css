@@ -379,3 +379,10 @@ pre#copytext { font: 12px/1.5 var(--mono); background: rgba(8, 16, 23, 0.6); bor
 
 /* Setup screen leaderboard */
 .leader-head { display: flex; justify-content: space-between; align-items: end; gap: 14px; flex-wrap: wrap; }
+/* Today / All time: a segmented switch, quieter than the input tabs below it */
+.leader-head { align-items: center; }
+.leader-head .board-tabs { flex-basis: 100%; }
+.period-tabs { display: inline-flex; border: 1px solid rgba(147, 167, 172, 0.35); }
+.period-tabs button { font: 600 12px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+  background: transparent; border: 0; padding: 10px 14px; min-height: 40px; cursor: pointer; }
+.period-tabs button[aria-selected="true"] { color: var(--bg, #0B141B); background: var(--sun); }

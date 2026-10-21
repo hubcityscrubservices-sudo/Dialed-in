@@ -192,7 +192,10 @@ against real play. Built by `src/export.js`.
 - `supabase/migrations/20261021000000_scores.sql`: one `scores` row per player, code and input type
   (controller, mouse or on-screen stick; mouse added in `20261022000000_scores_mouse.sql`), holding their
   best verified run. The end screen shows the board for your input or all inputs together, with each
-  row's input marked; the warm-up panel's top three is the combined board. Row-level security lets anyone
+  row's input marked; the warm-up panel's top three is the combined board.
+- `supabase/migrations/20261023000000_all_time_board.sql`: `all_time_board(p_input, p_limit)`, each
+  player's best daily score ever (practice runs excluded), read by the main page's All time tab. A
+  security-definer function, so it can group by player id without exposing it. Row-level security lets anyone
   read the board columns; recordings, settings and player ids are not readable, and there are no
   write policies.
 - `supabase/functions/submit-score`: checks the code (no future dailies), name, settings (within the
@@ -213,7 +216,7 @@ board be reviewed.
 ```sh
 supabase login
 supabase link --project-ref <project-ref>        # the id in the project URL
-supabase db push                                 # creates the scores table (and allows mouse runs)
+supabase db push                                 # scores table, mouse runs, all-time board
 supabase functions deploy submit-score --no-verify-jwt
 ```
 

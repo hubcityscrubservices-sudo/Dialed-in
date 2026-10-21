@@ -66,6 +66,10 @@
             <p class="eyebrow">Leaderboard</p>
             <h2 id="leader-title">Today's daily range</h2>
           </div>
+          <div class="period-tabs" role="tablist" aria-label="Which period">
+            <button type="button" role="tab" data-period="today" aria-selected="true">Today</button>
+            <button type="button" role="tab" data-period="ever" aria-selected="false">All time</button>
+          </div>
           <div class="board-tabs" role="tablist" aria-label="Which board">
             <button type="button" role="tab" data-board="all" aria-selected="true">All inputs</button>
             <button type="button" role="tab" data-board="pad" aria-selected="false">Controller</button>
@@ -73,7 +77,7 @@
           </div>
         </div>
         <div class="table-wrap board-table"><p class="fine">Loading the board…</p></div>
-        <p class="fine">Daily scores only. Play the daily range above and press Submit score on the results screen to get on it. Practice runs get a fresh code each time, so their boards are only shared by passing the code along.</p>
+        <p class="fine" id="leader-note"></p>
       </section>
 
       <section class="plate" id="p-setup">

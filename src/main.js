@@ -14,7 +14,7 @@ import { makeWorld, paintSky, paintTerrain, paintCompass, paintDrone, paintOffsc
   noteFlash, paintFx, paintCrosshair, paintFigure, paintLens, paintCountdown } from './scenery.js';
 import { DUEL, duelPlan, duelCompare } from './duel.js';
 import { createMouse, CARD_CM, SWIPES, MIN_SWIPE, analyzeSwipes, resolveDpi, pollingHz, calibrationK, cm360 } from './mouse.js';
-import { boardsOn, submitScore, fetchBoard, playerId, savedName, saveName } from './leaderboard.js';
+import { boardsOn, submitScore, fetchBoard, fetchAllTime, playerId, savedName, saveName } from './leaderboard.js';
 
 const $ = s => document.querySelector(s);
 const QUICK = { flicks: 12, trackSeconds: 15 };
@@ -1836,16 +1836,19 @@ const BOARD_BLOCKED = 'Couldn\'t reach the leaderboard. The claude.ai preview bl
 const INPUT_LABEL = { pad: 'Controller', mouse: 'Mouse', virtual: 'On-screen stick' };
 // input: one input type, or 'all' (the combined board, with an Input column). root holds the
 // board's tabs and its .board-table: the end screen's board or the setup screen's leaderboard.
+// code ALL_TIME reads the all-time board (best daily score per player), with a Day column.
+const ALL_TIME = 'all-time';
 async function loadBoard(code, input, root) {
   const box = root.querySelector('.board-table'), req = root.boardReq = (root.boardReq || 0) + 1;
   root.querySelectorAll('.board-tabs [data-board]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.board === input)));
   try {
-    const rows = await fetchBoard(code, input);
+    const ever = code === ALL_TIME;
+    const rows = ever ? await fetchAllTime(input) : await fetchBoard(code, input);
     if (!root.isConnected || req !== root.boardReq) return;
     const all = input === 'all';
     box.innerHTML = rows.length
-      ? `<table><thead><tr><th>#</th><th>Name</th>${all ? '<th>Input</th>' : ''}<th>Score</th><th>Accuracy</th><th>Streak</th><th>Game</th></tr></thead><tbody>${rows.map((r, i) =>
-        `<tr><td class="num">${i + 1}</td><td>${esc(r.name)}</td>${all ? `<td><span class="input-tag ${esc(r.input)}">${esc(INPUT_LABEL[r.input] || r.input)}</span></td>` : ''}<td class="num">${r.score.toLocaleString('en-US')}</td><td class="num">${r.accuracy == null ? '–' : pct(r.accuracy)}</td><td class="num">${r.best_streak ?? '–'}</td><td>${esc(GAMES[r.game] ? gameTitle(GAMES[r.game]) : r.game)}</td></tr>`).join('')}</tbody></table>`
+      ? `<table><thead><tr><th>#</th><th>Name</th>${all ? '<th>Input</th>' : ''}<th>Score</th><th>Accuracy</th><th>Streak</th><th>Game</th>${ever ? '<th>Day</th>' : ''}</tr></thead><tbody>${rows.map((r, i) =>
+        `<tr><td class="num">${i + 1}</td><td>${esc(r.name)}</td>${all ? `<td><span class="input-tag ${esc(r.input)}">${esc(INPUT_LABEL[r.input] || r.input)}</span></td>` : ''}<td class="num">${r.score.toLocaleString('en-US')}</td><td class="num">${r.accuracy == null ? '–' : pct(r.accuracy)}</td><td class="num">${r.best_streak ?? '–'}</td><td>${esc(GAMES[r.game] ? gameTitle(GAMES[r.game]) : r.game)}</td>${ever ? `<td class="num">${esc(String(r.code).slice(2))}</td>` : ''}</tr>`).join('')}</tbody></table>`
       : `<p class="fine">No ${all ? '' : INPUT_LABEL[input].toLowerCase() + ' '}scores yet. Be the first.</p>`;
   } catch (e) {
     box.innerHTML = `<p class="fine">${BOARD_BLOCKED}</p>`;
@@ -1882,16 +1885,22 @@ function wireBoard(c, sum) {
   });
 }
 
-// The setup screen's leaderboard: today's daily range, on the tab last picked.
-let leaderTab = 'all';
+// The setup screen's leaderboard: today's daily range or all time, on the tabs last picked.
+let leaderTab = 'all', leaderPeriod = 'today';
 function showLeader() {
   const root = $('#p-leader');
   root.hidden = !boardsOn();
   if (root.hidden) return;
-  $('#leader-title').textContent = `Today's daily range · ${dailyCode().slice(2)}`;
-  loadBoard(dailyCode(), leaderTab, root);
+  const ever = leaderPeriod === 'ever';
+  $('#leader-title').textContent = ever ? 'All time' : `Today's daily range · ${dailyCode().slice(2)}`;
+  $('#leader-note').textContent = ever
+    ? 'Each player\'s best daily range score ever, one row per player and input. Daily targets change every day but are built the same way, so scores compare fairly. Practice runs don\'t count.'
+    : 'Play the daily range above and press Submit score on the results screen to get on it. Practice runs get a fresh code each time, so their boards are only shared by passing the code along.';
+  root.querySelectorAll('[data-period]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.period === leaderPeriod)));
+  loadBoard(ever ? ALL_TIME : dailyCode(), leaderTab, root);
 }
 $('#p-leader').querySelectorAll('.board-tabs [data-board]').forEach(b => b.addEventListener('click', () => { leaderTab = b.dataset.board; showLeader(); }));
+$('#p-leader').querySelectorAll('[data-period]').forEach(b => b.addEventListener('click', () => { leaderPeriod = b.dataset.period; showLeader(); }));
 
 // Today's top three on the warm-up panel.
 async function loadWarmTop() {
