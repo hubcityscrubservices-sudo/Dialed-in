@@ -1,10 +1,13 @@
 import { clamp } from './util.js';
 
 // Per-game models. Turn rates (degrees per second at full stick) are approximations.
+// `fov.type` says how the game states its field of view: 'h169' horizontal on 16:9, 'h43' horizontal
+// on a 4:3 frame (Source-engine style), 'v' vertical. The range draws at the converted FOV.
 // `source` says how far the menu names and scales have been checked.
 export const GAMES = {
   cod: {
     name: 'Call of Duty', camera: 'first', source: 'model',
+    fov: { label: 'Field of view', min: 60, max: 120, step: 1, def: 80, type: 'h169' },
     sens: { label: 'Horizontal stick sensitivity', min: 1, max: 20, step: 1, def: 6, rate: s => s * 48 },
     vsens: { label: 'Vertical stick sensitivity', min: 1, max: 20, step: 1, def: 6, rate: s => s * 38.4 },
     dz: { label: 'Right stick min (deadzone)', def: 0.10, fmt: d => String(Math.round(d * 100)) },
@@ -19,6 +22,7 @@ export const GAMES = {
   },
   fortnite: {
     name: 'Fortnite', camera: 'third', source: 'model',
+    fov: { fixed: true, def: 80, type: 'h169', note: "Fortnite's field of view is fixed, so the range uses about 80 degrees." },
     sens: { label: 'Look sensitivity', min: 1, max: 100, step: 1, def: 45, rate: s => s * 6.4 },
     dz: { label: 'Right stick deadzone', def: 0.10, fmt: d => Math.round(d * 100) + '%' },
     moveDz: { label: 'Left stick deadzone', fmt: d => Math.round(d * 100) + '%' },
@@ -26,6 +30,7 @@ export const GAMES = {
   },
   apex: {
     name: 'Apex Legends', camera: 'first', source: 'model',
+    fov: { label: 'Field of view', min: 70, max: 110, step: 1, def: 70, type: 'h43' },
     sens: {
       label: 'Look sensitivity', min: 1, max: 7, step: 1, def: 3,
       rate: s => [95, 135, 175, 220, 270, 335, 405][clamp(Math.round(s), 1, 7) - 1]
@@ -41,6 +46,8 @@ export const GAMES = {
     // Vertical Sensitivity shares the horizontal scale. Sinusoidal is modeled as an
     // S-curve: softer than linear near center, quicker than exponential through the middle.
     name: 'ARC Raiders', camera: 'third', source: 'menu',
+    // FOV range and convention from player guides (slider tops out at 80); still to check against the menu.
+    fov: { label: 'Field of View', min: 50, max: 120, step: 1, def: 70, defKnown: false, type: 'h169' },
     sens: { label: 'Horizontal Sensitivity', min: 1, max: 400, step: 1, def: 80, defKnown: false, rate: s => s * 2.6 },
     vsens: { label: 'Vertical Sensitivity', min: 1, max: 400, step: 1, def: 60, defKnown: false, rate: s => s * 2.6 },
     dz: { label: 'Look Inner Deadzone', def: 0.05, fmt: d => String(Math.round(d * 100)) },
@@ -66,6 +73,7 @@ export const GAMES = {
   },
   other: {
     name: 'your game', camera: 'first', source: 'model',
+    fov: { label: 'Field of view (horizontal)', min: 50, max: 130, step: 1, def: 90, type: 'h169' },
     sens: { label: 'Stick sensitivity', min: 1, max: 100, step: 1, def: 50, rate: s => s * 6 },
     dz: { label: 'Right stick deadzone', def: 0.10, fmt: d => Math.round(d * 100) + '%' },
     curve: { label: 'Response curve', def: 'mid', linear: 'Linear', mid: 'Default', expo: 'Exponential' }

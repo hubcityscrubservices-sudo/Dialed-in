@@ -2,7 +2,6 @@ import { clamp } from './util.js';
 
 // Curve slots, from most responsive near center to softest. A game can swap in its own shape per slot.
 export const CURVE_EXP = { linear: 1.0, mid: 1.8, expo: 2.5 };
-export const FOV = 80;          // horizontal degrees shown in the range
 export const PITCH_SCALE = 0.8; // vertical turn speed relative to horizontal
 export const FLICK_TIMEOUT = 4;
 const BOOST_DELAY = 0.15, BOOST_RAMP = 0.4;

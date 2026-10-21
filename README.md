@@ -59,6 +59,18 @@ trigger deadzone, so those rows don't appear for it. The range models a third-pe
 Boost (+55% turn speed at full stick, ramping up over 1.6 s, an assumption about what 55 means) and
 Sinusoidal as an S-curve. A game can give each curve slot its own shape (`curve.fn`).
 
+## Field of view
+
+The range draws through a true perspective camera at the FOV you enter (src/camera.js), so a turn moves
+the picture across the screen the same way it does in your game. Sensitivity is a turn rate in degrees per
+second, which FOV does not change, but FOV changes how fast that rate *looks*: at 120 the world slides
+past slower near the crosshair than at 70. Matching it removes that "different feel".
+
+Games state FOV differently, so each profile names its convention and the range converts it: Call of Duty
+is horizontal on 16:9, Apex uses a 4:3 scale (90 there is about 106 on a 16:9 screen), Fortnite's is fixed.
+ARC Raiders' FOV range and convention come from player guides and still need checking against the menu.
+A range that isn't 16:9 keeps the vertical FOV and shows more or less to the sides, as games do.
+
 ## Vertical sensitivity
 
 Two of every five flick targets sit mostly above or below (within 25° of vertical); the rest stay

@@ -1,5 +1,6 @@
 import { GAMES, PLAYSTYLES, gameTitle, extraSetting, adsSpecs, fmtAds } from './games.js';
-import { FOV, makeView, steer, newFlickTarget, flickStep, makeTrack, trackStep, newTurnTarget, turnStep } from './sim.js';
+import { makeCamera, hfov169 } from './camera.js';
+import { makeView, steer, newFlickTarget, flickStep, makeTrack, trackStep, newTurnTarget, turnStep } from './sim.js';
 import { summarize, recommend, recommendVertical, recommendAds, turnStats, recommendTurn, driftDeadzone, settingsChanged } from './analysis.js';
 import { verifyPlan, verifyCompare, ratingSummary, sideOf } from './verify.js';
 import { DEEP, SCREEN, deepNext, deepAnalyze, shuffled, screenPlan, altCurve, screenAnalyze } from './deep.js';
@@ -33,7 +34,7 @@ const MODE_HINT = { quick: 'About 3 minutes', verify: 'About 5 minutes', deep: '
 
 const adsDefaults = g => Object.fromEntries(adsSpecs(g).map(sp => [sp.key, sp.def]));
 const boostDefaults = g => g.boost && g.boost.setting ? { boost: g.boost.setting.def, boostRamp: g.boost.rampSetting.def } : { boost: undefined, boostRamp: undefined };
-const cfg = { game: 'arc', style: 'balanced', mode: 'verify', sens: GAMES.arc.sens.def, vsens: GAMES.arc.vsens.def, ads: adsDefaults(GAMES.arc), ...boostDefaults(GAMES.arc), curve: 'mid', dz: 0.10 };
+const cfg = { game: 'arc', style: 'balanced', mode: 'verify', sens: GAMES.arc.sens.def, vsens: GAMES.arc.vsens.def, ads: adsDefaults(GAMES.arc), ...boostDefaults(GAMES.arc), curve: 'mid', dz: 0.10, fov: GAMES.arc.fov.def };
 let screen = 'setup';  // setup | test | results
 let session = null;    // { segs, i, phase, countLeft, drift }
 let result = null;     // { cfg, stats, rec, drift, verify }
@@ -43,6 +44,9 @@ let prev = { fire: false, dl: false, du: false, dr: false };
 let lastT = 0, gpBlocked = false;
 
 const game = () => GAMES[cfg.game];
+// The range's horizontal FOV (16:9) for a game: the player's own setting when it's the game set up,
+// so turning moves the screen exactly as much as it does in their game.
+const hfovFor = id => { const F = GAMES[id].fov; return hfov169(id === cfg.game && !F.fixed ? cfg.fov : F.def, F.type); };
 const seg = () => session && session.segs[session.i];
 const settingsOf = c => ({ sens: c.sens, vsens: c.vsens, vmult: c.vmult ?? 1, curve: c.curve, dz: c.dz, outer: c.outer ?? 1, boost: c.boost, boostRamp: c.boostRamp });
 
@@ -870,10 +874,23 @@ function syncSetup() {
       ? `${g.vsens.min} to ${g.vsens.max}. Enter the value from your controller menu.`
       : `${g.vsens.min} to ${g.vsens.max}. Default is ${g.vsens.def}.`;
   }
+  const F = g.fov, ff = $('#fov-field');
+  ff.hidden = !!F.fixed;
+  if (!F.fixed) {
+    const fi = $('#fov');
+    $('#fov-label').textContent = F.label;
+    fi.min = F.min; fi.max = F.max; fi.step = F.step;
+    fi.value = cfg.fov;
+    const real = F.type === 'h169' ? '' : ` (${F.type === 'h43' ? 'a 4:3 scale' : 'vertical'}; the range converts it)`;
+    $('#fov-range').textContent = F.defKnown === false
+      ? `Enter the value from your video settings${real}. The range draws at it, so turns look the way they do in your game.`
+      : `${F.min} to ${F.max}. Default is ${F.def}${real}. The range draws at your FOV, so turns look the way they do in your game.`;
+  }
   renderAdsFields(g);
   $('#game').value = cfg.game;
   const notes = [];
   if (g.camera === 'third') notes.push('Third-person camera.');
+  if (g.fov.fixed) notes.push(g.fov.note);
   if (g.boost) notes.push('Includes look boost, which speeds up turning at full stick.');
   if (!g.ads) notes.push('ADS is tested at a zoom-matched speed and suggested as a relative change.');
   if (g.source === 'guides') notes.push('Menu names come from player guides and still need checking against the game.');
@@ -888,6 +905,7 @@ $('#game').addEventListener('change', e => {
   cfg.game = e.target.value;
   cfg.sens = game().sens.def;
   cfg.vsens = game().vsens ? game().vsens.def : undefined;
+  cfg.fov = game().fov.def;
   cfg.ads = adsDefaults(game());
   Object.assign(cfg, boostDefaults(game()));
   syncSetup();
@@ -903,6 +921,10 @@ function readSetup() {
     const vv = Number($('#vsens').value);
     cfg.vsens = clamp(Number.isFinite(vv) ? Math.round(vv) : g.vsens.def, g.vsens.min, g.vsens.max);
   }
+  if (!g.fov.fixed) {
+    const fv = Number($('#fov').value);
+    cfg.fov = clamp(Number.isFinite(fv) ? Math.round(fv) : g.fov.def, g.fov.min, g.fov.max);
+  } else cfg.fov = g.fov.def;
   cfg.vmult = 1;
   cfg.ads = adsDefaults(g);
   for (const sp of g.ads || []) {
@@ -1005,6 +1027,7 @@ function drawArena() {
   const s = seg(), P = session.phase;
   drawScene(c, {
     view, zoom: s.zoom || 1, phase: P, countLeft: session.countLeft, worldKey: 'range-' + cfg.game, gameId: cfg.game,
+    hfov: hfovFor(cfg.game),
     flick: P === 'run' && s.kind === 'flick' ? s.data : null,
     track: P === 'run' && s.kind === 'track' ? s.data : null,
     figure: s.kind !== 'drift',
@@ -1026,10 +1049,10 @@ const reducedMotion = () => !!(window.matchMedia && window.matchMedia('(prefers-
 function drawScene(c, sc) {
   const view = sc.view, P = sc.phase, now = performance.now(), calm = reducedMotion();
   const ctx = c.getContext('2d'), W = c.width, H = c.height, d = window.devicePixelRatio || 1;
-  const zoom = sc.zoom, fov = FOV / zoom;
-  const ppd = W / fov, cx = W / 2, cy = H / 2;
-  const cam = { yaw: view.yaw, pitch: view.pitch, ppd, cx, cy, W, H, d };
-  const toX = yaw => cx + (yaw - view.yaw) * ppd, toY = pitch => cy - (pitch - view.pitch) * ppd;
+  const zoom = sc.zoom;
+  const cam = makeCamera(view, W, H, sc.hfov, zoom);
+  cam.d = d;
+  const { cx, cy, ppd } = cam;
   const w = worldFor(sc.worldKey);
   paintSky(ctx, cam, w, now, calm);
   paintTerrain(ctx, cam, w);
@@ -1039,14 +1062,17 @@ function drawScene(c, sc) {
   const clipScope = () => { if (scopeR) { ctx.beginPath(); ctx.arc(cx, cy, scopeR, 0, Math.PI * 2); ctx.clip(); } };
   const arrows = [];
   const drawTarget = (t, r, opts) => {
-    const x = toX(t.yaw), y = toY(t.pitch), R = r * ppd;
-    const outside = scopeR ? Math.hypot(x - cx, y - cy) > scopeR + R : x < -R || x > W + R || y < -R || y > H + R;
+    const q = cam.project(t.yaw, t.pitch);
+    const R = q.z > 0.02 ? r * ppd / q.z : 0;
+    const { x, y } = q;
+    const outside = !R || (scopeR ? Math.hypot(x - cx, y - cy) > scopeR + R : x < -R || x > W + R || y < -R || y > H + R);
     if (outside) {
-      // Out of view: a chevron on the edge (or the scope's rim) with how far to turn.
-      const ang = Math.atan2(y - cy, x - cx);
-      const ex = scopeR ? cx + Math.cos(ang) * (scopeR - 18 * d) : clamp(x, 28 * d, W - 28 * d);
-      const ey = scopeR ? cy + Math.sin(ang) * (scopeR - 18 * d) : clamp(y, 28 * d, H - 28 * d);
-      arrows.push([ex, ey, ang, Math.hypot(t.yaw - view.yaw, t.pitch - view.pitch)]);
+      // Out of view (or behind): a chevron on the edge (or the scope's rim) pointing the way to turn,
+      // with how far. The camera-space direction works even for targets behind the player.
+      const ang = Math.atan2(-q.v, q.u || 1e-9);
+      const reach = scopeR ? scopeR - 18 * d
+        : Math.min((W / 2 - 28 * d) / Math.max(1e-6, Math.abs(Math.cos(ang))), (H / 2 - 28 * d) / Math.max(1e-6, Math.abs(Math.sin(ang))));
+      arrows.push([cx + Math.cos(ang) * reach, cy + Math.sin(ang) * reach, ang, Math.hypot(t.yaw - view.yaw, t.pitch - view.pitch)]);
       return;
     }
     ctx.save(); clipScope();
@@ -1059,10 +1085,10 @@ function drawScene(c, sc) {
   }
   if (running && sc.track) {
     const pts = trailPoint(w, sc.track.tgt);
-    ctx.save(); clipScope(); paintTrail(ctx, pts, toX, toY, sc.track.r * ppd, cam, sc.track.tgt.on); ctx.restore();
+    ctx.save(); clipScope(); paintTrail(ctx, pts, sc.track.r * ppd, cam, sc.track.tgt.on); ctx.restore();
     drawTarget(sc.track.tgt, sc.track.r, { kind: 'track', lit: sc.track.tgt.on });
   }
-  ctx.save(); clipScope(); paintFx(ctx, cam, w, now, toX, toY, calm); ctx.restore();
+  ctx.save(); clipScope(); paintFx(ctx, cam, w, now, calm); ctx.restore();
 
   // Third-person games: the character sits left of the crosshair and blocks part of the view.
   if (GAMES[sc.gameId].camera === 'third' && sc.figure && zoom === 1) paintFigure(ctx, cam, w);
@@ -1254,7 +1280,7 @@ function chalScene() {
   c.shown = (c.shown || 0) + (st.score - (c.shown || 0)) * Math.min(1, dt * 9);
   return {
     view: st.view, zoom: 1, phase: c.phase === 'run' ? 'run' : c.phase, countLeft: c.countLeft, figure: true,
-    worldKey: c.code, gameId: c.game,
+    worldKey: c.code, gameId: c.game, hfov: hfovFor(c.game),
     hud: { shown: c.shown, streak: st.streak, left: (st.ticks - st.tick) * DT, total: st.ticks * DT,
       label: c.duel ? `RUN ${c.duel.i + 1}/${DUEL.runs}` : null },
     flick: it.kind !== 'track' ? { cur: it.T, flash: c.flash } : null,

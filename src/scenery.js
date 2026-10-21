@@ -1,5 +1,6 @@
-// The aim range as a place: a dusk panorama generated from a seed, drawn in the same angular space the
-// sim uses (yaw/pitch in degrees, linear to pixels), so ridges, sun and stars stay put as the camera turns.
+// The aim range as a place: a dusk panorama generated from a seed, placed in the same angular space the
+// sim uses (yaw/pitch in degrees) and drawn through a perspective camera at the game's FOV (camera.js),
+// so ridges, sun and stars stay put as the view turns and the screen moves the way the game's does.
 // Pure drawing: nothing here affects scoring.
 import { mulberry32 } from './util.js';
 
@@ -42,28 +43,35 @@ function ridgeHeight(R, yaw) {
   return R.base + R.amp * (h / wsum);
 }
 
-// cam = { yaw, pitch, ppd, cx, cy, W, H, d }
+// A world direction on screen, or null when it is behind (or nearly behind) the camera.
+const onScreen = (cam, yaw, pitch) => { const q = cam.project(yaw, pitch); return q.z > 0.02 ? q : null; };
+const horizonY = cam => cam.cy + cam.f * Math.tan(cam.pitch * Math.PI / 180);
+
+// cam = makeCamera(...) plus d (device pixel ratio)
 export function paintSky(ctx, cam, world, now, still) {
-  const { W, H, d, ppd, cx, cy } = cam, p = world.pal;
-  const yH = cy + cam.pitch * ppd; // horizon on screen
+  const { W, H, d, ppd } = cam, p = world.pal;
+  const yH = horizonY(cam);
   ctx.fillStyle = p.top; ctx.fillRect(0, 0, W, H);
-  const g = ctx.createLinearGradient(0, yH - 60 * ppd, 0, yH);
+  const yTop = yH - 60 * ppd;
+  const g = ctx.createLinearGradient(0, yTop, 0, yH);
   g.addColorStop(0, p.top); g.addColorStop(0.45, p.mid); g.addColorStop(0.82, p.low); g.addColorStop(1, p.horizon);
-  ctx.fillStyle = g; ctx.fillRect(0, Math.min(yH - 60 * ppd, 0), W, Math.max(0, yH - Math.min(yH - 60 * ppd, 0)));
+  ctx.fillStyle = g; ctx.fillRect(0, Math.min(yTop, 0), W, Math.max(0, yH - Math.min(yTop, 0)));
 
   // stars, fading out toward the horizon glow
   for (const s of world.stars) {
-    const x = cx + wrap(s.yaw - cam.yaw) * ppd, y = cy - (s.pitch - cam.pitch) * ppd;
-    if (x < -4 || x > W + 4 || y < -4 || y > yH) continue;
+    const q = onScreen(cam, s.yaw, s.pitch);
+    if (!q || q.x < -4 || q.x > W + 4 || q.y < -4 || q.y > yH) continue;
     const tw = still ? 0.8 : 0.6 + 0.4 * Math.sin(now * 0.0015 + s.tw);
     ctx.globalAlpha = tw * Math.min(1, (s.pitch - 8) / 22);
     ctx.fillStyle = p.star;
-    ctx.beginPath(); ctx.arc(x, y, s.r * d, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(q.x, q.y, s.r * d, 0, Math.PI * 2); ctx.fill();
   }
   ctx.globalAlpha = 1;
 
   // sun and its glow along the horizon
-  const sx = cx + wrap(world.sunYaw - cam.yaw) * ppd, sy = cy - (world.sunPitch - cam.pitch) * ppd;
+  const sun = onScreen(cam, world.sunYaw, world.sunPitch);
+  if (!sun) return;
+  const { x: sx, y: sy } = sun;
   const halo = ctx.createRadialGradient(sx, sy, 0, sx, sy, 34 * ppd);
   halo.addColorStop(0, hexA(p.glow, 0.55)); halo.addColorStop(0.25, hexA(p.horizon, 0.22)); halo.addColorStop(1, hexA(p.horizon, 0));
   ctx.fillStyle = halo; ctx.fillRect(0, 0, W, H);
@@ -72,18 +80,33 @@ export function paintSky(ctx, cam, world, now, still) {
   ctx.fillStyle = disk; ctx.beginPath(); ctx.arc(sx, sy, 2.4 * ppd, 0, Math.PI * 2); ctx.fill();
 }
 
+// Points along a curve of world directions, broken where it passes behind the camera.
+function strokePath(ctx, cam, dirs) {
+  let pen = false;
+  ctx.beginPath();
+  for (const [yaw, pitch] of dirs) {
+    const q = onScreen(cam, yaw, pitch);
+    if (!q) { pen = false; continue; }
+    if (pen) ctx.lineTo(q.x, q.y); else { ctx.moveTo(q.x, q.y); pen = true; }
+  }
+  ctx.stroke();
+}
+
 export function paintTerrain(ctx, cam, world) {
-  const { W, H, d, ppd, cx, cy } = cam, p = world.pal;
-  const yH = cy + cam.pitch * ppd;
-  const step = Math.max(3, 6 * d);
+  const { W, H, d, ppd, fov } = cam, p = world.pal;
+  const yH = horizonY(cam);
+  // Ridges are sampled in yaw across the view (plus a margin) and projected, so they bend correctly at
+  // wide FOVs instead of sliding across the screen like a flat backdrop.
+  const span = Math.min(89, fov / 2 + 8), n = Math.max(40, Math.round(W / Math.max(3, 6 * d)));
   world.ridges.forEach((R, i) => {
     ctx.beginPath();
-    ctx.moveTo(0, H + 2);
-    for (let x = 0; x <= W + step; x += step) {
-      const yaw = cam.yaw + (x - cx) / ppd;
-      ctx.lineTo(x, yH - ridgeHeight(R, yaw) * ppd);
+    ctx.moveTo(-2, H + 2);
+    for (let k = 0; k <= n; k++) {
+      const yaw = cam.yaw - span + (2 * span * k) / n;
+      const q = onScreen(cam, yaw, ridgeHeight(R, yaw));
+      if (q) ctx.lineTo(q.x, q.y);
     }
-    ctx.lineTo(W, H + 2); ctx.closePath();
+    ctx.lineTo(W + 2, H + 2); ctx.closePath();
     ctx.fillStyle = p.ridges[i]; ctx.fill();
     if (i === 0) { ctx.strokeStyle = hexA(p.glow, 0.35); ctx.lineWidth = 1.2 * d; ctx.stroke(); }
   });
@@ -93,33 +116,34 @@ export function paintTerrain(ctx, cam, world) {
   fog.addColorStop(0, 'rgba(0,0,0,0)'); fog.addColorStop(0.6, p.fog); fog.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = fog; ctx.fillRect(0, yH - 4 * ppd, W, 7 * ppd);
 
-  // the range floor: a survey grid fixed to the ground, denser toward the horizon
+  // The range floor: a survey grid lying on the ground. Rings at a fixed distance and spokes every
+  // 10 degrees of heading, both drawn in perspective so the spokes converge below the player.
   if (yH < H) {
     const gg = ctx.createLinearGradient(0, yH, 0, H);
     gg.addColorStop(0, hexA(p.ridges[2], 0.0)); gg.addColorStop(0.15, hexA(p.ground, 0.85)); gg.addColorStop(1, p.ground);
     ctx.fillStyle = gg; ctx.fillRect(0, yH, W, H - yH);
     ctx.lineWidth = d;
+    const steps = Array.from({ length: 41 }, (_, k) => cam.yaw - span + (2 * span * k) / 40);
     for (const dep of [1.2, 2.5, 4.5, 7.5, 11.5, 17, 24, 33, 45]) {
-      const y = yH + dep * ppd;
-      if (y > H) break;
       ctx.strokeStyle = hexA(p.glow, Math.min(0.22, 0.05 + dep * 0.006));
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+      strokePath(ctx, cam, steps.map(yaw => [yaw, -dep]));
     }
-    const first = Math.ceil((cam.yaw - W / 2 / ppd) / 10) * 10;
-    for (let a = first; a <= cam.yaw + W / 2 / ppd; a += 10) {
-      const x = cx + (a - cam.yaw) * ppd;
+    const first = Math.ceil((cam.yaw - span) / 10) * 10;
+    for (let a = first; a <= cam.yaw + span; a += 10) {
       const lg = ctx.createLinearGradient(0, yH, 0, H);
       lg.addColorStop(0, hexA(p.glow, 0)); lg.addColorStop(1, hexA(p.glow, 0.14));
       ctx.strokeStyle = lg;
-      ctx.beginPath(); ctx.moveTo(x, yH + 1.2 * ppd); ctx.lineTo(x, H); ctx.stroke();
+      strokePath(ctx, cam, [1.2, 6, 15, 30, 50, 70, 85].map(dep => [a, -dep]));
     }
   }
 }
 
 // Compass tape along the top edge: real heading, north at yaw 0.
 export function paintCompass(ctx, cam, world) {
-  const { W, d, ppd, cx } = cam;
-  const y = 30 * d, half = Math.min(W * 0.32, 60 * ppd);
+  const { W, d, f, cx } = cam;
+  const y = 30 * d, half = Math.min(W * 0.32, f * Math.tan(60 * Math.PI / 180));
+  const reach = Math.atan(half / f) * 180 / Math.PI; // degrees either side shown on the tape
+  const xAt = a => cx + f * Math.tan((a - cam.yaw) * Math.PI / 180);
   ctx.save();
   const fade = ctx.createLinearGradient(cx - half, 0, cx + half, 0);
   fade.addColorStop(0, 'rgba(244,241,232,0)'); fade.addColorStop(0.2, 'rgba(244,241,232,0.65)');
@@ -127,9 +151,9 @@ export function paintCompass(ctx, cam, world) {
   ctx.strokeStyle = fade; ctx.fillStyle = fade; ctx.lineWidth = d;
   ctx.font = `600 ${10 * d}px 'Martian Mono', monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
   const names = { 0: 'N', 45: 'NE', 90: 'E', 135: 'SE', 180: 'S', 225: 'SW', 270: 'W', 315: 'NW' };
-  const from = Math.ceil((cam.yaw - half / ppd) / 5) * 5;
-  for (let a = from; a <= cam.yaw + half / ppd; a += 5) {
-    const x = cx + (a - cam.yaw) * ppd, hd = ((a % 360) + 360) % 360;
+  const from = Math.ceil((cam.yaw - reach) / 5) * 5;
+  for (let a = from; a <= cam.yaw + reach; a += 5) {
+    const x = xAt(a), hd = ((a % 360) + 360) % 360;
     const big = hd % 45 === 0;
     ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + (big ? 8 : 4) * d); ctx.stroke();
     if (big) ctx.fillText(names[hd], x, y - 3 * d);
@@ -194,13 +218,15 @@ export function trailPoint(world, tgt) {
   if (pts.length > 26) pts.shift();
   return pts;
 }
-export function paintTrail(ctx, pts, toX, toY, R, cam, lit) {
+export function paintTrail(ctx, pts, R, cam, lit) {
   if (pts.length < 2) return;
   const col = lit ? '#6FE0A6' : '#FF6A3D';
   for (let i = 1; i < pts.length; i++) {
     const t = i / pts.length;
+    const a = onScreen(cam, pts[i - 1].yaw, pts[i - 1].pitch), b = onScreen(cam, pts[i].yaw, pts[i].pitch);
+    if (!a || !b) continue;
     ctx.strokeStyle = hexA(col, 0.5 * t); ctx.lineWidth = R * 0.9 * t; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(toX(pts[i - 1].yaw), toY(pts[i - 1].pitch)); ctx.lineTo(toX(pts[i].yaw), toY(pts[i].pitch)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
   }
   ctx.lineCap = 'butt';
 }
@@ -217,7 +243,7 @@ export function noteFlash(world, flash, now) {
   }
   world.fx.push({ kind: 'ring', yaw: flash.yaw, pitch: flash.pitch, born: now, life: flash.good ? 520 : 300, good: flash.good });
 }
-export function paintFx(ctx, cam, world, now, toX, toY, still) {
+export function paintFx(ctx, cam, world, now, still) {
   const { d, ppd } = cam;
   world.fx = world.fx.filter(f => now - f.born < f.life);
   for (const f of world.fx) {
@@ -225,10 +251,14 @@ export function paintFx(ctx, cam, world, now, toX, toY, still) {
     if (f.kind === 'ring') {
       ctx.strokeStyle = f.good ? hexA('#FFE7B0', 0.9 * (1 - t)) : hexA('#F4F1E8', 0.6 * (1 - t));
       ctx.lineWidth = (f.good ? 3 : 1.5) * d * (1 - t) + d;
-      ctx.beginPath(); ctx.arc(toX(f.yaw), toY(f.pitch), (f.good ? 1.5 + t * 5 : 0.6 + t * 1.6) * ppd, 0, Math.PI * 2); ctx.stroke();
+      const q = onScreen(cam, f.yaw, f.pitch);
+      if (!q) continue;
+      ctx.beginPath(); ctx.arc(q.x, q.y, (f.good ? 1.5 + t * 5 : 0.6 + t * 1.6) * ppd / q.z, 0, Math.PI * 2); ctx.stroke();
     } else {
       const k = still ? 0 : s;
-      const x = toX(f.yaw + f.vy * k), y = toY(f.pitch + f.vp * k - (still ? 0 : 6 * k * k));
+      const q = onScreen(cam, f.yaw + f.vy * k, f.pitch + f.vp * k - (still ? 0 : 6 * k * k));
+      if (!q) continue;
+      const { x, y } = q;
       ctx.fillStyle = f.good ? hexA(t < 0.4 ? '#FFF1D0' : '#FFB547', 1 - t) : hexA('#93A7AC', 0.7 * (1 - t));
       ctx.beginPath(); ctx.arc(x, y, (f.good ? 2.4 : 1.6) * d * (1 - t * 0.6), 0, Math.PI * 2); ctx.fill();
     }
