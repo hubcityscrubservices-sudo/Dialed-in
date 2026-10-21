@@ -1,5 +1,5 @@
 import { GAMES, PLAYSTYLES } from './games.js';
-import { clamp, mean, std, pct } from './util.js';
+import { clamp, mean, std, pct, settingValues } from './util.js';
 
 const MIN_WE = 0.5; // degrees; keeps a perfect run from dividing by zero
 
@@ -58,7 +58,7 @@ export function recommend(s, c, drift) {
   if (adj !== 0) {
     const target = g.sens.rate(c.sens) * clamp(1 + adj, 0.7, 1.35);
     let err = Infinity;
-    for (let v = g.sens.min; v <= g.sens.max; v += g.sens.step) {
+    for (const v of settingValues(g.sens)) {
       const e = Math.abs(g.sens.rate(v) - target);
       if (e < err) { err = e; sens = v; }
     }
@@ -131,7 +131,7 @@ export function recommendVertical(flicks, c, hSens) {
   if (!g.vsens) return { vmult: (c.vmult ?? 1) * factor, vMeasured: measured, vWhy: why };
   const target = g.vsens.rate(c.vsens) * factor;
   let vsens = c.vsens, err = Infinity;
-  for (let x = g.vsens.min; x <= g.vsens.max; x += g.vsens.step) {
+  for (const x of settingValues(g.vsens)) {
     const e = Math.abs(g.vsens.rate(x) - target);
     if (e < err) { err = e; vsens = x; }
   }

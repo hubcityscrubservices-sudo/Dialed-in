@@ -59,6 +59,26 @@ trigger deadzone, so those rows don't appear for it. The range models a third-pe
 Boost (+55% turn speed at full stick, ramping up over 1.6 s, an assumption about what 55 means) and
 Sinusoidal as an S-curve. A game can give each curve slot its own shape (`curve.fn`).
 
+## Mouse mode
+
+Pick Mouse under "Aiming with". The range captures the pointer with raw input (Pointer Lock with
+`unadjustedMovement`, in Chrome and Edge), so Windows pointer speed and acceleration don't apply, just as in
+games with raw input. A mouse turns the camera by a fixed angle per count, so a mouse profile's turn
+"rate" is degrees per count, and the same Quick, Verify and Deep code tunes it (every comparison is a ratio
+of rates). The turn drill, ADS rounds and curve/vertical screening are controller-only.
+
+- **Conversions.** Counter-Strike 2 and Apex (0.022 degrees per count at sensitivity 1), Valorant (0.07),
+  Overwatch 2 and Call of Duty (0.0066) use the published figures. ARC Raiders, Fortnite and "another game"
+  take your cm per full turn at your current sensitivity (measure once in the game with a ruler, or take it
+  from a sensitivity calculator) and scale from there.
+- **Mouse check.** Three swipes across a bank card (8.56 cm): the real DPI as the browser sees it (a wrong DPI
+  in setup, or the browser's display-scale shrink, is caught and corrected), pointer acceleration when raw
+  input isn't available (a fast swipe travels further than slow ones), and the report rate from coalesced
+  pointer events.
+- **Results** give the sensitivity in the game's own units with cm/360 beside it.
+- **Challenge.** Mouse runs record raw counts per tick and replay exactly, but mouse scores stay in the
+  browser until a separate mouse board exists (the server refuses them for now).
+
 ## Field of view
 
 The range draws through a true perspective camera at the FOV you enter (src/camera.js), so a turn moves

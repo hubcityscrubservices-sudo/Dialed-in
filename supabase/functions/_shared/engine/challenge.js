@@ -76,12 +76,14 @@ export function hitPoints(T, streak) {
   return CH.hitBase * id * speed * mult;
 }
 
-// One tick. rx, ry are quantized stick values (-1000..1000); fire is the fire button held.
+// One tick. rx, ry are quantized stick values (-1000..1000), or mouse counts for a mouse game; fire is held.
 export function step(st, rx, ry, fire) {
   if (st.done) return;
   const fireEdge = fire && !st.prevFire;
   st.prevFire = fire;
-  const s = steer(st.view, { rx: rx / 1000, ry: ry / 1000 }, st.settings, GAMES[st.gameId], DT);
+  // A mouse run records raw counts per tick in the same two slots a stick run uses for its axes.
+  const g = GAMES[st.gameId];
+  const s = steer(st.view, g.device === 'mouse' ? { mx: rx, my: ry } : { rx: rx / 1000, ry: ry / 1000 }, st.settings, g, DT);
   const it = st.item;
   if (it.kind === 'track') {
     trackStep(it.TR, st.view, s.vy, DT, st.rng);

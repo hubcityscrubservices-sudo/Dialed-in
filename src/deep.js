@@ -1,6 +1,6 @@
 import { flickThroughput, trackError, isVertical } from './analysis.js';
 import { verifyCompare, sideOf } from './verify.js';
-import { clamp, mean, resample, quantile } from './util.js';
+import { clamp, mean, resample, quantile, settingValues } from './util.js';
 
 // Deep mode, sensitivity only. Each round plays at a hidden speed x = log2(turn rate / current turn rate).
 // Score per round is fit with  score = a + b·x + c·x² + d·t  (t = round order, to absorb warm-up),
@@ -26,7 +26,7 @@ export function shuffled(xs, rng = Math.random) {
 export function snap(x, game, cur) {
   const g = game.sens, base = g.rate(cur), target = base * 2 ** x;
   let best = cur, err = Infinity;
-  for (let v = g.min; v <= g.max; v += g.step) {
+  for (const v of settingValues(g)) {
     const e = Math.abs(Math.log2(g.rate(v) / target));
     if (e < err) { err = e; best = v; }
   }

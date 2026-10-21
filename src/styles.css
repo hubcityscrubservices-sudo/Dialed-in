@@ -173,7 +173,8 @@ fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 10px; min-width
 .eyebrow.current { color: var(--muted); margin-bottom: -10px; }
 
 .styles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-@media (max-width: 660px) { .styles { grid-template-columns: minmax(0, 1fr); } }
+.styles.devices { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 660px) { .styles, .styles.devices { grid-template-columns: minmax(0, 1fr); } }
 .style-opt {
   position: relative; display: grid; align-content: start; gap: 4px; padding: 16px; min-height: 56px; cursor: pointer;
   background: rgba(8, 16, 23, 0.5); border: 1px solid var(--line);

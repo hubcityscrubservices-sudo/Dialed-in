@@ -41,3 +41,11 @@ export function quantile(sorted, q) {
   const lo = Math.floor(i), hi = Math.ceil(i);
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo);
 }
+
+// Every value a menu setting can take ({ min, max, step }), rounded to the step so fractional
+// steps (0.01, 0.001) don't pick up floating-point dust.
+export function* settingValues(sp) {
+  const dec = (String(sp.step).split('.')[1] || '').length;
+  const n = Math.round((sp.max - sp.min) / sp.step);
+  for (let i = 0; i <= n; i++) yield +(sp.min + i * sp.step).toFixed(dec);
+}

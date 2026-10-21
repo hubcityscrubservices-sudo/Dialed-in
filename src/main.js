@@ -13,6 +13,7 @@ import { reportCard } from './report.js';
 import { makeWorld, paintSky, paintTerrain, paintCompass, paintDrone, paintOffscreen, trailPoint, paintTrail,
   noteFlash, paintFx, paintCrosshair, paintFigure, paintLens, paintCountdown } from './scenery.js';
 import { DUEL, duelPlan, duelCompare } from './duel.js';
+import { createMouse, CARD_CM, SWIPES, MIN_SWIPE, analyzeSwipes, resolveDpi, pollingHz, calibrationK, cm360 } from './mouse.js';
 import { boardsOn, submitScore, fetchBoard, playerId, savedName, saveName } from './leaderboard.js';
 
 const $ = s => document.querySelector(s);
@@ -34,7 +35,7 @@ const MODE_HINT = { quick: 'About 3 minutes', verify: 'About 5 minutes', deep: '
 
 const adsDefaults = g => Object.fromEntries(adsSpecs(g).map(sp => [sp.key, sp.def]));
 const boostDefaults = g => g.boost && g.boost.setting ? { boost: g.boost.setting.def, boostRamp: g.boost.rampSetting.def } : { boost: undefined, boostRamp: undefined };
-const cfg = { game: 'arc', style: 'balanced', mode: 'verify', sens: GAMES.arc.sens.def, vsens: GAMES.arc.vsens.def, ads: adsDefaults(GAMES.arc), ...boostDefaults(GAMES.arc), curve: 'mid', dz: 0.10, fov: GAMES.arc.fov.def };
+const cfg = { game: 'arc', style: 'balanced', mode: 'verify', sens: GAMES.arc.sens.def, vsens: GAMES.arc.vsens.def, ads: adsDefaults(GAMES.arc), ...boostDefaults(GAMES.arc), curve: 'mid', dz: 0.10, fov: GAMES.arc.fov.def, device: 'pad', dpi: 800, cm0: 30 };
 let screen = 'setup';  // setup | test | results
 let session = null;    // { segs, i, phase, countLeft, drift }
 let result = null;     // { cfg, stats, rec, drift, verify }
@@ -44,6 +45,7 @@ let prev = { fire: false, dl: false, du: false, dr: false };
 let lastT = 0, gpBlocked = false;
 
 const game = () => GAMES[cfg.game];
+const isMouse = () => cfg.device === 'mouse';
 // The range's horizontal FOV (16:9) for a game: the player's own setting when it's the game set up,
 // so turning moves the screen exactly as much as it does in their game.
 const hfovFor = id => { const F = GAMES[id].fov; return hfov169(id === cfg.game && !F.fixed ? cfg.fov : F.def, F.type); };
@@ -60,6 +62,16 @@ const STICK_PART_TEXT = {
   squeeze: 'Squeeze both triggers all the way, slowly, then let go.'
 };
 
+const MOUSE_CHECK = { kind: 'mcheck', rail: 'drift', intro: true, title: 'Mouse check',
+  text: `Three swipes across a bank card, about 20 seconds. This measures your mouse's real DPI, whether pointer acceleration is on, and its report rate. Have a card (or anything 8.56 cm long) on your mouse pad.` };
+const SWIPE_TEXT = {
+  slow: 'Line the left edge of your mouse up with the left end of the card. Hold the left button, slide slowly until the mouse edge reaches the right end, then let go.',
+  fast: 'Same again, but quick: one fast slide across the card, then let go.'
+};
+const checkStep = () => isMouse() ? MOUSE_CHECK : STICK_CHECK;
+// Words for the current device in test briefs.
+const aimWith = () => isMouse() ? 'with the mouse and click to fire' : 'with the right stick and fire with RT / R2';
+
 // The look and outer deadzones the range should use once the stick check has run.
 const checkedDz = () => session.drift ? session.drift.rec : cfg.dz;
 const outerFor = check => check && check.reachR && extraSetting(game(), 'outer') ? outerFromReach(check.reachR.minReach) : 1;
@@ -68,17 +80,19 @@ const checkedOuter = () => outerFor(session.drift);
 function quickSegments() {
   const s = settingsOf(cfg);
   return [
-    STICK_CHECK,
+    checkStep(),
     { kind: 'flick', rail: 'flick', tag: 'quick', n: QUICK.flicks, warm: 0, settings: s, intro: true, title: 'Flick test',
-      text: 'Twelve targets appear one at a time, some above or below you. Snap to each with the right stick and fire with RT / R2. Go at the speed you would in a real fight.' },
+      text: `Twelve targets appear one at a time, some above or below you. Snap to each ${aimWith()}. Go at the speed you would in a real fight.` },
     { kind: 'track', rail: 'track', tag: 'quick', dur: QUICK.trackSeconds, warm: 0, settings: s, intro: true, title: 'Tracking test',
       text: 'Keep the crosshair on the strafing target for 15 seconds. No need to fire.' },
-    turnSegment(),
+    ...turnSegments(),
     ...adsSegments(),
     { kind: 'analyze' }
   ];
 }
 
+// A mouse has no look boost, so the drill is controller-only.
+const turnSegments = () => isMouse() ? [] : [turnSegment()];
 // Big turns at full stick, alternating sides, to tune look boost and its ramp-up.
 function turnSegment() {
   return { kind: 'flick', turn: true, rail: 'turn', tag: 'turn', n: TURNS, warm: 0, settings: settingsOf(cfg), intro: true,
@@ -139,7 +153,7 @@ function verifySegments(A, B) {
 
 function deepSegments() {
   return [
-    STICK_CHECK,
+    checkStep(),
     { kind: 'deepNext' }
   ];
 }
@@ -157,7 +171,8 @@ function deepStep() {
   if (!next) {
     D.res = deepAnalyze(D.history, PLAYSTYLES[cfg.style], game(), cfg.sens);
     const best = D.res && D.res.verdict !== 'flat' ? D.res.best.sens : cfg.sens;
-    session.segs.push(...screenSegments(D, best), turnSegment(), ...adsSegments(), { kind: 'deepDone' });
+    // Curve and vertical speed screening is about stick shaping; a mouse skips it.
+    session.segs.push(...(isMouse() ? [] : screenSegments(D, best)), ...turnSegments(), ...adsSegments(), { kind: 'deepDone' });
     return advance();
   }
   const k = D.history.length + 1;
@@ -278,12 +293,12 @@ function deepDone() {
     rec.sensWhy = deepWhy(res, c);
   }
   // Every round scales vertical with horizontal, so the up/down vs side-to-side comparison holds across all of them.
-  Object.assign(rec, recommendVertical(D.history.flatMap(h => h.flicks), c, rec.sens));
+  Object.assign(rec, verticalRec(D.history.flatMap(h => h.flicks), c, rec.sens));
   applyScreen(rec, c, D);
   rec.ads = adsRecs(c, rec.sens);
   rec.turn = turnRec(c);
   rec.boost = c.boost; rec.boostRamp = c.boostRamp;
-  result = { cfg: c, stats, rec, drift: session.drift, verify: null, segs: session.segs, pad: inp.name,
+  result = { cfg: c, stats, rec, drift: session.drift, mouse: session.mouse, verify: null, segs: session.segs, pad: inp.name,
     deep: { res, rounds: D.history.map(h => ({ sens: h.sens, rating: h.rating })), screen: rec.screen } };
   session = null;
   show('results');
@@ -307,7 +322,8 @@ function deepWhy(res, c) {
 
 function start(segs, drift, deep = null) {
   segs = segs.map(x => ({ ...x }));
-  session = { segs, i: 0, phase: 'intro', countLeft: 0, drift, deep };
+  session = { segs, i: 0, phase: 'intro', countLeft: 0, drift, deep, mouse: result ? result.mouse : mouseCheck };
+  calibrate();
   enter();
 }
 function enter() {
@@ -318,7 +334,7 @@ function enter() {
   if (s.kind === 'deepDone') return deepDone();
   resetView();
   s.data = null;
-  if (s.kind === 'rate') session.phase = 'rate';
+  if (s.kind === 'rate') { session.phase = 'rate'; mouse.unlock(); } // the rating buttons need the cursor
   else if (s.intro || s.kind === 'drift') session.phase = 'intro';
   else { session.phase = 'count'; session.countLeft = 2; }
   show('test');
@@ -329,6 +345,7 @@ function resetView() { view.yaw = 0; view.pitch = 0; view.boostT = 0; }
 function begin() {
   const s = seg();
   if (s.kind === 'drift' && inp.src !== 'pad') return;
+  if (isMouse()) mouse.lock();
   session.phase = 'count';
   session.countLeft = s.kind === 'drift' ? 1.5 : 3;
   resetView();
@@ -336,6 +353,7 @@ function begin() {
 }
 function startRun(s) {
   session.phase = 'run';
+  if (s.kind === 'mcheck') { mouse.takeSwipes(); mouse.takeGaps(); s.data = { swipes: [], gaps: [], short: 0 }; }
   if (s.kind === 'drift') s.data = { part: 'rest', t: 0, r: 0, l: 0, lt: 0, rt: 0, warn: 0, reachR: emptyReach(), reachL: emptyReach(), maxLt: 0, maxRt: 0, lDown: false, rDown: false };
   if (s.kind === 'flick') s.data = { list: [], cur: s.turn ? newTurnTarget(view, Math.random, 1) : newFlickTarget(view, Math.random, verticalSlot(0), 1 / (s.zoom || 1)), flash: null };
   if (s.kind === 'track') s.data = makeTrack(s.warm, 1 / (s.zoom || 1));
@@ -343,6 +361,7 @@ function startRun(s) {
 }
 function stop() {
   session = null;
+  mouse.unlock();
   show(result ? 'results' : 'setup');
 }
 
@@ -353,18 +372,23 @@ function withHardware(rec, check) {
   return rec;
 }
 
+// Mouse games turn the same on both axes and mostly have no separate vertical setting.
+function verticalRec(flicks, c, hSens) {
+  return GAMES[c.game].device === 'mouse' ? { vmult: 1, vWhy: '' } : recommendVertical(flicks, c, hSens);
+}
+
 function analyze() {
   const fl = session.segs.find(x => x.kind === 'flick' && x.tag === 'quick').data.list;
   const tr = session.segs.find(x => x.kind === 'track' && x.tag === 'quick').data;
   const c = { ...cfg };
   const stats = summarize(fl, tr);
   const rec = withHardware(recommend(stats, c, session.drift), session.drift);
-  Object.assign(rec, recommendVertical(fl, c, rec.sens));
+  Object.assign(rec, verticalRec(fl, c, rec.sens));
   rec.ads = adsRecs(c, rec.sens);
   rec.turn = turnRec(c);
   // Verify compares the other settings; look boost stays at the player's values on both sides.
   rec.boost = c.boost; rec.boostRamp = c.boostRamp;
-  result = { cfg: c, stats, rec, drift: session.drift, verify: null, segs: session.segs, pad: inp.name };
+  result = { cfg: c, stats, rec, drift: session.drift, mouse: session.mouse, verify: null, segs: session.segs, pad: inp.name };
   if (c.mode === 'verify' && settingsChanged(c, rec)) {
     session.segs.push(...verifySegments(c, rec));
     return advance();
@@ -398,9 +422,14 @@ function verdict() {
 
 /* ---------- per-frame updates ---------- */
 
+// The range pauses while a mouse test has lost the pointer (Esc, alt-tab); a click picks it back up.
+const mousePaused = phase => isMouse() && !mouse.locked && (phase === 'count' || phase === 'run');
+
 function tick(dt, edge) {
   const s = seg(), P = session.phase;
-  if (P === 'intro') { if (edge.fire) begin(); return; }
+  // With the mouse captured there's no cursor for the Start button, so a click starts instead.
+  if (P === 'intro') { if (edge.fire && (!isMouse() || mouse.locked)) begin(); return; }
+  if (mousePaused(P)) return;
   if (P === 'rate') {
     const r = RATINGS.find(x => edge[x.key]);
     if (r) rate(r.v);
@@ -412,6 +441,7 @@ function tick(dt, edge) {
     return;
   }
   if (s.kind === 'drift') tickDrift(s, dt);
+  else if (s.kind === 'mcheck') tickMouseCheck(s);
   else if (s.kind === 'flick') tickFlick(s, dt, edge.fire);
   else if (s.kind === 'track') tickTrack(s, dt);
 }
@@ -456,6 +486,25 @@ function nextStickPart(D) {
   renderBrief(true);
 }
 
+// Card swipes: one per SWIPES entry. A release after a short drag is a slip and is ignored.
+function tickMouseCheck(s) {
+  const D = s.data;
+  for (const sw of mouse.takeSwipes()) {
+    if (Math.hypot(sw.dx, sw.dy) < MIN_SWIPE) { D.short++; continue; }
+    D.swipes.push(sw);
+  }
+  D.gaps.push(...mouse.takeGaps());
+  if (D.swipes.length >= SWIPES.length) finishMouseCheck(D);
+  else renderBrief();
+}
+function finishMouseCheck(D) {
+  const sw = D.swipes.length >= SWIPES.length ? analyzeSwipes(D.swipes, mouse.raw) : null;
+  mouseCheck = { cpcm: sw && sw.cpcm, accel: sw && sw.accel, spread: sw && sw.spread, raw: mouse.raw, hz: pollingHz(D.gaps) };
+  session.mouse = mouseCheck;
+  calibrate();
+  advance();
+}
+
 function tickFlick(s, dt, fireEdge) {
   const F = s.data;
   const st = steer(view, inp, s.settings, game(), dt);
@@ -481,6 +530,7 @@ function tickTrack(s, dt) {
 
 function show(name) {
   const changed = name !== screen;
+  if (name !== 'test') mouse.unlock();
   screen = name;
   $('#p-setup').hidden = name !== 'setup';
   $('#p-warm').hidden = name !== 'setup';
@@ -527,12 +577,16 @@ function renderBrief(force) {
   const s = seg();
   if (!s) return;
   const noPad = inp.src !== 'pad';
-  const key = session.i + session.phase + noPad + (s.data && s.data.part || '');
+  const key = session.i + session.phase + noPad + (s.data && s.data.part || '') + (s.data && s.data.swipes ? s.data.swipes.length + '/' + s.data.short : '') + mouse.locked;
   if (key === briefKey && !force) return;
   briefKey = key;
   const P = session.phase;
   $('#brief-title').textContent = s.title;
   let text = s.text;
+  if (s.kind === 'mcheck' && P === 'run') {
+    const k = s.data.swipes.length;
+    text = `Swipe ${k + 1} of ${SWIPES.length}, ${SWIPES[k]}. ${SWIPE_TEXT[SWIPES[k]]}${s.data.short ? ' (That last one was too short to be a card length, so it was skipped.)' : ''}`;
+  }
   if (s.kind === 'drift' && noPad && P === 'intro') text = 'No controller found, so there is nothing to measure. Press a button on your controller to wake it, or skip this check.';
   if (P === 'count') text = 'Get ready.';
   if (P === 'run' && s.kind === 'drift') text = STICK_PART_TEXT[s.data.part];
@@ -542,9 +596,11 @@ function renderBrief(force) {
   act.textContent = '';
   if (P === 'intro') {
     const blocked = s.kind === 'drift' && noPad;
-    if (!blocked) act.append(button(s.kind === 'drift' ? 'Start stick check' : 'Start', 'primary', begin));
+    if (!blocked) act.append(button(s.kind === 'drift' ? 'Start stick check' : s.kind === 'mcheck' ? 'Start mouse check' : 'Start', 'primary', begin));
     if (s.kind === 'drift') act.append(button('Skip', '', () => { session.drift = null; advance(); }));
-    if (!noPad && !blocked) act.append(hint('or press A / ✕'));
+    if (s.kind === 'mcheck') act.append(button('Skip, use the DPI I entered', '', () => advance()));
+    if (isMouse() && !blocked) act.append(hint(mouse.locked ? 'Click to start. Esc lets the mouse go.' : 'The range captures your mouse. Esc lets it go.'));
+    else if (!noPad && !blocked) act.append(hint('or press A / ✕'));
   } else if (P === 'rate') {
     const row = document.createElement('div');
     row.className = 'rate';
@@ -557,6 +613,8 @@ function renderBrief(force) {
     act.append(row);
   } else {
     if (P === 'run' && s.kind === 'drift' && s.data.part !== 'rest') act.append(button('Skip this part', 'small', () => nextStickPart(s.data)));
+    if (mousePaused(P)) act.append(button('Resume', 'primary', () => mouse.lock()));
+    if (P === 'run' && s.kind === 'mcheck') act.append(button('Skip the rest', 'small', () => finishMouseCheck(s.data)));
     act.append(button('Stop', 'small', stop));
   }
 }
@@ -712,9 +770,30 @@ function turnRows(g, c, t) {
     row(rs.label, c.boostRamp.toFixed(1) + ' s', t.ramp.toFixed(1) + ' s', tagOf(t.ramp, c.boostRamp), sooner ? t.why : 'The drill found no reason to change it.');
 }
 
+// What the mouse check found, as information rows under the sensitivity.
+function mouseRows(m, dpi, c) {
+  const info = (title, val, tg, why) => `<div class="rec"><h3>${title}${tg}</h3><div class="val"><b>${val}</b></div><p>${why}</p></div>`;
+  const out = [];
+  if (dpi.verdict === 'entered') out.push(info('Mouse DPI', c.dpi, '<span class="tag">Not measured</span>', 'Taken from setup. Run the mouse check to confirm it: a wrong DPI throws every cm/360 figure off by the same factor.'));
+  else if (dpi.verdict === 'match') out.push(info('Mouse DPI', c.dpi, '<span class="tag">Checked</span>', `The card swipes measured about ${Math.round(dpi.dpiSeen)} DPI, which matches the ${c.dpi} you entered.`));
+  else if (dpi.verdict === 'scaled') out.push(info('Mouse DPI', c.dpi, '<span class="tag">Checked</span>', `The browser shrinks mouse movement by your display scale (${Math.round((window.devicePixelRatio || 1) * 100)}%), so it saw about ${Math.round(dpi.dpiSeen)} DPI. Games read the mouse directly, so the range corrected for it.`));
+  else out.push(info('Mouse DPI', Math.round(dpi.dpiSeen), '<span class="tag up">Check</span>', `The card swipes measured about ${Math.round(dpi.dpiSeen)} DPI, not the ${c.dpi} you entered, so the range used the measurement. Check the DPI in your mouse software; if it really is ${c.dpi}, run the mouse check again more carefully.`));
+  if (m && m.raw === false) {
+    out.push(m.accel != null && m.accel > 1.08
+      ? info('Pointer acceleration', 'On', '<span class="tag up">Turn off</span>', `Your fast swipe went ${pct(m.accel - 1)} further than the slow ones, so movement is being accelerated. In Windows, untick Enhance pointer precision (Mouse settings, Additional mouse options, Pointer Options), and turn on raw input in your game if it has the option.`)
+      : info('Pointer acceleration', 'Not seen', '<span class="tag">Keep</span>', 'This browser could not read the mouse raw, but fast and slow swipes covered the same distance, so acceleration looks off.'));
+  } else if (m && m.raw) out.push(info('Raw input', 'Yes', '<span class="tag">Checked</span>', 'The range read your mouse raw, without Windows pointer speed or acceleration, the way games with raw input do.'));
+  if (m && m.hz) out.push(info('Report rate', `${m.hz} Hz`, m.hz < 500 ? '<span class="tag up">Raise</span>' : '<span class="tag">Keep</span>',
+    m.hz < 500 ? 'Your mouse reports fewer than 500 times a second (or the browser is dropping reports). If your mouse software offers 1000 Hz, use it: smoother tracking with no downside.' : 'Plenty for smooth aim. Browsers can deliver fewer reports than the mouse sends, so the real rate may be higher.'));
+  return out.join('');
+}
+
 function renderResults() {
   const { cfg: c, stats: s, rec: r, verify: v } = result;
   const g = GAMES[c.game];
+  const mouseGame = g.device === 'mouse';
+  const dpi = mouseGame ? calibrate() : null;
+  const cmOf = x => cm360(g, x, dpi.cpcmBrowser).toFixed(1);
   const tag = (a, b) => a > b ? '<span class="tag up">Higher</span>' : a < b ? '<span class="tag down">Lower</span>' : '<span class="tag">Keep</span>';
   const curveTag = r.curve === c.curve ? '<span class="tag">Keep</span>' : '<span class="tag up">Change</span>';
   const row = (title, cur, next, t, why) =>
@@ -758,21 +837,23 @@ function renderResults() {
 
   $('#p-results').innerHTML = `
     <div style="display:grid;gap:6px">
-      <p class="eyebrow">${gameTitle(g)} · ${PLAYSTYLES[c.style].label}${g.camera === 'third' ? ' · third person' : ''}</p>
+      <p class="eyebrow">${gameTitle(g)} · ${PLAYSTYLES[c.style].label}${mouseGame ? ' · mouse' : ''}${g.camera === 'third' ? ' · third person' : ''}</p>
       <h2>Your settings for ${g.name}</h2>
-      <p class="lede">Set these in your game's controller menu, then play a private match or two before you judge them.</p>
+      <p class="lede">Set these in your game's ${mouseGame ? 'mouse' : 'controller'} settings, then play a private match or two before you judge them.${mouseGame && !g.yaw ? ` ${g.name === 'your game' ? 'This game' : g.name} has no published conversion, so the cm/360 figures scale from the ${c.cm0} cm you measured.` : ''}</p>
     </div>
     <div class="recs">
-      ${row(g.sens.label, c.sens, r.sens, tag(r.sens, c.sens), r.sensWhy)}
-      ${g.vsens
+      ${mouseGame
+        ? row(g.sens.label, `${c.sens} <small>${cmOf(c.sens)} cm/360</small>`, `${r.sens} <small>${cmOf(r.sens)} cm/360</small>`, tag(r.sens, c.sens), r.sensWhy) + mouseRows(result.mouse, dpi, c)
+        : row(g.sens.label, c.sens, r.sens, tag(r.sens, c.sens), r.sensWhy)}
+      ${mouseGame ? '' : g.vsens
         ? row(g.vsens.label, c.vsens, r.vsens, tag(r.vsens, c.vsens), r.vWhy)
         : row('Vertical sensitivity', 'Now', vRel(r.vmult), tag(Math.round(r.vmult * 100), 100) + '<span class="tag">If your game has it</span>', r.vWhy)}
       ${(r.ads || []).map(a => a.spec.generic
         ? row('ADS sensitivity', 'Now', vRel(a.rel), tag(Math.round(a.rel * 100), 100) + '<span class="tag">If your game has it</span>', a.why)
         : row(a.spec.label, fmtAds(a.spec, a.cur), fmtAds(a.spec, a.next), tag(a.next, a.cur), a.why)).join('')}
       ${turnRows(g, c, r.turn)}
-      ${row(g.dz.label, g.dz.fmt(c.dz), g.dz.fmt(r.dz), r.dzMeasured ? tag(r.dz, c.dz) : '<span class="tag">Not measured</span>', r.dzWhy)}
-      ${row(g.curve.label, g.curve[c.curve], g.curve[r.curve], curveTag, r.curveWhy)}
+      ${mouseGame ? '' : row(g.dz.label, g.dz.fmt(c.dz), g.dz.fmt(r.dz), r.dzMeasured ? tag(r.dz, c.dz) : '<span class="tag">Not measured</span>', r.dzWhy)}
+      ${mouseGame ? '' : row(g.curve.label, g.curve[c.curve], g.curve[r.curve], curveTag, r.curveWhy)}
       ${hw.map(h => row(h.st.label, h.st.fmt(h.cur), h.st.fmt(h.next),
         (h.st.fmt(h.next) === h.st.fmt(h.cur) ? '<span class="tag">Keep</span>' : '<span class="tag up">Change</span>') + (h.st.known ? '' : '<span class="tag">If your game has it</span>'),
         h.why)).join('')}
@@ -793,7 +874,7 @@ function renderResults() {
       <button class="btn" id="restart" type="button">Start over</button>
     </div>
     <pre id="copytext" hidden></pre>
-    <p class="fine">Prototype. Turn speeds come from a simplified model of each game, so treat these numbers as a close starting point rather than an exact match.${sourceNote} Flick throughput combines speed and accuracy into one score (higher is better). Copy test data puts every measurement from this run on your clipboard, to paste back for tuning.</p>`;
+    <p class="fine">Prototype. ${mouseGame ? 'Mouse turns use each game\'s published degrees per count (or your own cm/360), so they match the game closely; how a target feels to hit still differs from a real match.' : 'Turn speeds come from a simplified model of each game, so treat these numbers as a close starting point rather than an exact match.'}${sourceNote} Flick throughput combines speed and accuracy into one score (higher is better). Copy test data puts every measurement from this run on your clipboard, to paste back for tuning.</p>`;
 
   const du = $('#duel');
   if (du) du.addEventListener('click', startDuel);
@@ -806,7 +887,8 @@ function renderResults() {
     copyText(JSON.stringify(data), e.currentTarget);
   });
   $('#copy').addEventListener('click', e => {
-    const text = [`Dialed In, ${g.name} (${PLAYSTYLES[c.style].label})`,
+    const text = mouseGame ? [`Dialed In, ${g.name} (${PLAYSTYLES[c.style].label}, mouse)`,
+      `${g.sens.label}: ${r.sens} (${cmOf(r.sens)} cm/360 at ${dpi.verdict === 'wrong' ? Math.round(dpi.dpiSeen) : c.dpi} DPI)`].join('\n') : [`Dialed In, ${g.name} (${PLAYSTYLES[c.style].label})`,
       `${g.sens.label}: ${r.sens}`, g.vsens ? `${g.vsens.label}: ${r.vsens}` : `Vertical sensitivity: ${vRel(r.vmult)}`, `${g.dz.label}: ${g.dz.fmt(r.dz)}`, `${g.curve.label}: ${g.curve[r.curve]}`,
       ...(r.ads || []).map(a => a.spec.generic ? `ADS sensitivity: ${vRel(a.rel)}` : `${a.spec.label}: ${fmtAds(a.spec, a.next)}`),
       ...(r.turn && r.turn.boost != null ? [`${g.boost.setting.label}: ${r.turn.boost}`, `${g.boost.rampSetting.label}: ${r.turn.ramp.toFixed(1)}`] : []),
@@ -854,13 +936,54 @@ function renderAdsFields(g) {
   }
 }
 
-function syncSetup() {
+// Controller games and mouse games share ids where the game is the same (arc / m-arc).
+const PAD_LIST = ['arc', 'cod', 'fortnite', 'apex', 'other'];
+const MOUSE_LIST = ['m-arc', 'm-cs2', 'm-valorant', 'm-apex', 'm-cod', 'm-ow2', 'm-fortnite', 'm-other'];
+function fillGames() {
+  const sel = $('#game'), ids = isMouse() ? MOUSE_LIST : PAD_LIST;
+  if (sel.dataset.device === cfg.device) return;
+  sel.dataset.device = cfg.device;
+  sel.textContent = '';
+  for (const id of ids) {
+    const o = document.createElement('option');
+    o.value = id; o.textContent = GAMES[id].name === 'your game' ? 'Another game' : GAMES[id].name;
+    sel.append(o);
+  }
+}
+function setGame(id) {
+  cfg.game = id;
   const g = game();
+  cfg.sens = g.sens.def;
+  cfg.vsens = g.vsens ? g.vsens.def : undefined;
+  cfg.fov = g.fov.def;
+  cfg.ads = adsDefaults(g);
+  Object.assign(cfg, boostDefaults(g));
+  cfg.curve = g.curve.def; cfg.dz = g.dz.def;
+}
+
+function syncSetup() {
+  fillGames();
+  const g = game();
+  const mouseGame = g.device === 'mouse';
+  $('#dpi-field').hidden = !mouseGame;
+  $('#cm0-field').hidden = !mouseGame || !!g.yaw;
+  if (mouseGame) {
+    $('#dpi').value = cfg.dpi;
+    $('#cm0').value = cfg.cm0;
+    $('#cm0-help').textContent = `${g.name === 'your game' ? 'This game' : g.name} has no published sensitivity conversion, so measure it once: in the game, note where your mouse sits, turn exactly one full circle, and measure how far the mouse moved. A sensitivity calculator's cm/360 works too.`;
+  }
+  $('#mode-deep').parentElement.querySelector('span').textContent = mouseGame
+    ? 'Hidden rounds at different sensitivities find your best speed, and how much it matters for you'
+    : 'Hidden rounds find your best speed, then test curve and vertical speed blind to see which settings matter for you';
+  const dev = document.querySelector(`input[name="device"][value="${cfg.device}"]`);
+  if (dev) dev.checked = true;
   const s = $('#sens');
   $('#sens-label').textContent = g.sens.label;
   s.min = g.sens.min; s.max = g.sens.max; s.step = g.sens.step;
   s.value = cfg.sens;
-  $('#sens-range').textContent = g.sens.defKnown === false
+  $('#sens-range').textContent = mouseGame
+    ? `Enter the value from your game's mouse settings.${g.yaw ? '' : ' The range uses it with the distance below.'}`
+    : g.sens.defKnown === false
     ? `${g.sens.min} to ${g.sens.max}. Enter the value from your controller menu.`
     : `${g.sens.min} to ${g.sens.max}. Default is ${g.sens.def}. Not sure? Leave the default.`;
   const vf = $('#vsens-field');
@@ -901,17 +1024,16 @@ function syncSetup() {
   }
   $('#go-hint').textContent = MODE_HINT[cfg.mode];
 }
-$('#game').addEventListener('change', e => {
-  cfg.game = e.target.value;
-  cfg.sens = game().sens.def;
-  cfg.vsens = game().vsens ? game().vsens.def : undefined;
-  cfg.fov = game().fov.def;
-  cfg.ads = adsDefaults(game());
-  Object.assign(cfg, boostDefaults(game()));
-  syncSetup();
-});
+$('#game').addEventListener('change', e => { setGame(e.target.value); syncSetup(); });
+document.querySelectorAll('input[name="device"]').forEach(r => r.addEventListener('change', e => {
+  cfg.device = e.target.value;
+  const same = cfg.device === 'mouse' ? 'm-' + cfg.game : cfg.game.replace(/^m-/, '');
+  setGame(GAMES[same] && (cfg.device === 'mouse') === (GAMES[same].device === 'mouse') ? same : (cfg.device === 'mouse' ? 'm-arc' : 'arc'));
+  syncSetup(); renderRail(); renderWarmBests();
+}));
 document.querySelectorAll('input[name="style"]').forEach(r => r.addEventListener('change', e => { cfg.style = e.target.value; }));
-document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', e => { cfg.mode = e.target.value; syncSetup(); renderRail(); }));
+// readSetup first, so values typed into the form survive the redraw.
+document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', e => { readSetup(); cfg.mode = e.target.value; syncSetup(); renderRail(); }));
 // Reads the setup form into cfg (current values, not suggestions).
 function readSetup() {
   const g = game();
@@ -925,6 +1047,14 @@ function readSetup() {
     const fv = Number($('#fov').value);
     cfg.fov = clamp(Number.isFinite(fv) ? Math.round(fv) : g.fov.def, g.fov.min, g.fov.max);
   } else cfg.fov = g.fov.def;
+  if (g.device === 'mouse') {
+    const dpi = Number($('#dpi').value), cm0 = Number($('#cm0').value);
+    cfg.dpi = clamp(Number.isFinite(dpi) && dpi > 0 ? Math.round(dpi) : 800, 100, 32000);
+    cfg.cm0 = clamp(Number.isFinite(cm0) && cm0 > 0 ? cm0 : 30, 5, 200);
+    const v = Number($('#sens').value);
+    const dec = (String(g.sens.step).split('.')[1] || '').length;
+    cfg.sens = clamp(Number.isFinite(v) && v > 0 ? +(Math.round(v / g.sens.step) * g.sens.step).toFixed(dec) : g.sens.def, g.sens.min, g.sens.max);
+  }
   cfg.vmult = 1;
   cfg.ads = adsDefaults(g);
   for (const sp of g.ads || []) {
@@ -952,6 +1082,24 @@ $('#go').addEventListener('click', () => {
 
 /* ---------- input ---------- */
 
+// Mouse: the range canvas takes the pointer during mouse tests. mouseCheck = the last mouse check's
+// measurements (kept for the page's life, so a second session needn't repeat it).
+const mouse = createMouse($('#arena'), () => { if (screen === 'test') { if (chal) renderChalBrief(true); else if (session) renderBrief(true); } });
+let mouseCheck = null;
+$('#arena').addEventListener('click', () => { if (isMouse() && screen === 'test' && !mouse.locked) mouse.lock(); });
+
+// Points the active mouse profile at this player's mouse: DPI entered, as measured, and (for games
+// without a published conversion) their cm per full turn. Returns the resolved DPI facts.
+function calibrate() {
+  const g = game();
+  if (g.device !== 'mouse') return null;
+  const m = (session && session.mouse) || mouseCheck;
+  const r = resolveDpi(cfg.dpi, m && m.cpcm, window.devicePixelRatio || 1);
+  g.cal.k = 1;
+  g.cal.k = calibrationK(g, { ...r, sens0: cfg.sens, cm0: cfg.cm0 });
+  return r;
+}
+
 const vpad = { x: 0, y: 0, drag: false, fire: false };
 const keys = { left: false, right: false, up: false, down: false, fire: false };
 
@@ -963,6 +1111,11 @@ function readPad() {
   return null;
 }
 function poll() {
+  if (isMouse()) {
+    const { mx, my } = mouse.take();
+    const fire = mouse.fire() || keys.fire;
+    return { src: 'mouse', name: null, lx: 0, ly: 0, rx: 0, ry: 0, mx, my, fire, dl: false, du: false, dr: false, lt: 0, rt: 0 };
+  }
   const p = readPad();
   if (p) {
     const b = p.buttons;
@@ -1030,8 +1183,10 @@ function drawArena() {
     hfov: hfovFor(cfg.game),
     flick: P === 'run' && s.kind === 'flick' ? s.data : null,
     track: P === 'run' && s.kind === 'track' ? s.data : null,
-    figure: s.kind !== 'drift',
-    overlay: P === 'run' && s.kind === 'drift' ? (ctx, W, H, d) => drawDrift(ctx, s.data, W, H, d) : null
+    figure: s.kind !== 'drift' && s.kind !== 'mcheck',
+    overlay: mousePaused(P) ? drawPaused
+      : P === 'run' && s.kind === 'drift' ? (ctx, W, H, d) => drawDrift(ctx, s.data, W, H, d)
+      : P === 'run' && s.kind === 'mcheck' ? (ctx, W, H, d) => drawMouseCheck(ctx, s.data, W, H, d) : null
   });
 }
 
@@ -1164,6 +1319,48 @@ function drawDrift(ctx, D, W, H, d) {
   ctx.fillStyle = tok('--target'); ctx.fillRect(bx, by, bw * clamp(D.t / DRIFT_SECONDS, 0, 1), bh);
 }
 
+function drawPaused(ctx, W, H, d) {
+  ctx.fillStyle = 'rgba(5,10,16,0.62)'; ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#F4F1E8';
+  ctx.font = `800 ${Math.round(H * 0.08)}px ${tok('--display')}`;
+  ctx.fillText('PAUSED', W / 2, H * 0.45);
+  ctx.font = `500 ${Math.round(H * 0.038)}px ${tok('--mono')}`;
+  ctx.fillText('Click the range to pick the mouse back up', W / 2, H * 0.56);
+}
+
+// The card to swipe across, the swipes done, and the live count of the one in progress.
+function drawMouseCheck(ctx, D, W, H, d) {
+  ctx.fillStyle = tok('--arena'); ctx.globalAlpha = 0.72; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
+  const k = Math.min(D.swipes.length, SWIPES.length - 1), speed = SWIPES[k];
+  const cw = Math.min(W * 0.42, H * 0.85), ch = cw * 54 / 85.6, cx = W / 2, cy = H * 0.5;
+  const x0 = cx - cw / 2, y0 = cy - ch / 2, r = 10 * d;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#F4F1E8';
+  ctx.font = `800 ${Math.round(H * 0.06)}px ${tok('--display')}`;
+  ctx.fillText(`SWIPE ${k + 1} OF ${SWIPES.length} · ${speed.toUpperCase()}`, cx, H * 0.12);
+  const g = ctx.createLinearGradient(x0, y0, x0 + cw, y0 + ch);
+  g.addColorStop(0, 'rgba(255,181,71,0.22)'); g.addColorStop(1, 'rgba(255,94,58,0.10)');
+  ctx.fillStyle = g; ctx.strokeStyle = 'rgba(244,241,232,0.7)'; ctx.lineWidth = 2 * d;
+  ctx.beginPath(); ctx.roundRect(x0, y0, cw, ch, r); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,181,71,0.55)'; ctx.fillRect(x0 + cw * 0.1, y0 + ch * 0.3, cw * 0.16, ch * 0.22); // chip
+  // the edges to line up with, and the direction
+  ctx.strokeStyle = '#FF5E3A'; ctx.lineWidth = 3 * d;
+  for (const x of [x0, x0 + cw]) { ctx.beginPath(); ctx.moveTo(x, y0 - 14 * d); ctx.lineTo(x, y0 + ch + 14 * d); ctx.stroke(); }
+  const ay = y0 + ch * 0.78, sw = mouse.swipe;
+  // Progress against a card length at the DPI entered in setup.
+  const prog = sw ? Math.hypot(sw.dx, sw.dy) / (cfg.dpi / 2.54 * CARD_CM) : null;
+  ctx.strokeStyle = 'rgba(244,241,232,0.35)'; ctx.lineWidth = 2 * d;
+  ctx.beginPath(); ctx.moveTo(x0 + cw * 0.1, ay); ctx.lineTo(x0 + cw * 0.9, ay); ctx.stroke();
+  ctx.fillStyle = 'rgba(244,241,232,0.35)';
+  ctx.beginPath(); ctx.moveTo(x0 + cw * 0.9 + 10 * d, ay); ctx.lineTo(x0 + cw * 0.9 - 4 * d, ay - 8 * d); ctx.lineTo(x0 + cw * 0.9 - 4 * d, ay + 8 * d); ctx.closePath(); ctx.fill();
+  if (prog != null) { ctx.fillStyle = '#FFB547'; ctx.beginPath(); ctx.arc(x0 + cw * 0.1 + cw * 0.8 * Math.min(prog, 1.1), ay, 7 * d, 0, Math.PI * 2); ctx.fill(); }
+  ctx.font = `500 ${Math.round(H * 0.04)}px ${tok('--mono')}`;
+  ctx.fillStyle = '#F4F1E8';
+  ctx.fillText(sw ? `${Math.round(Math.hypot(sw.dx, sw.dy))} counts` : 'Hold the left button and slide', cx, y0 + ch + H * 0.09);
+  ctx.fillStyle = 'rgba(244,241,232,0.6)';
+  ctx.fillText(D.swipes.map(x => Math.round(Math.hypot(x.dx, x.dy) / CARD_CM * 2.54) + ' DPI').join('   ·   ') || '8.56 cm', cx, y0 + ch + H * 0.16);
+}
+
 // Edge roll: lit wedges show the directions already pushed to the edge. Squeeze: trigger travel bars.
 function drawStickPart(ctx, D, W, H, d) {
   const cy = H * 0.52, R = Math.min(H * 0.28, W * 0.16);
@@ -1239,6 +1436,7 @@ const CH_KIND = { daily: 'Daily challenge', practice: 'Practice', code: 'Shared 
 function startChallenge(code, kind, opts = {}) {
   if (!opts.settings) { readSetup(); syncSetup(); }
   session = null;
+  calibrate();
   const settings = opts.settings || settingsOf(cfg), game = opts.game || cfg.game;
   chal = { st: createChallenge(code, game, settings, { seconds: opts.seconds }), rec: newRecording(), code, kind, phase: 'intro',
     countLeft: 0, acc: 0, flash: null, pop: null, src: inp.src, settings, game, duel: opts.duel || null };
@@ -1248,7 +1446,8 @@ function startChallenge(code, kind, opts = {}) {
 
 function chalTick(dt, edge) {
   const c = chal;
-  if (c.phase === 'intro') { if (edge.fire) { c.phase = 'count'; c.countLeft = 3; renderChalBrief(true); } return; }
+  if (c.phase === 'intro') { if (edge.fire && (!isMouse() || mouse.locked)) { c.phase = 'count'; c.countLeft = 3; renderChalBrief(true); } return; }
+  if (mousePaused(c.phase)) return;
   if (c.phase === 'rate') { const r = RATINGS.find(x => edge[x.key]); if (r) duelRate(r.v); return; }
   if (c.phase === 'count') {
     c.countLeft -= dt;
@@ -1259,8 +1458,14 @@ function chalTick(dt, edge) {
   if (c.pop) c.pop.t -= dt;
   // Fixed ticks: the same rounded input the replay will use.
   c.acc += dt;
+  // A mouse's counts go to the next tick (Int16 slots in the recording); counts from a frame too
+  // short for a tick wait for the next one.
+  c.mx = (c.mx || 0) + (inp.mx || 0); c.my = (c.my || 0) + (inp.my || 0);
+  const i16 = v => clamp(Math.round(v), -32767, 32767);
   while (c.acc >= DT && !c.st.done) {
-    const rx = quantize(inp.rx), ry = quantize(inp.ry), fire = !!inp.fire;
+    const mouseRun = inp.src === 'mouse';
+    const rx = mouseRun ? i16(c.mx) : quantize(inp.rx), ry = mouseRun ? i16(c.my) : quantize(inp.ry), fire = !!inp.fire;
+    if (mouseRun) { c.mx -= rx; c.my -= ry; }
     record(c.rec, rx, ry, fire);
     chStep(c.st, rx, ry, fire);
     c.acc -= DT;
@@ -1286,7 +1491,7 @@ function chalScene() {
     flick: it.kind !== 'track' ? { cur: it.T, flash: c.flash } : null,
     track: it.kind === 'track' ? it.TR : null,
     // Points for the last hit or miss rise from beside the score counter, keeping the aim area clear.
-    overlay: c.pop && c.pop.t > 0 ? (ctx, W, H, d) => {
+    overlay: mousePaused(c.phase) ? drawPaused : c.pop && c.pop.t > 0 ? (ctx, W, H, d) => {
       ctx.globalAlpha = clamp(c.pop.t / 0.3, 0, 1);
       ctx.fillStyle = c.pop.text.startsWith('+') ? '#FFE7B0' : '#FF8A64';
       ctx.font = `900 ${Math.round(26 * d)}px 'Big Shoulders Stencil Display', 'Big Shoulders Display', sans-serif`;
@@ -1300,7 +1505,7 @@ function chalScene() {
 
 let chalBriefKey = '';
 function renderChalBrief(force) {
-  const c = chal, key = c.phase + inp.src;
+  const c = chal, key = c.phase + inp.src + mouse.locked;
   if (key === chalBriefKey && !force) return;
   chalBriefKey = key;
   const di = c.duel ? c.duel.i : 0;
@@ -1326,15 +1531,17 @@ function renderChalBrief(force) {
     return;
   }
   if (c.phase === 'intro') {
-    act.append(button('Start', 'primary', () => { c.phase = 'count'; c.countLeft = 3; renderChalBrief(true); }));
+    act.append(button('Start', 'primary', () => { if (isMouse()) mouse.lock(); c.phase = 'count'; c.countLeft = 3; renderChalBrief(true); }));
     act.append(button('Back', '', leaveChallenge));
-    if (inp.src === 'pad') act.append(hint('or press A / ✕'));
+    if (isMouse()) act.append(hint(mouse.locked ? 'Click to start. Esc lets the mouse go.' : 'The range captures your mouse. Esc lets it go.'));
+    else if (inp.src === 'pad') act.append(hint('or press A / ✕'));
   } else {
+    if (mousePaused(c.phase)) act.append(button('Resume', 'primary', () => mouse.lock()));
     act.append(button('Stop', 'small', leaveChallenge));
   }
 }
 
-function leaveChallenge() { chal = null; show(result ? 'results' : 'setup'); }
+function leaveChallenge() { chal = null; mouse.unlock(); show(result ? 'results' : 'setup'); }
 
 /* settings duel */
 
@@ -1399,13 +1606,17 @@ const BEST_KEY = 'dialed-in:bests';
 function loadBests() {
   try { return JSON.parse(localStorage.getItem(BEST_KEY)) || {}; } catch (e) { return {}; }
 }
-function saveBest(code, kind, score) {
+// Mouse bests are kept apart from controller ones (a 'mouse:' prefix), as the boards will be.
+const bestKey = (key, src) => src === 'mouse' ? 'mouse:' + key : key;
+function saveBest(code, kind, score, src) {
   const b = loadBests();
-  const prev = kind === 'practice' ? b.practice : (b.codes || {})[code];
+  b.codes = b.codes || {};
+  const k = bestKey(code, src), pk = bestKey('practice', src);
+  const prev = kind === 'practice' ? (src === 'mouse' ? b.codes[pk] : b.practice) : b.codes[k];
   const isBest = prev == null || score > prev;
   if (isBest) {
-    if (kind === 'practice') b.practice = score;
-    else { b.codes = b.codes || {}; b.codes[code] = score; }
+    if (kind === 'practice') { if (src === 'mouse') b.codes[pk] = score; else b.practice = score; }
+    else b.codes[k] = score;
     try { localStorage.setItem(BEST_KEY, JSON.stringify(b)); } catch (e) { /* storage blocked: best just isn't kept */ }
   }
   return { isBest, prev };
@@ -1424,8 +1635,8 @@ tickWarmClock();
 setInterval(tickWarmClock, 1000);
 
 function renderWarmBests() {
-  const b = loadBests(), today = dailyCode();
-  const rows = [['Today', (b.codes || {})[today]], ['Practice best', b.practice]].filter(r => r[1] != null);
+  const b = loadBests(), today = dailyCode(), codes = b.codes || {}, m = isMouse();
+  const rows = [['Today', codes[bestKey(today, m ? 'mouse' : 'pad')]], ['Practice best', m ? codes['mouse:practice'] : b.practice]].filter(r => r[1] != null);
   const dl = $('#warm-best');
   dl.textContent = '';
   for (const [k, v] of rows) {
@@ -1442,10 +1653,12 @@ function endChallenge() {
     const run = c.duel.plan[c.duel.i];
     c.duel.runs.push({ ...run, score: sum.score, log: c.st.log, rating: null });
     c.phase = 'rate';
+    mouse.unlock();
     renderChalBrief(true);
     return;
   }
-  c.result = { sum, best: saveBest(c.code, c.kind, sum.score), replay: encodeReplay(c.rec) };
+  c.result = { sum, best: saveBest(c.code, c.kind, sum.score, c.src), replay: encodeReplay(c.rec) };
+  mouse.unlock();
   show('chend');
 }
 
@@ -1459,7 +1672,7 @@ function renderChalEnd() {
   const stat = (k, v) => `<div><span>${k}</span><b>${v}</b></div>`;
   $('#p-chend').innerHTML = `
     <div style="display:grid;gap:6px">
-      <p class="eyebrow">${CH_KIND[c.kind]} · ${c.code} · ${gameTitle(g)}${c.src === 'pad' ? '' : ' · on-screen stick'}</p>
+      <p class="eyebrow">${CH_KIND[c.kind]} · ${c.code} · ${gameTitle(g)}${c.src === 'pad' ? '' : c.src === 'mouse' ? ' · mouse' : ' · on-screen stick'}</p>
       <div class="score-hero"><b>${sum.score.toLocaleString('en-US')}</b><span>points</span>${best.isBest && best.prev != null ? '<span class="pb">New personal best</span>' : ''}</div>
       <p class="lede">${best.prev == null ? 'Your first score on this ' + (c.kind === 'practice' ? 'practice board.' : 'challenge.')
         : best.isBest ? `Up from ${best.prev.toLocaleString('en-US')}.` : `Your best here is ${best.prev.toLocaleString('en-US')}.`}</p>
@@ -1482,7 +1695,8 @@ function renderChalEnd() {
       <button class="btn" id="ch-share" type="button">Copy result</button>
       <button class="btn" id="ch-back" type="button">Back to setup</button>
     </div>
-    ${boardsOn() ? `<div class="board" id="board">
+    ${c.src === 'mouse' ? '<p class="fine">Mouse runs will get their own leaderboard. Your best is kept in this browser, and every run is recorded so it can be checked when the board opens.</p>'
+      : boardsOn() ? `<div class="board" id="board">
       <div style="display:grid;gap:4px"><h3 class="sub">Leaderboard · ${c.code}</h3>
         <p class="fine">${c.src === 'pad' ? 'Controller' : 'On-screen stick'} board. Your run is replayed on the server before it counts.</p></div>
       <div class="actions">
@@ -1494,7 +1708,7 @@ function renderChalEnd() {
       <div class="table-wrap" id="board-table"><p class="fine">Loading the board…</p></div>
     </div>` : '<p class="fine">Scores are kept in this browser for now. Every run is recorded so its score can be checked once leaderboards open.</p>'}`;
   $('#ch-again').addEventListener('click', () => startChallenge(c.kind === 'practice' ? practiceCode() : c.code, c.kind));
-  if (boardsOn()) wireBoard(c, sum);
+  if (boardsOn() && c.src !== 'mouse') wireBoard(c, sum);
   $('#ch-share').addEventListener('click', e => copyText(shareText, e.currentTarget));
   $('#ch-back').addEventListener('click', leaveChallenge);
 }
@@ -1620,11 +1834,21 @@ function updateStatus() {
   $('#ro-r').textContent = f(inp.rx) + ',' + f(inp.ry);
   $('#ro-l').textContent = f(inp.lx) + ',' + f(inp.ly);
   $('#ro-f').textContent = inp.fire ? 'held' : 'released';
-  const status = inp.src + '|' + inp.name + '|' + gpBlocked;
+  const m = mouseCheck;
+  const status = inp.src + '|' + inp.name + '|' + gpBlocked + '|' + mouse.locked + '|' + mouse.raw + '|' + (m && m.cpcm);
   if (status !== lastStatus) {
     lastStatus = status;
-    $('#pill').classList.toggle('on', inp.src === 'pad');
-    $('#pill-text').textContent = inp.src === 'pad'
+    const mo = inp.src === 'mouse';
+    $('#pad-panel').hidden = mo;
+    $('#mouse-panel').hidden = !mo;
+    if (mo) {
+      $('#mo-lock').textContent = mouse.locked ? 'captured' : 'released';
+      $('#mo-raw').textContent = mouse.raw == null ? 'not checked' : mouse.raw ? 'yes' : 'no (OS settings apply)';
+      $('#mo-hz').textContent = m && m.hz ? `about ${m.hz} Hz` : 'not checked';
+      $('#mo-dpi').textContent = m && m.cpcm ? `about ${Math.round(m.cpcm * 2.54)} (entered ${cfg.dpi})` : `${cfg.dpi} entered`;
+    }
+    $('#pill').classList.toggle('on', inp.src === 'pad' || mo);
+    $('#pill-text').textContent = mo ? (mouse.locked ? 'Mouse captured' : 'Mouse') : inp.src === 'pad'
       ? inp.name.replace(/\s*\(.*$/, '') || 'Controller connected'
       : 'No controller. Press any button to connect.';
     const note = $('#pad-note');
@@ -1634,7 +1858,7 @@ function updateStatus() {
       : inp.src === 'pad'
         ? 'Controller connected. The dashed ring shows the deadzone the range is using.'
         : 'Plug in or pair a PlayStation or Xbox controller, then press any button. Chrome and Edge work best.';
-    $('#vpad-panel').hidden = inp.src === 'pad';
+    $('#vpad-panel').hidden = inp.src === 'pad' || mo;
     if (screen === 'test') { if (chal) renderChalBrief(true); else renderBrief(true); }
   }
   let l = '', r = '';
@@ -1674,7 +1898,7 @@ function frame(ts) {
 }
 
 // Read-only hook for automated browser tests (page opened with ?debug); not used by the app.
-if (new URLSearchParams(location.search).has('debug')) window.dialedInDebug = { chal: () => chal };
+if (new URLSearchParams(location.search).has('debug')) window.dialedInDebug = { chal: () => chal, session: () => session, view: () => view, game: () => game() };
 
 syncSetup();
 show('setup');

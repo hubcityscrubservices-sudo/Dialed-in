@@ -30,6 +30,7 @@ export function verticalRate(game, settings) {
 // Turns the view for one frame. `settings` is { sens, vsens?, vmult?, curve, dz, outer?, adsMult?, zoomed? }.
 // Aiming down sights multiplies both axes by adsMult and uses the game's zoom look boost if it has one.
 export function steer(view, input, settings, game, dt, minDz = 0) {
+  if (game.device === 'mouse') return steerMouse(view, input, settings, game, dt);
   const rate = game.sens.rate(settings.sens);
   const curve = (game.curve.fn && game.curve.fn[settings.curve]) || CURVE_EXP[settings.curve];
   const [sx, sy, mag] = shape(input.rx, input.ry, Math.max(settings.dz, minDz), curve, settings.outer ?? 1);
@@ -48,6 +49,21 @@ export function steer(view, input, settings, game, dt, minDz = 0) {
   view.yaw += vy * dt;
   view.pitch = clamp(view.pitch + vp * dt, -40, 40);
   return { vy, vp, mag };
+}
+
+// Speed (degrees per second) that counts as a full push for a mouse, so flick segmentation and the
+// turn drill read a mouse's movement on the same 0..1 scale as a stick's.
+export const MOUSE_FULL = 150;
+
+// A mouse turns by counts x degrees per count, the same on both axes (no curve, deadzone or boost).
+// input = { mx, my } counts since the last step; +my is the mouse moving toward the player (look down).
+export function steerMouse(view, input, settings, game, dt) {
+  const dpc = game.sens.rate(settings.sens) * (settings.adsMult ?? 1);
+  const dy = (input.mx || 0) * dpc, dp = -(input.my || 0) * dpc * (settings.vmult ?? 1);
+  view.yaw += dy;
+  view.pitch = clamp(view.pitch + dp, -40, 40);
+  const vy = dt ? dy / dt : 0, vp = dt ? dp / dt : 0;
+  return { vy, vp, mag: Math.min(1, Math.hypot(vy, vp) / MOUSE_FULL) };
 }
 
 /* ---------- flick trials ---------- */

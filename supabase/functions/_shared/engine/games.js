@@ -80,6 +80,49 @@ export const GAMES = {
   }
 };
 
+/* ---------- mouse ---------- */
+
+// Mouse profiles. A mouse turns the camera by a fixed angle per count, so `sens.rate` here is
+// degrees per count from the mouse (not degrees per second as for sticks). Every comparison the
+// analysis makes is a ratio of rates, so the same Quick, Verify and Deep code tunes both.
+// `yaw` is the game's degrees per count at sensitivity 1 (the figure sensitivity converters use).
+// Games without a published one (yaw: null) are calibrated from the player's own cm/360 instead.
+// `cal.k` converts the browser's counts to the game's, set from the mouse check before each session.
+function mouseGame(base, yaw, sens, extra = {}) {
+  const g = {
+    ...base, device: 'mouse', yaw, cal: { k: 1 },
+    sens: { ...sens, rate: s => s * (yaw ?? 1) * g.cal.k },
+    // Sticks' shaping settings don't exist for a mouse; neutral values keep shared code paths simple.
+    dz: { label: 'Deadzone', def: 0, fmt: () => 'None' },
+    curve: { label: 'Response curve', def: 'linear', linear: 'Linear', mid: 'Linear', expo: 'Linear' },
+    moveDz: null, outer: null, trigger: null, ads: [], ...extra
+  };
+  return g;
+}
+const SENS = (label, min, max, step, def) => ({ label, min, max, step, def, defKnown: false });
+export const MOUSE_GAMES = {
+  'm-cs2': mouseGame({ name: 'Counter-Strike 2', camera: 'first', source: 'model',
+    fov: { fixed: true, def: 90, type: 'h43', note: "Counter-Strike 2's field of view is fixed (90 on a 4:3 scale, about 106 wide)." } },
+    0.022, SENS('Sensitivity', 0.05, 8, 0.01, 1.25)),
+  'm-valorant': mouseGame({ name: 'Valorant', camera: 'first', source: 'model',
+    fov: { fixed: true, def: 103, type: 'h169', note: "Valorant's field of view is fixed at 103." } },
+    0.07, SENS('Sensitivity', 0.01, 5, 0.001, 0.4)),
+  'm-apex': mouseGame({ name: 'Apex Legends', camera: 'first', source: 'model', fov: GAMES.apex.fov },
+    0.022, SENS('Mouse sensitivity', 0.1, 20, 0.1, 2.5)),
+  'm-ow2': mouseGame({ name: 'Overwatch 2', camera: 'first', source: 'model',
+    fov: { label: 'Field of view', min: 80, max: 103, step: 1, def: 103, type: 'h169' } },
+    0.0066, SENS('Sensitivity', 0.01, 100, 0.01, 15)),
+  'm-cod': mouseGame({ name: 'Call of Duty', camera: 'first', source: 'model', fov: GAMES.cod.fov },
+    0.0066, SENS('Mouse sensitivity', 0.01, 100, 0.01, 5)),
+  'm-fortnite': mouseGame({ name: 'Fortnite', camera: 'third', source: 'model', fov: GAMES.fortnite.fov },
+    null, SENS('Mouse sensitivity', 0.1, 100, 0.1, 10)),
+  'm-arc': mouseGame({ name: 'ARC Raiders', camera: 'third', source: 'model', fov: GAMES.arc.fov },
+    null, SENS('Mouse sensitivity', 0.01, 400, 0.01, 50)),
+  'm-other': mouseGame({ name: 'your game', camera: 'first', source: 'model', fov: GAMES.other.fov },
+    null, SENS('Mouse sensitivity', 0.01, 400, 0.01, 1))
+};
+Object.assign(GAMES, MOUSE_GAMES);
+
 // How much each test counts toward the sensitivity call.
 export const PLAYSTYLES = {
   tracking: { label: 'Close range', wf: 0.35, wt: 0.65 },

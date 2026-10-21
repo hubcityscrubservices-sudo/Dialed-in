@@ -63,6 +63,8 @@ export async function handleSubmit(raw, db, now = new Date()) {
   if (!b || typeof b !== 'object') return fail(400, 'Submission is empty.');
   if (!codeAllowed(b.code, now)) return fail(400, 'That challenge code is not open.');
   if (!GAMES[b.game]) return fail(400, 'Unknown game.');
+  // Mouse runs depend on the player's own calibration and get their own board later.
+  if (GAMES[b.game].device === 'mouse') return fail(400, 'Mouse scores are not on the leaderboard yet.');
   if (!['pad', 'virtual'].includes(b.input)) return fail(400, 'Unknown input type.');
   if (typeof b.playerId !== 'string' || !UUID.test(b.playerId)) return fail(400, 'Missing player id.');
   const name = cleanName(b.name);

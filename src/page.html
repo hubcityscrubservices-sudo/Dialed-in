@@ -18,7 +18,7 @@
       </svg>
       <div>
         <h1>Dialed In</h1>
-        <p>Aim range for controller players</p>
+        <p>Aim range for controller and mouse players</p>
       </div>
     </div>
     <div class="pill" id="pill"><i></i><span class="pill-k">Gear</span><b id="pill-text">No controller. Press any button to connect.</b></div>
@@ -66,15 +66,20 @@
           <h2>Where are you starting from?</h2>
           <p class="lede">A few quick answers, then short tests in an aim range that turns the camera the way your game does.</p>
         </div>
+        <fieldset>
+          <legend>Aiming with</legend>
+          <div class="styles devices">
+            <label class="style-opt"><input type="radio" name="device" id="device-pad" value="pad" checked>
+              <svg class="glyph" viewBox="0 0 40 40" aria-hidden="true"><path d="M11 13h18c4.5 0 7 4 7.6 9.5.5 5-1 8.5-3.6 8.5-2.4 0-3.6-2.5-5.5-5h-15c-1.9 2.5-3.1 5-5.5 5-2.6 0-4.1-3.5-3.6-8.5C4 17 6.5 13 11 13z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M12 18v6M9 21h6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="27" cy="19.5" r="1.8" fill="currentColor"/><circle cx="30" cy="23.5" r="1.8" fill="currentColor"/></svg>
+              <b>Controller</b><span>PlayStation or Xbox: sticks, curves and deadzones</span></label>
+            <label class="style-opt"><input type="radio" name="device" id="device-mouse" value="mouse">
+              <svg class="glyph" viewBox="0 0 40 40" aria-hidden="true"><rect x="11" y="5" width="18" height="30" rx="9" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M20 5v11M11 16h18" stroke="currentColor" stroke-width="2"/><path d="M20 9v3" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+              <b>Mouse</b><span>Raw input, measured in cm per full turn</span></label>
+          </div>
+        </fieldset>
         <div class="field">
           <label for="game">Game</label>
-          <select id="game">
-            <option value="arc">ARC Raiders</option>
-            <option value="cod">Call of Duty</option>
-            <option value="fortnite">Fortnite</option>
-            <option value="apex">Apex Legends</option>
-            <option value="other">Another game</option>
-          </select>
+          <select id="game"></select>
           <small id="game-note"></small>
         </div>
         <fieldset>
@@ -102,6 +107,16 @@
             <label for="vsens"><span id="vsens-label">Vertical sensitivity</span></label>
             <input id="vsens" type="number" inputmode="numeric" value="60" min="1" max="400" step="1">
             <small id="vsens-range"></small>
+          </div>
+          <div class="field" id="dpi-field" hidden>
+            <label for="dpi">Mouse DPI</label>
+            <input id="dpi" type="number" inputmode="numeric" value="800" min="100" max="32000" step="1">
+            <small>From your mouse software. The mouse check measures it as well.</small>
+          </div>
+          <div class="field" id="cm0-field" hidden>
+            <label for="cm0">cm per full turn, at that sensitivity</label>
+            <input id="cm0" type="number" inputmode="decimal" value="30" min="5" max="200" step="0.1">
+            <small id="cm0-help"></small>
           </div>
           <div class="field" id="fov-field">
             <label for="fov"><span id="fov-label">Field of view</span></label>
@@ -144,7 +159,17 @@
     </div>
 
     <aside class="side">
-      <section class="plate gear">
+      <section class="plate gear" id="mouse-panel" hidden>
+        <p class="eyebrow">Mouse</p>
+        <dl class="readout">
+          <dt>Capture</dt><dd id="mo-lock">released</dd>
+          <dt>Raw input</dt><dd id="mo-raw">not checked</dd>
+          <dt>Report rate</dt><dd id="mo-hz">not checked</dd>
+          <dt>DPI</dt><dd id="mo-dpi">not checked</dd>
+        </dl>
+        <p class="note" id="mouse-note">The range captures the mouse when a test starts. Esc lets it go; click the range to pick it back up.</p>
+      </section>
+      <section class="plate gear" id="pad-panel">
         <p class="eyebrow">Gear check</p>
         <canvas id="sticks" aria-label="Stick positions"></canvas>
         <dl class="readout">
