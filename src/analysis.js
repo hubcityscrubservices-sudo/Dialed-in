@@ -178,3 +178,46 @@ function snapAds(v, spec) {
   const n = Math.round(clamp(v, spec.min, spec.max) / spec.step) * spec.step;
   return Number(n.toFixed(4));
 }
+
+// Turn-around drill. per180: seconds to get within reach of the target, scaled to a 180-degree turn.
+const median = xs => { const a = xs.slice().sort((p, q) => p - q); return a.length ? (a.length % 2 ? a[(a.length - 1) / 2] : (a[a.length / 2 - 1] + a[a.length / 2]) / 2) : null; };
+export const TURN = { slowPer180: 0.85, overDeg: 8, overShare: 0.4, fullShare: 0.6 };
+
+export function turnStats(trials) {
+  if (!trials.length) return null;
+  const reached = trials.filter(t => t.reachT != null);
+  return {
+    per180: reached.length ? median(reached.map(t => t.reachT * 180 / t.D)) : null,
+    reached: reached.length / trials.length,
+    over: trials.filter(t => t.maxProj - t.D > TURN.overDeg).length / trials.length,
+    fullShare: reached.length ? mean(reached.map(t => t.fullT / t.reachT)) : 0,
+    stint: median(trials.map(t => t.maxStint)),
+    n: trials.length
+  };
+}
+
+// cur = { boost, ramp } for games with a boost setting. Returns rows for the results page:
+// { verdict: 'less' | 'more' | 'sooner' | 'keep', why, boost?, ramp? }.
+export function recommendTurn(st, c, cur = {}) {
+  const g = GAMES[c.game];
+  const bs = g.boost && g.boost.setting, rs = g.boost && g.boost.rampSetting;
+  if (!st) return { verdict: 'keep', measured: false, why: 'Not measured.', boost: cur.boost, ramp: cur.ramp };
+  const slow = st.per180 == null || st.per180 > TURN.slowPer180 || st.reached < 0.8;
+  const ramp = cur.ramp ?? (g.boost ? g.boost.ramp : null);
+  let verdict = 'keep';
+  if (st.over >= TURN.overShare) verdict = 'less';
+  else if (slow && st.fullShare >= TURN.fullShare && ramp != null && st.stint < ramp) verdict = 'sooner';
+  else if (slow && st.fullShare >= TURN.fullShare) verdict = 'more';
+  let why = `Big turns took ${st.per180 == null ? 'too long to finish' : st.per180.toFixed(2) + ' s per 180°'}, you held the stick all the way over for ${pct(st.fullShare)} of each turn, and you blew past ${pct(st.over)} of the targets.`;
+  if (verdict === 'less') why += ' You turn faster than you can stop, so ease off the boost.';
+  else if (verdict === 'more') why += ' You push all the way and still arrive late, so more boost would help.';
+  else if (verdict === 'sooner') why += ` Your longest full push lasted ${st.stint.toFixed(1)} s, shorter than the ${ramp.toFixed(1)} s the boost takes to ramp up, so it rarely kicks in. A shorter ramp-up gets you the speed sooner.`;
+  else why += slow ? " You were slow but rarely pushed all the way, so the boost isn't the limit." : ' Your big turns are quick and controlled, so leave it.';
+  const out = { verdict, measured: true, why, stats: st };
+  if (bs) {
+    const d = verdict === 'less' ? -15 : verdict === 'more' ? 15 : 0;
+    out.boost = clamp(cur.boost + d, bs.min, bs.max);
+    out.ramp = verdict === 'sooner' ? Number(clamp(ramp - 0.4, rs.min, rs.max).toFixed(1)) : cur.ramp;
+  }
+  return out;
+}

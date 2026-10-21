@@ -1,6 +1,6 @@
 import { GAMES, PLAYSTYLES, gameTitle, extraSetting, adsSpecs, fmtAds } from './games.js';
-import { FOV, makeView, steer, newFlickTarget, flickStep, makeTrack, trackStep } from './sim.js';
-import { summarize, recommend, recommendVertical, recommendAds, driftDeadzone, settingsChanged } from './analysis.js';
+import { FOV, makeView, steer, newFlickTarget, flickStep, makeTrack, trackStep, newTurnTarget, turnStep } from './sim.js';
+import { summarize, recommend, recommendVertical, recommendAds, turnStats, recommendTurn, driftDeadzone, settingsChanged } from './analysis.js';
 import { verifyPlan, verifyCompare, ratingSummary } from './verify.js';
 import { DEEP, deepNext, deepAnalyze, shuffled } from './deep.js';
 import { emptyReach, recordReach, coverage, stickReport, outerFromReach, hardwareRecs } from './hardware.js';
@@ -13,8 +13,9 @@ const verticalSlot = i => i % 5 === 1 || i % 5 === 3;
 const VERIFY = { flicks: 7, warmFlicks: 1, trackSeconds: 9, warmSeconds: 1.5 };
 const DEEP_ROUND = { flicks: 8, warmFlicks: 1, trackSeconds: 8, warmSeconds: 1.5 };
 const DRIFT_SECONDS = 4, ROLL_SECONDS = 10, SQUEEZE_SECONDS = 8;
-const RAIL = { setup: 'Setup', drift: 'Sticks', flick: 'Flicks', track: 'Tracking', deep: 'Search', ads: 'ADS', verify: 'Verify', results: 'Results' };
+const RAIL = { setup: 'Setup', drift: 'Sticks', flick: 'Flicks', track: 'Tracking', deep: 'Search', turn: 'Turns', ads: 'ADS', verify: 'Verify', results: 'Results' };
 const ADS = { flicks: 8, seconds: 8, scopedFlicks: 6, scopedSeconds: 6 };
+const TURNS = 6;
 const RATINGS = [
   { v: 1, label: 'Rough', key: 'dl', glyph: '←' },
   { v: 2, label: 'OK', key: 'du', glyph: '↑' },
@@ -23,7 +24,8 @@ const RATINGS = [
 const MODE_HINT = { quick: 'About 3 minutes', verify: 'About 5 minutes', deep: 'About 6 minutes' };
 
 const adsDefaults = g => Object.fromEntries(adsSpecs(g).map(sp => [sp.key, sp.def]));
-const cfg = { game: 'arc', style: 'balanced', mode: 'verify', sens: GAMES.arc.sens.def, vsens: GAMES.arc.vsens.def, ads: adsDefaults(GAMES.arc), curve: 'mid', dz: 0.10 };
+const boostDefaults = g => g.boost && g.boost.setting ? { boost: g.boost.setting.def, boostRamp: g.boost.rampSetting.def } : { boost: undefined, boostRamp: undefined };
+const cfg = { game: 'arc', style: 'balanced', mode: 'verify', sens: GAMES.arc.sens.def, vsens: GAMES.arc.vsens.def, ads: adsDefaults(GAMES.arc), ...boostDefaults(GAMES.arc), curve: 'mid', dz: 0.10 };
 let screen = 'setup';  // setup | test | results
 let session = null;    // { segs, i, phase, countLeft, drift }
 let result = null;     // { cfg, stats, rec, drift, verify }
@@ -34,7 +36,7 @@ let lastT = 0, gpBlocked = false;
 
 const game = () => GAMES[cfg.game];
 const seg = () => session && session.segs[session.i];
-const settingsOf = c => ({ sens: c.sens, vsens: c.vsens, vmult: c.vmult ?? 1, curve: c.curve, dz: c.dz, outer: c.outer ?? 1 });
+const settingsOf = c => ({ sens: c.sens, vsens: c.vsens, vmult: c.vmult ?? 1, curve: c.curve, dz: c.dz, outer: c.outer ?? 1, boost: c.boost, boostRamp: c.boostRamp });
 
 /* ---------- session plans ---------- */
 
@@ -59,9 +61,22 @@ function quickSegments() {
       text: 'Twelve targets appear one at a time, some above or below you. Snap to each with the right stick and fire with RT / R2. Go at the speed you would in a real fight.' },
     { kind: 'track', rail: 'track', tag: 'quick', dur: QUICK.trackSeconds, warm: 0, settings: s, intro: true, title: 'Tracking test',
       text: 'Keep the crosshair on the strafing target for 15 seconds. No need to fire.' },
+    turnSegment(),
     ...adsSegments(),
     { kind: 'analyze' }
   ];
+}
+
+// Big turns at full stick, alternating sides, to tune look boost and its ramp-up.
+function turnSegment() {
+  return { kind: 'flick', turn: true, rail: 'turn', tag: 'turn', n: TURNS, warm: 0, settings: settingsOf(cfg), intro: true,
+    title: 'Turn-around drill',
+    text: `${TURNS} targets appear far to your side or behind you. Swing round fast, stop on each and fire. The arrow shows which way to turn.` };
+}
+
+function turnRec(c) {
+  const s = session.segs.find(x => x.turn);
+  return recommendTurn(s && s.data ? turnStats(s.data.list) : null, c, { boost: c.boost, ramp: c.boostRamp });
 }
 
 // Zoomed rounds at the current hip-fire settings times each ADS multiplier: a 1.5x sight, then a 4x scope
@@ -127,7 +142,7 @@ function deepStep() {
     D.pending = null;
   }
   const next = deepNext(D.history, PLAYSTYLES[cfg.style], game(), cfg.sens, D.order);
-  if (!next) { session.segs.push(...adsSegments(), { kind: 'deepDone' }); return advance(); }
+  if (!next) { session.segs.push(turnSegment(), ...adsSegments(), { kind: 'deepDone' }); return advance(); }
   const k = D.history.length + 1;
   const round = { x: next.x, sens: next.sens };
   const settings = { sens: next.sens, ...verticalFor(next.sens), curve: cfg.curve, dz: checkedDz(), outer: checkedOuter() };
@@ -174,6 +189,8 @@ function deepDone() {
   // Every round scales vertical with horizontal, so the up/down vs side-to-side comparison holds across all of them.
   Object.assign(rec, recommendVertical(D.history.flatMap(h => h.flicks), c, rec.sens));
   rec.ads = adsRecs(c, rec.sens);
+  rec.turn = turnRec(c);
+  rec.boost = c.boost; rec.boostRamp = c.boostRamp;
   result = { cfg: c, stats, rec, drift: session.drift, verify: null,
     deep: { res, rounds: D.history.map(h => ({ sens: h.sens, rating: h.rating })) } };
   session = null;
@@ -228,7 +245,7 @@ function begin() {
 function startRun(s) {
   session.phase = 'run';
   if (s.kind === 'drift') s.data = { part: 'rest', t: 0, r: 0, l: 0, lt: 0, rt: 0, warn: 0, reachR: emptyReach(), reachL: emptyReach(), maxLt: 0, maxRt: 0, lDown: false, rDown: false };
-  if (s.kind === 'flick') s.data = { list: [], cur: newFlickTarget(view, Math.random, verticalSlot(0), 1 / (s.zoom || 1)), flash: null };
+  if (s.kind === 'flick') s.data = { list: [], cur: s.turn ? newTurnTarget(view, Math.random, 1) : newFlickTarget(view, Math.random, verticalSlot(0), 1 / (s.zoom || 1)), flash: null };
   if (s.kind === 'track') s.data = makeTrack(s.warm, 1 / (s.zoom || 1));
   renderBrief(true);
 }
@@ -252,6 +269,9 @@ function analyze() {
   const rec = withHardware(recommend(stats, c, session.drift), session.drift);
   Object.assign(rec, recommendVertical(fl, c, rec.sens));
   rec.ads = adsRecs(c, rec.sens);
+  rec.turn = turnRec(c);
+  // Verify compares the other settings; look boost stays at the player's values on both sides.
+  rec.boost = c.boost; rec.boostRamp = c.boostRamp;
   result = { cfg: c, stats, rec, drift: session.drift, verify: null };
   if (c.mode === 'verify' && settingsChanged(c, rec)) {
     session.segs.push(...verifySegments(c, rec));
@@ -345,13 +365,14 @@ function tickFlick(s, dt, fireEdge) {
   const F = s.data;
   const st = steer(view, inp, s.settings, game(), dt);
   if (F.flash) F.flash.t -= dt;
+  if (s.turn) turnStep(F.cur, view, st.mag, dt);
   const out = flickStep(F.cur, view, st.mag, fireEdge, dt);
   if (out === 'miss') F.flash = { yaw: view.yaw, pitch: view.pitch, t: 0.2, good: false };
   if (out === 'hit') F.flash = { yaw: F.cur.yaw, pitch: F.cur.pitch, t: 0.3, good: true };
   if (out === 'hit' || out === 'timeout') {
     F.list.push(F.cur);
     if (F.list.length >= s.n) return advance();
-    F.cur = newFlickTarget(view, Math.random, verticalSlot(F.list.length), 1 / (s.zoom || 1));
+    F.cur = s.turn ? newTurnTarget(view, Math.random, F.list.length % 2 ? -1 : 1) : newFlickTarget(view, Math.random, verticalSlot(F.list.length), 1 / (s.zoom || 1));
   }
 }
 
@@ -377,7 +398,7 @@ function show(name) {
 
 function railKeys() {
   const deep = !!((session && session.deep) || (result && result.deep) || (!session && !result && cfg.mode === 'deep'));
-  const keys = deep ? ['setup', 'drift', 'deep', 'ads'] : ['setup', 'drift', 'flick', 'track', 'ads'];
+  const keys = deep ? ['setup', 'drift', 'deep', 'turn', 'ads'] : ['setup', 'drift', 'flick', 'track', 'turn', 'ads'];
   const verifying = (cfg.mode === 'verify' && !deep) || (result && result.verify) || (session && session.segs.some(s => s.rail === 'verify'));
   if (verifying) keys.push('verify');
   keys.push('results');
@@ -557,6 +578,24 @@ function wireChart() {
 // Relative vertical change for games without their own vertical setting.
 const vRel = m => Math.abs(m - 1) < 0.01 ? 'Same' : `${m > 1 ? '+' : '−'}${Math.round(Math.abs(m - 1) * 100)}%`;
 
+const TURN_WORD = { more: 'More', less: 'Less', sooner: 'More', keep: 'Same' };
+// Look boost rows: the game's own boost and ramp-up settings, or one generic row.
+function turnRows(g, c, t) {
+  if (!t || !t.measured) return '';
+  const tagOf = (a, b) => a > b ? '<span class="tag up">Higher</span>' : a < b ? '<span class="tag down">Lower</span>' : '<span class="tag">Keep</span>';
+  const row = (title, cur, next, tg, why) =>
+    `<div class="rec"><h3>${title}${tg}</h3><div class="val"><s>${cur}</s><b>${next}</b></div><p>${why}</p></div>`;
+  const bs = g.boost && g.boost.setting;
+  if (!bs) {
+    const tg = (t.verdict === 'keep' ? '<span class="tag">Keep</span>' : '<span class="tag up">Change</span>') + '<span class="tag">If your game has it</span>';
+    return row('Turn boost / extra turn speed', 'Now', TURN_WORD[t.verdict], tg, t.why);
+  }
+  const rs = g.boost.rampSetting;
+  const sooner = t.verdict === 'sooner';
+  return row(bs.label, c.boost, t.boost, tagOf(t.boost, c.boost), sooner ? 'Leave the amount. The ramp-up time is what holds it back, see below.' : t.why) +
+    row(rs.label, c.boostRamp.toFixed(1) + ' s', t.ramp.toFixed(1) + ' s', tagOf(t.ramp, c.boostRamp), sooner ? t.why : 'The drill found no reason to change it.');
+}
+
 function renderResults() {
   const { cfg: c, stats: s, rec: r, verify: v } = result;
   const g = GAMES[c.game];
@@ -577,6 +616,11 @@ function renderResults() {
     ['Trailing the target', pct(s.behind)],
     ['Ahead of the target', pct(s.ahead)],
     ['Extra corrections', s.jitter.toFixed(1) + '/s'],
+    ...(r.turn && r.turn.stats ? [
+      ['Big turn time, per 180°', r.turn.stats.per180 == null ? '–' : r.turn.stats.per180.toFixed(2) + ' s'],
+      ['Full stick during big turns', pct(r.turn.stats.fullShare)],
+      ['Blew past the target on big turns', pct(r.turn.stats.over)]
+    ] : []),
     ...(r.ads || []).filter(a => a.stats).flatMap(a => [
       [`Flick throughput, zoomed ${a.spec.zoom}×`, a.stats.throughput == null ? '–' : a.stats.throughput.toFixed(2) + ' bits/s'],
       [`Average tracking error, zoomed ${a.spec.zoom}×`, a.stats.trackErr == null ? '–' : a.stats.trackErr.toFixed(2) + '°']
@@ -606,6 +650,7 @@ function renderResults() {
       ${(r.ads || []).map(a => a.spec.generic
         ? row('ADS sensitivity', 'Now', vRel(a.rel), tag(Math.round(a.rel * 100), 100) + '<span class="tag">If your game has it</span>', a.why)
         : row(a.spec.label, fmtAds(a.spec, a.cur), fmtAds(a.spec, a.next), tag(a.next, a.cur), a.why)).join('')}
+      ${turnRows(g, c, r.turn)}
       ${row(g.dz.label, g.dz.fmt(c.dz), g.dz.fmt(r.dz), r.dzMeasured ? tag(r.dz, c.dz) : '<span class="tag">Not measured</span>', r.dzWhy)}
       ${row(g.curve.label, g.curve[c.curve], g.curve[r.curve], curveTag, r.curveWhy)}
       ${hw.map(h => row(h.st.label, h.st.fmt(h.cur), h.st.fmt(h.next),
@@ -636,6 +681,7 @@ function renderResults() {
     const text = [`Dialed In, ${g.name} (${PLAYSTYLES[c.style].label})`,
       `${g.sens.label}: ${r.sens}`, g.vsens ? `${g.vsens.label}: ${r.vsens}` : `Vertical sensitivity: ${vRel(r.vmult)}`, `${g.dz.label}: ${g.dz.fmt(r.dz)}`, `${g.curve.label}: ${g.curve[r.curve]}`,
       ...(r.ads || []).map(a => a.spec.generic ? `ADS sensitivity: ${vRel(a.rel)}` : `${a.spec.label}: ${fmtAds(a.spec, a.next)}`),
+      ...(r.turn && r.turn.boost != null ? [`${g.boost.setting.label}: ${r.turn.boost}`, `${g.boost.rampSetting.label}: ${r.turn.ramp.toFixed(1)}`] : []),
       ...hw.map(h => `${h.st.label}: ${h.st.fmt(h.next)}`)].join('\n');
     const pre = $('#copytext');
     pre.textContent = text;
@@ -652,19 +698,23 @@ function renderResults() {
 function renderAdsFields(g) {
   const box = $('#ads-fields');
   box.textContent = '';
-  for (const sp of g.ads || []) {
-    const pctUnit = sp.unit === '%';
+  const fields = [...(g.ads || []).map(sp => ({ sp, id: 'ads-' + sp.key, pctUnit: sp.unit === '%', value: cfg.ads[sp.key] }))];
+  if (g.boost && g.boost.setting) {
+    fields.push({ sp: g.boost.setting, id: 'boost', value: cfg.boost, plain: true });
+    fields.push({ sp: g.boost.rampSetting, id: 'boost-ramp', value: cfg.boostRamp, plain: true, unitLabel: ' (seconds)' });
+  }
+  for (const { sp, id, pctUnit, value, plain, unitLabel } of fields) {
     const wrap = document.createElement('div');
     wrap.className = 'field';
     const label = document.createElement('label');
-    label.htmlFor = 'ads-' + sp.key;
-    label.textContent = `${sp.label}, current value${pctUnit ? ' (%)' : ''}`;
+    label.htmlFor = id;
+    label.textContent = `${sp.label}, current value${pctUnit ? ' (%)' : unitLabel || ''}`;
     const input = document.createElement('input');
-    Object.assign(input, { type: 'number', id: 'ads-' + sp.key, inputMode: 'decimal',
+    Object.assign(input, { type: 'number', id, inputMode: 'decimal',
       min: pctUnit ? sp.min * 100 : sp.min, max: pctUnit ? sp.max * 100 : sp.max, step: pctUnit ? 1 : sp.step,
-      value: pctUnit ? Math.round(cfg.ads[sp.key] * 100) : cfg.ads[sp.key].toFixed(2) });
+      value: pctUnit ? Math.round(value * 100) : plain ? value : value.toFixed(2) });
     const small = document.createElement('small');
-    small.textContent = sp.defKnown === false
+    small.textContent = sp.defKnown === false || plain
       ? 'Enter the value from your controller menu.'
       : `${fmtAds(sp, sp.min)} to ${fmtAds(sp, sp.max)}. Default is ${fmtAds(sp, sp.def)}.`;
     wrap.append(label, input, small);
@@ -711,6 +761,7 @@ $('#game').addEventListener('change', e => {
   cfg.sens = game().sens.def;
   cfg.vsens = game().vsens ? game().vsens.def : undefined;
   cfg.ads = adsDefaults(game());
+  Object.assign(cfg, boostDefaults(game()));
   syncSetup();
 });
 document.querySelectorAll('input[name="style"]').forEach(r => r.addEventListener('change', e => { cfg.style = e.target.value; }));
@@ -728,6 +779,12 @@ $('#go').addEventListener('click', () => {
   for (const sp of g.ads || []) {
     const raw = Number($('#ads-' + sp.key).value);
     if (Number.isFinite(raw) && raw > 0) cfg.ads[sp.key] = clamp(sp.unit === '%' ? raw / 100 : raw, sp.min, sp.max);
+  }
+  Object.assign(cfg, boostDefaults(g));
+  if (g.boost && g.boost.setting) {
+    const b = Number($('#boost').value), rr = Number($('#boost-ramp').value);
+    if (Number.isFinite(b)) cfg.boost = clamp(b, g.boost.setting.min, g.boost.setting.max);
+    if (Number.isFinite(rr)) cfg.boostRamp = clamp(rr, g.boost.rampSetting.min, g.boost.rampSetting.max);
   }
   cfg.curve = g.curve.def;
   cfg.dz = g.dz.def;

@@ -8,7 +8,7 @@ settings for their game, each with the measurements behind it.
 
 | Mode | Time | What it does |
 |---|---|---|
-| Quick | ~3 min | Stick check, flick test (12 targets, some above or below), tracking test, zoomed ADS rounds, then suggested settings with reasons. |
+| Quick | ~3 min | Stick check, flick test (12 targets, some above or below), tracking test, turn-around drill, zoomed ADS rounds, then suggested settings with reasons. |
 | Verify | ~5 min | Quick, then a blind ABBA/BAAB test of old vs suggested settings. Reports how likely the new settings are better (bootstrap over targets and tracking seconds), next to the player's own feel ratings. |
 | Deep | ~6 min | Stick check, then 7–9 short blind rounds at different sensitivities. The first three bracket the current speed, round five repeats it as a control, and the rest go where the fitted curve says the best speed is. Reports the best setting, the range within noise of it, and whether sensitivity matters for this player at all. |
 
@@ -32,6 +32,17 @@ carried along with any horizontal change. Games with their own vertical setting 
 of Duty) get a value for it, and setup asks for the current one. Other games get a relative
 suggestion marked "If your game has it". Deep mode keeps the player's vertical-to-horizontal balance
 while it moves the horizontal speed, and scores vertical across all rounds.
+
+## Turn-around drill
+
+Six targets 90–170° to alternating sides, so each turn needs full stick. For each it records time
+to get within 10° (scaled to a 180° turn), share of that time at full stick, the longest unbroken
+full push, and how far the crosshair ran past the target. Blowing past 40% or more of targets by
+more than 8° means less boost. Slow (over 0.85 s per 180°) while holding full stick at least 60% of
+the time means more boost, or a shorter ramp-up when the longest full push is shorter than the
+current ramp-up. Slow without pushing all the way leaves boost alone. ARC Raiders gets Horizontal
+Look Boost (±15) and Look Boost Ramp-up Time (−0.4 s) rows, with setup fields for the current
+values. Other games get a generic "turn boost" row. Verify keeps look boost at the player's values.
 
 ## ADS / zoom
 
@@ -119,5 +130,5 @@ Open `dist/index.html` in Chrome or Edge with a controller connected. No server 
 5. ~~Stick check: movement, outer and trigger deadzones~~
 6. ~~Vertical sensitivity~~
 7. ~~ADS / zoom test~~
-8. Turn-around drill for look boost and ramp-up
+8. ~~Turn-around drill for look boost and ramp-up~~
 9. Deep mode, multi-factor screening

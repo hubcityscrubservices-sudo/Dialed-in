@@ -51,7 +51,12 @@ export const GAMES = {
       label: 'Look Response Curve', def: 'expo', linear: 'Linear', mid: 'Sinusoidal', expo: 'Exponential',
       fn: { mid: s => (1 - Math.cos(Math.PI * s)) / 2 }
     },
-    boost: { label: 'Horizontal Look Boost', mult: 1.55, vmult: 1.15, ramp: 1.6 },
+    // Look Boost and Ramp-up Time are also tuned by the turn-around drill; slider tops are estimated.
+    boost: {
+      label: 'Horizontal Look Boost', mult: 1.55, vmult: 1.15, ramp: 1.6,
+      setting: { label: 'Horizontal Look Boost', min: 0, max: 300, step: 5, def: 55 },
+      rampSetting: { label: 'Look Boost Ramp-up Time', min: 0, max: 2, step: 0.1, def: 1.6 }
+    },
     // Zoom Horizontal/Vertical Look Boost 55/30 with a 1.2 s ramp-up. The 200% slider top is estimated.
     zoomBoost: { label: 'Zoom Horizontal Look Boost', mult: 1.55, vmult: 1.3, ramp: 1.2 },
     ads: [

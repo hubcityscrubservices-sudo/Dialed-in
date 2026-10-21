@@ -35,7 +35,9 @@ export function steer(view, input, settings, game, dt, minDz = 0) {
   const curve = (game.curve.fn && game.curve.fn[settings.curve]) || CURVE_EXP[settings.curve];
   const [sx, sy, mag] = shape(input.rx, input.ry, Math.max(settings.dz, minDz), curve, settings.outer ?? 1);
   let boost = 1, vboost = 1;
-  const b = settings.zoomed && game.zoomBoost ? game.zoomBoost : game.boost;
+  let b = settings.zoomed && game.zoomBoost ? game.zoomBoost : game.boost;
+  // The player's own hip-fire boost values (percent extra speed, ramp-up seconds) override the profile's.
+  if (b && !settings.zoomed && settings.boost != null) b = { ...b, mult: 1 + settings.boost / 100, ramp: settings.boostRamp ?? b.ramp };
   if (b) {
     view.boostT = mag >= 0.95 ? view.boostT + dt : 0;
     const ramp = clamp((view.boostT - BOOST_DELAY) / (b.ramp ?? BOOST_RAMP), 0, 1);
@@ -79,6 +81,31 @@ export function newFlickTarget(view, rng = Math.random, vertical = false, scale 
     yaw, pitch, r, W: 2 * r, D, sy: view.yaw, sp: view.pitch, ux: dy / D, uy: dp / D,
     maxProj: 0, segs: 0, active: false, shots: 0, t: 0, hit: false, overshoot: false, first: null
   };
+}
+
+/* ---------- turn-around trials ---------- */
+
+// A target 90-170 degrees to one side, so the turn needs full stick (and look boost, where the game has it).
+export function newTurnTarget(view, rng = Math.random, side = 1) {
+  const yaw = view.yaw + side * (90 + rng() * 80);
+  const pitch = clamp(view.pitch + (rng() - 0.5) * 10, -30, 30);
+  const dy = yaw - view.yaw, dp = pitch - view.pitch, D = Math.hypot(dy, dp);
+  const r = 3;
+  return {
+    yaw, pitch, r, W: 2 * r, D, sy: view.yaw, sp: view.pitch, ux: dy / D, uy: dp / D,
+    maxProj: 0, segs: 0, active: false, shots: 0, t: 0, hit: false, overshoot: false, first: null,
+    turn: true, reachT: null, fullT: 0, stintT: 0, maxStint: 0
+  };
+}
+
+export const REACH_DEG = 10;
+// Before the crosshair first gets within REACH_DEG: time at full stick and the longest unbroken full push.
+// Call before flickStep each frame.
+export function turnStep(T, view, mag, dt) {
+  if (T.reachT != null) return;
+  if (mag >= 0.95) { T.fullT += dt; T.stintT += dt; T.maxStint = Math.max(T.maxStint, T.stintT); }
+  else T.stintT = 0;
+  if (Math.hypot(view.yaw - T.yaw, view.pitch - T.pitch) < REACH_DEG) T.reachT = T.t + dt;
 }
 
 function along(T, view) {

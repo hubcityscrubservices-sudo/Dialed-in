@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { shape, steer, makeView, newFlickTarget, flickStep, makeTrack, trackStep } from '../src/sim.js';
-import { flickThroughput, recommend, summarize, driftDeadzone, recommendVertical, isVertical, settingsChanged, recommendAds, speedAdjust } from '../src/analysis.js';
+import { shape, steer, makeView, newFlickTarget, flickStep, makeTrack, trackStep, newTurnTarget, turnStep } from '../src/sim.js';
+import { flickThroughput, recommend, summarize, driftDeadzone, recommendVertical, isVertical, settingsChanged, recommendAds, speedAdjust, turnStats, recommendTurn } from '../src/analysis.js';
 import { verifyPlan, verifyCompare } from '../src/verify.js';
 import { GAMES, adsSpecs, fmtAds } from '../src/games.js';
 import { mulberry32 } from '../src/util.js';
@@ -319,4 +319,62 @@ test('ADS: explanation matches the direction when the hip-fire change outweighs 
   const r = recommendAds(mix([], ['short', 'short', 'ok', 'ok']), trackOf(0.35, 0.25), c, 60, spec, spec.def);
   assert.ok(r.rel < 1);
   assert.match(r.why, /faster\. .*multiplier comes down/);
+});
+
+test('turn targets sit 90-170 degrees to the chosen side', () => {
+  const rng = mulberry32(61);
+  for (const side of [1, -1]) for (let i = 0; i < 20; i++) {
+    const T = newTurnTarget(makeView(), rng, side);
+    const off = (T.yaw - T.sy) * side;
+    assert.ok(off >= 90 && off <= 170);
+  }
+});
+
+test('turnStep records full-stick time, longest push and when the target came within reach', () => {
+  const view = makeView();
+  const T = newTurnTarget(view, mulberry32(62), 1);
+  turnStep(T, view, 1, 0.5); T.t += 0.5;
+  turnStep(T, view, 0.5, 0.2); T.t += 0.2;
+  turnStep(T, view, 1, 0.3); T.t += 0.3;
+  assert.equal(T.fullT, 0.8); assert.equal(T.maxStint, 0.5); assert.equal(T.reachT, null);
+  view.yaw = T.yaw - 5; view.pitch = T.pitch;
+  turnStep(T, view, 1, 0.1);
+  assert.ok(Math.abs(T.reachT - 1.1) < 1e-9);
+});
+
+test('player boost values override the profile in hip-fire only', () => {
+  const g = GAMES.arc, base = { sens: 80, vsens: 60, curve: 'linear', dz: 0, boost: 100, boostRamp: 0.5 };
+  const v = makeView();
+  const first = steer(v, { rx: 1, ry: 0 }, base, g, 0.05).vy;
+  for (let i = 0; i < 20; i++) steer(v, { rx: 1, ry: 0 }, base, g, 0.05);
+  assert.ok(Math.abs(steer(v, { rx: 1, ry: 0 }, base, g, 0.05).vy / first - 2) < 1e-9);
+});
+
+const turnTrial = (D, reachT, fullT, maxStint, past) => ({ D, reachT, fullT, maxStint, maxProj: D + past });
+const arcTurn = { ...cfg, game: 'arc', sens: 80 };
+
+test('turn drill: blowing past targets lowers look boost', () => {
+  const st = turnStats([turnTrial(150, 0.6, 0.5, 0.5, 15), turnTrial(120, 0.5, 0.4, 0.4, 12), turnTrial(160, 0.7, 0.6, 0.6, 2)]);
+  const r = recommendTurn(st, arcTurn, { boost: 55, ramp: 1.6 });
+  assert.equal(r.verdict, 'less'); assert.equal(r.boost, 40); assert.equal(r.ramp, 1.6);
+});
+
+test('turn drill: slow at full stick with long pushes raises boost', () => {
+  const st = turnStats([turnTrial(150, 1.2, 1.0, 1.8, 0), turnTrial(120, 1.0, 0.9, 1.7, 0), turnTrial(160, 1.3, 1.1, 1.9, 0)]);
+  const r = recommendTurn(st, arcTurn, { boost: 55, ramp: 1.6 });
+  assert.equal(r.verdict, 'more'); assert.equal(r.boost, 70);
+});
+
+test('turn drill: pushes shorter than the ramp-up shorten the ramp', () => {
+  const st = turnStats([turnTrial(150, 1.2, 1.0, 0.9, 0), turnTrial(120, 1.0, 0.9, 0.8, 0), turnTrial(160, 1.3, 1.1, 1.0, 0)]);
+  const r = recommendTurn(st, arcTurn, { boost: 55, ramp: 1.6 });
+  assert.equal(r.verdict, 'sooner'); assert.equal(r.ramp, 1.2); assert.equal(r.boost, 55);
+  assert.match(r.why, /shorter than the 1\.6 s/);
+});
+
+test('turn drill: slow without pushing all the way leaves boost alone; other games get a verdict only', () => {
+  const st = turnStats([turnTrial(150, 1.4, 0.2, 0.2, 0), turnTrial(120, 1.2, 0.2, 0.2, 0), turnTrial(160, 1.5, 0.3, 0.3, 0)]);
+  assert.equal(recommendTurn(st, arcTurn, { boost: 55, ramp: 1.6 }).verdict, 'keep');
+  const g = recommendTurn(turnStats([turnTrial(150, 1.2, 1.0, 1.8, 0), turnTrial(160, 1.3, 1.1, 1.9, 0)]), { ...cfg, game: 'fortnite' });
+  assert.equal(g.verdict, 'more'); assert.equal(g.boost, undefined);
 });
