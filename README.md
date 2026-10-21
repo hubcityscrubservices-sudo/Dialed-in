@@ -17,10 +17,11 @@ settings for their game, each with the measurements behind it.
 Call of Duty, Fortnite, Apex Legends, ARC Raiders, and a generic profile. Profiles live in
 `src/games.js`. Turn rates are modeled approximations.
 
-ARC Raiders menu names come from the PS5 Wireless Controller screen. Its sensitivity range
-(1–500) is estimated from the slider position and still needs confirming. The game has no outer or
-trigger deadzone, so those rows don't appear for it. The range models a third-person camera and
-Look Boost (+55% turn speed at full stick, ramping up over 1.6 s).
+ARC Raiders menu names, the sensitivity range (1–400) and the three response curves (Linear,
+Sinusoidal, Exponential) come from the PS5 Wireless Controller screen. The game has no outer or
+trigger deadzone, so those rows don't appear for it. The range models a third-person camera, Look
+Boost (+55% turn speed at full stick, ramping up over 1.6 s, an assumption about what 55 means) and
+Sinusoidal as an S-curve. A game can give each curve slot its own shape (`curve.fn`).
 
 ## Stick check
 

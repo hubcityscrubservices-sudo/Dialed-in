@@ -61,7 +61,8 @@ export function recommend(s, c, drift) {
   else if (adj !== 0) sensWhy = measured + ` The change this points to is smaller than one step in ${g.name}, so keep your setting.`;
   else sensWhy = measured + ' Those errors balance out, so your current speed suits you.';
 
-  let curve = 'mid', curveWhy = 'No strong pattern in your fine aim. The standard curve fits.';
+  const keepWhy = 'No strong pattern in your fine aim, so keep your current curve.';
+  let curve = c.curve, curveWhy = keepWhy;
   if (s.over > 0.4 || s.jitter > 2.5) {
     curve = 'expo';
     curveWhy = s.jitter > 2.5
@@ -71,8 +72,11 @@ export function recommend(s, c, drift) {
     curve = 'linear';
     curveWhy = 'Your aim got moving late on small stick pushes. A linear curve responds sooner.';
   }
+  if (curve === c.curve && curveWhy !== keepWhy) {
+    curveWhy += ` Your current ${g.curve[c.curve]} curve already does that, so keep it.`;
+  }
   // Only suggest a change the game's menu can actually express.
-  if (curve !== c.curve && g.curve[curve] === g.curve[c.curve]) {
+  else if (curve !== c.curve && g.curve[curve] === g.curve[c.curve]) {
     curveWhy += ` ${g.name} has no option closer to that than ${g.curve[c.curve]}, so keep it.`;
     curve = c.curve;
   }

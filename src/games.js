@@ -30,16 +30,20 @@ export const GAMES = {
     curve: { label: 'Response curve', def: 'mid', linear: 'Linear', mid: 'Classic', expo: 'Steady' }
   },
   arc: {
-    // Menu names from a player's PS5 Wireless Controller screen. Defaults there are that player's values;
-    // the sensitivity range (1-500) is estimated from slider positions. The menu has no outer or trigger
-    // deadzone. Look Boost (55) is modeled as +55% turn speed at full stick, ramping up over 1.6 s.
+    // Menu names, ranges and curve options from a player's PS5 Wireless Controller screen; defaults
+    // there are that player's values. The menu has no outer or trigger deadzone. Look Boost (55) is
+    // modeled as +55% turn speed at full stick, ramping up over 1.6 s. Sinusoidal is modeled as an
+    // S-curve: softer than linear near center, quicker than exponential through the middle.
     name: 'ARC Raiders', camera: 'third', source: 'menu',
-    sens: { label: 'Horizontal Sensitivity', min: 1, max: 500, step: 1, def: 80, defKnown: false, rate: s => s * 2.6 },
+    sens: { label: 'Horizontal Sensitivity', min: 1, max: 400, step: 1, def: 80, defKnown: false, rate: s => s * 2.6 },
     dz: { label: 'Look Inner Deadzone', def: 0.05, fmt: d => String(Math.round(d * 100)) },
     moveDz: { label: 'Movement Inner Deadzone', def: 0.15, fmt: d => String(Math.round(d * 100)) },
     outer: null,
     trigger: null,
-    curve: { label: 'Look Response Curve', def: 'mid', linear: 'Linear', mid: 'Exponential', expo: 'Exponential' },
+    curve: {
+      label: 'Look Response Curve', def: 'expo', linear: 'Linear', mid: 'Sinusoidal', expo: 'Exponential',
+      fn: { mid: s => (1 - Math.cos(Math.PI * s)) / 2 }
+    },
     boost: { label: 'Horizontal Look Boost', mult: 1.55, ramp: 1.6 }
   },
   other: {

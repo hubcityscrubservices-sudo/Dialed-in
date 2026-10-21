@@ -86,9 +86,9 @@ test('recommend: balanced errors keep the setting', () => {
 });
 
 test('recommend: never suggests a curve the menu shows the same as the current one', () => {
-  const arc = { ...cfg, game: 'arc', sens: 100 };
-  const r = recommend({ ...base, over: 0.6, under: 0.1, behind: 0.1, ahead: 0.5 }, arc, null);
-  assert.equal(r.curve, 'mid'); // ARC Raiders has no separate "expo" option
+  const fortnite = { ...cfg, game: 'fortnite', sens: 45 };
+  const r = recommend({ ...base, over: 0.6, under: 0.1, behind: 0.1, ahead: 0.5 }, fortnite, null);
+  assert.equal(r.curve, 'mid'); // Fortnite shows both softer slots as "Exponential"
   assert.match(r.curveWhy, /so keep it/);
 });
 
@@ -158,4 +158,32 @@ test('verifyCompare: a side that scores zero throughput still compares', () => {
   const v = verifyCompare({ A: stuck, B: fakeSide(rng, 0.7, 4, 3) }, { wf: 0.5, wt: 0.5 }, mulberry32(14), 500);
   assert.equal(v.verdict, 'better');
   assert.ok(v.flick.delta > 0);
+});
+
+test('ARC Raiders curves: linear, sinusoidal S-curve, exponential', () => {
+  const g = GAMES.arc;
+  assert.deepEqual([g.curve.linear, g.curve.mid, g.curve.expo], ['Linear', 'Sinusoidal', 'Exponential']);
+  assert.equal(g.curve.def, 'expo');
+  const sin = g.curve.fn.mid;
+  assert.equal(sin(0), 0); assert.ok(Math.abs(sin(1) - 1) < 1e-12); assert.ok(Math.abs(sin(0.5) - 0.5) < 1e-12);
+  // Softer than linear near center, quicker than the exponential slot through the middle.
+  assert.ok(sin(0.15) < 0.15);
+  assert.ok(sin(0.4) > shape(0.4, 0, 0, 2.5)[2]);
+  // The range uses the game's own shape for that slot.
+  const v = makeView();
+  const vy = steer(v, { rx: 0.4, ry: 0 }, { sens: 100, curve: 'mid', dz: 0 }, g, 0.05).vy;
+  assert.ok(Math.abs(vy - sin(0.4) * g.sens.rate(100)) < 1e-9);
+});
+
+test('recommend keeps the current curve when there is no clear pattern', () => {
+  const arc = { ...cfg, game: 'arc', sens: 80, curve: 'expo' };
+  const r = recommend({ ...base, over: 0.3, under: 0.3, behind: 0.3, ahead: 0.3 }, arc, null);
+  assert.equal(r.curve, 'expo');
+});
+
+test('recommend says so when the current curve already matches the advice', () => {
+  const arc = { ...cfg, game: 'arc', sens: 80, curve: 'expo' };
+  const r = recommend({ ...base, over: 0.6, under: 0.1, behind: 0.1, ahead: 0.5 }, arc, null);
+  assert.equal(r.curve, 'expo');
+  assert.match(r.curveWhy, /current Exponential curve already does that/);
 });

@@ -1,5 +1,6 @@
 import { clamp } from './util.js';
 
+// Curve slots, from most responsive near center to softest. A game can swap in its own shape per slot.
 export const CURVE_EXP = { linear: 1.0, mid: 1.8, expo: 2.5 };
 export const FOV = 80;          // horizontal degrees shown in the range
 export const PITCH_SCALE = 0.8; // vertical turn speed relative to horizontal
@@ -10,19 +11,21 @@ export function makeView() {
   return { yaw: 0, pitch: 0, boostT: 0 };
 }
 
-// Radial deadzone, rescaled so full output arrives at `outer` push, then the response curve.
-export function shape(x, y, dz, exp, outer = 1) {
+// Radial deadzone, rescaled so full output arrives at `outer` push, then the response curve
+// (an exponent, or a function from 0..1 to 0..1).
+export function shape(x, y, dz, curve, outer = 1) {
   const m = Math.hypot(x, y);
   if (m <= dz) return [0, 0, 0];
   const s = Math.min(1, (m - dz) / (outer - dz));
-  const o = Math.pow(s, exp);
+  const o = typeof curve === 'function' ? curve(s) : Math.pow(s, curve);
   return [x / m * o, y / m * o, o];
 }
 
 // Turns the view for one frame. `settings` is { sens, curve, dz, outer? }.
 export function steer(view, input, settings, game, dt, minDz = 0) {
   const rate = game.sens.rate(settings.sens);
-  const [sx, sy, mag] = shape(input.rx, input.ry, Math.max(settings.dz, minDz), CURVE_EXP[settings.curve], settings.outer ?? 1);
+  const curve = (game.curve.fn && game.curve.fn[settings.curve]) || CURVE_EXP[settings.curve];
+  const [sx, sy, mag] = shape(input.rx, input.ry, Math.max(settings.dz, minDz), curve, settings.outer ?? 1);
   let boost = 1;
   if (game.boost) {
     view.boostT = mag >= 0.95 ? view.boostT + dt : 0;
