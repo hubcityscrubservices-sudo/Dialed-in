@@ -359,3 +359,10 @@ pre#copytext { font: 12px/1.5 var(--mono); background: rgba(8, 16, 23, 0.6); bor
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* Mouse check diagram */
+.swipe-fig { margin: 10px 0 0; display: grid; gap: 6px; max-width: 460px; }
+.swipe-fig svg { width: 100%; height: auto; display: block; }
+.swipe-fig .sf-k { font: 600 13px var(--mono); fill: var(--ink); letter-spacing: .06em; }
+.swipe-fig .sf-s { font: 500 13px var(--body); fill: var(--muted); }
+.swipe-fig figcaption { color: var(--muted); font-size: 13.5px; line-height: 1.45; }

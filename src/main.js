@@ -63,10 +63,10 @@ const STICK_PART_TEXT = {
 };
 
 const MOUSE_CHECK = { kind: 'mcheck', rail: 'drift', intro: true, title: 'Mouse check',
-  text: `Three swipes across a bank card, about 20 seconds. This measures your mouse's real DPI, whether pointer acceleration is on, and its report rate. Have a card (or anything 8.56 cm long) on your mouse pad.` };
+  text: 'Three slides along a bank card (3.37 inches), about 20 seconds. This measures your mouse\'s real DPI, whether pointer acceleration is on, and its report rate. Lay the card flat on your mouse pad, with room for the mouse beside it.' };
 const SWIPE_TEXT = {
-  slow: 'Line the left edge of your mouse up with the left end of the card. Hold the left button, slide slowly until the mouse edge reaches the right end, then let go.',
-  fast: 'Same again, but quick: one fast slide across the card, then let go.'
+  slow: 'Put the mouse\'s left side on the card\'s left end. Hold the left button, slide slowly to the right, and let go when that same left side reaches the card\'s right end (3.37 inches).',
+  fast: 'Same start and stop, but one quick slide, then let go.'
 };
 // The mouse check is skipped when the DPI was already measured from setup this visit.
 const checkSteps = () => isMouse() ? (mouseCheck && mouseCheck.cpcm ? [] : [MOUSE_CHECK]) : [STICK_CHECK];
@@ -502,7 +502,7 @@ function tickMouseCheck(s) {
 // "Measure my DPI" in setup: just the card swipes, then back to the form with the result filled in.
 $('#dpi-measure').addEventListener('click', () => {
   readSetup();
-  start([{ ...MOUSE_CHECK, title: 'Measure your DPI', text: 'Three swipes across a bank card, about 20 seconds. Have a card (or anything 8.56 cm long) on your mouse pad, then press Start.' }, { kind: 'dpiDone' }], null);
+  start([{ ...MOUSE_CHECK, title: 'Measure your DPI', text: 'Three slides along a bank card (3.37 inches), about 20 seconds. Lay the card flat on your mouse pad with room for the mouse beside it, then press Start.' }, { kind: 'dpiDone' }], null);
 });
 function dpiDone() {
   const m = session.mouse;
@@ -622,6 +622,7 @@ function renderBrief(force) {
   if (P === 'count') text = 'Get ready.';
   if (P === 'run' && s.kind === 'drift') text = STICK_PART_TEXT[s.data.part];
   $('#brief-text').textContent = text;
+  $('#swipe-fig').hidden = s.kind !== 'mcheck' || P !== 'intro'; // the range draws it during the slides
 
   const act = $('#brief-actions');
   act.textContent = '';
@@ -1360,37 +1361,68 @@ function drawPaused(ctx, W, H, d) {
   ctx.fillText('Click the range to pick the mouse back up', W / 2, H * 0.56);
 }
 
-// The card to swipe across, the swipes done, and the live count of the one in progress.
+// The mouse check as a picture: the card, START and STOP lines at its ends, and a mouse outline that
+// slides with the real swipe (scaled to a card length at the DPI entered, so only a rough guide), its left side marked.
 function drawMouseCheck(ctx, D, W, H, d) {
-  ctx.fillStyle = tok('--arena'); ctx.globalAlpha = 0.72; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
+  ctx.fillStyle = tok('--arena'); ctx.globalAlpha = 0.78; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
   const k = Math.min(D.swipes.length, SWIPES.length - 1), speed = SWIPES[k];
-  const cw = Math.min(W * 0.42, H * 0.85), ch = cw * 54 / 85.6, cx = W / 2, cy = H * 0.5;
-  const x0 = cx - cw / 2, y0 = cy - ch / 2, r = 10 * d;
+  const cw = Math.min(W * 0.34, H * 0.42), ch = cw * 54 / 85.6;
+  const mw = cw * 0.44, mh = cw * 0.64;
+  const x0 = W / 2 - (cw + mw) / 2;                       // card's left end = START line
+  const my = H * 0.2, cy0 = my + mh + 10 * d;              // mouse row, then the card under it
+  const sw = mouse.swipe;
+  const prog = sw ? Math.hypot(sw.dx, sw.dy) / (cfg.dpi / 2.54 * CARD_CM) : 0;
+  const ink = '#EDF1EA', ember = '#FF5E3A', sun = '#FFB547';
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#F4F1E8';
-  ctx.font = `800 ${Math.round(H * 0.06)}px ${tok('--display')}`;
-  ctx.fillText(`SWIPE ${k + 1} OF ${SWIPES.length} · ${speed.toUpperCase()}`, cx, H * 0.12);
-  const g = ctx.createLinearGradient(x0, y0, x0 + cw, y0 + ch);
-  g.addColorStop(0, 'rgba(255,181,71,0.22)'); g.addColorStop(1, 'rgba(255,94,58,0.10)');
-  ctx.fillStyle = g; ctx.strokeStyle = 'rgba(244,241,232,0.7)'; ctx.lineWidth = 2 * d;
-  ctx.beginPath(); ctx.roundRect(x0, y0, cw, ch, r); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = 'rgba(255,181,71,0.55)'; ctx.fillRect(x0 + cw * 0.1, y0 + ch * 0.3, cw * 0.16, ch * 0.22); // chip
-  // the edges to line up with, and the direction
-  ctx.strokeStyle = '#FF5E3A'; ctx.lineWidth = 3 * d;
-  for (const x of [x0, x0 + cw]) { ctx.beginPath(); ctx.moveTo(x, y0 - 14 * d); ctx.lineTo(x, y0 + ch + 14 * d); ctx.stroke(); }
-  const ay = y0 + ch * 0.78, sw = mouse.swipe;
-  // Progress against a card length at the DPI entered in setup.
-  const prog = sw ? Math.hypot(sw.dx, sw.dy) / (cfg.dpi / 2.54 * CARD_CM) : null;
-  ctx.strokeStyle = 'rgba(244,241,232,0.35)'; ctx.lineWidth = 2 * d;
-  ctx.beginPath(); ctx.moveTo(x0 + cw * 0.1, ay); ctx.lineTo(x0 + cw * 0.9, ay); ctx.stroke();
-  ctx.fillStyle = 'rgba(244,241,232,0.35)';
-  ctx.beginPath(); ctx.moveTo(x0 + cw * 0.9 + 10 * d, ay); ctx.lineTo(x0 + cw * 0.9 - 4 * d, ay - 8 * d); ctx.lineTo(x0 + cw * 0.9 - 4 * d, ay + 8 * d); ctx.closePath(); ctx.fill();
-  if (prog != null) { ctx.fillStyle = '#FFB547'; ctx.beginPath(); ctx.arc(x0 + cw * 0.1 + cw * 0.8 * Math.min(prog, 1.1), ay, 7 * d, 0, Math.PI * 2); ctx.fill(); }
-  ctx.font = `500 ${Math.round(H * 0.04)}px ${tok('--mono')}`;
-  ctx.fillStyle = '#F4F1E8';
-  ctx.fillText(sw ? `${Math.round(Math.hypot(sw.dx, sw.dy))} counts` : 'Hold the left button and slide', cx, y0 + ch + H * 0.09);
-  ctx.fillStyle = 'rgba(244,241,232,0.6)';
-  ctx.fillText(D.swipes.map(x => Math.round(Math.hypot(x.dx, x.dy) / CARD_CM * 2.54) + ' DPI').join('   ·   ') || '8.56 cm', cx, y0 + ch + H * 0.16);
+  ctx.fillStyle = ink;
+  ctx.font = `800 ${Math.round(H * 0.055)}px ${tok('--display')}`;
+  ctx.fillText(`SLIDE ${k + 1} OF ${SWIPES.length} · ${speed.toUpperCase()}`, W / 2, H * 0.07);
+
+  // START / STOP guides
+  ctx.setLineDash([6 * d, 5 * d]); ctx.strokeStyle = ember; ctx.lineWidth = 2 * d;
+  for (const x of [x0, x0 + cw]) { ctx.beginPath(); ctx.moveTo(x, my - 8 * d); ctx.lineTo(x, cy0 + ch + 8 * d); ctx.stroke(); }
+  ctx.setLineDash([]);
+  ctx.font = `600 ${Math.round(H * 0.032)}px ${tok('--mono')}`;
+  ctx.fillText('START', x0, my - 20 * d);
+  ctx.fillText('STOP', x0 + cw, my - 20 * d);
+
+  const mouseAt = (x, ghost) => {
+    ctx.save();
+    ctx.globalAlpha = ghost ? 0.45 : 1;
+    if (ghost) ctx.setLineDash([7 * d, 6 * d]);
+    ctx.beginPath(); ctx.roundRect(x, my, mw, mh, mw / 2);
+    if (!ghost) { ctx.fillStyle = 'rgba(244,241,232,0.12)'; ctx.fill(); }
+    ctx.strokeStyle = ink; ctx.lineWidth = 2.5 * d; ctx.stroke();
+    ctx.setLineDash([]);
+    if (!ghost) {
+      ctx.globalAlpha = 0.6; ctx.lineWidth = 1.5 * d;
+      ctx.beginPath(); ctx.moveTo(x + mw / 2, my); ctx.lineTo(x + mw / 2, my + mh * 0.38); ctx.moveTo(x, my + mh * 0.38); ctx.lineTo(x + mw, my + mh * 0.38); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    ctx.fillStyle = ember; ctx.beginPath(); ctx.roundRect(x - 3 * d, my + mh * 0.33, 6 * d, mh * 0.36, 3 * d); ctx.fill(); // its left side
+    ctx.restore();
+  };
+  mouseAt(x0 + cw, true);
+  const mx = x0 + cw * Math.min(prog, 1.25);
+  mouseAt(mx, false);
+
+  // the card, beside the mouse's path
+  const g = ctx.createLinearGradient(x0, cy0, x0 + cw, cy0 + ch);
+  g.addColorStop(0, 'rgba(255,181,71,0.24)'); g.addColorStop(1, 'rgba(255,94,58,0.10)');
+  ctx.fillStyle = g; ctx.strokeStyle = 'rgba(244,241,232,0.75)'; ctx.lineWidth = 2 * d;
+  ctx.beginPath(); ctx.roundRect(x0, cy0, cw, ch, 8 * d); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,181,71,0.6)'; ctx.fillRect(x0 + cw * 0.09, cy0 + ch * 0.28, cw * 0.16, ch * 0.24);
+  ctx.fillStyle = 'rgba(237,241,234,0.7)'; ctx.font = `500 ${Math.round(H * 0.03)}px ${tok('--body')}`;
+  ctx.fillText('bank card', x0 + cw / 2, cy0 + ch * 0.62);
+  ctx.fillStyle = ink; ctx.font = `600 ${Math.round(H * 0.032)}px ${tok('--mono')}`;
+  ctx.fillText('3.37 in · 8.56 cm', x0 + cw / 2, cy0 + ch + 18 * d);
+
+  ctx.font = `500 ${Math.round(H * 0.034)}px ${tok('--mono')}`;
+  ctx.fillStyle = 'rgba(237,241,234,0.75)';
+  const done = D.swipes.map(x => Math.round(Math.hypot(x.dx, x.dy) / CARD_CM * 2.54) + ' DPI').join('   ·   ');
+  // The picture moves at the DPI typed in setup, which is what's being checked, so the real card decides.
+  ctx.fillText(sw ? 'Watch the real card, not this picture. Let go at its right end.' : 'Hold the left button and slide right', W / 2, H * 0.89);
+  if (done) { ctx.fillStyle = sun; ctx.fillText(done, W / 2, H * 0.95); }
 }
 
 // Edge roll: lit wedges show the directions already pushed to the edge. Squeeze: trigger travel bars.
@@ -1541,6 +1573,7 @@ function renderChalBrief(force) {
   if (key === chalBriefKey && !force) return;
   chalBriefKey = key;
   const di = c.duel ? c.duel.i : 0;
+  $('#swipe-fig').hidden = true;
   $('#brief-title').textContent = c.duel ? (c.phase === 'rate' ? `How did run ${di + 1} feel?` : `Settings duel · run ${di + 1} of ${DUEL.runs}`)
     : c.kind === 'daily' ? `Daily challenge · ${c.code.slice(2)}` : c.kind === 'practice' ? 'Practice challenge' : `Challenge ${c.code}`;
   $('#brief-text').textContent = c.phase === 'rate' ? 'Go with your gut. You can skip this.'

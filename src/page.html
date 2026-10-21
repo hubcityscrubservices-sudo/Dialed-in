@@ -111,7 +111,7 @@
           <div class="field" id="dpi-field" hidden>
             <label for="dpi">Mouse DPI</label>
             <input id="dpi" type="number" inputmode="numeric" value="800" min="100" max="32000" step="1">
-            <small id="dpi-help">From your mouse software. Not sure? Measure it with three swipes across a bank card, about 20 seconds.</small>
+            <small id="dpi-help">From your mouse software. Not sure? Measure it with three swipes along a bank card (3.37 in), about 20 seconds.</small>
             <button class="btn small" id="dpi-measure" type="button" style="justify-self:start">Measure my DPI</button>
           </div>
           <div class="field" id="cm0-field" hidden>
@@ -146,6 +146,35 @@
             <p class="eyebrow">Objective</p>
             <h2 id="brief-title"></h2>
             <p class="lede" id="brief-text"></p>
+            <figure class="swipe-fig" id="swipe-fig" hidden>
+              <svg viewBox="0 0 520 300" role="img" aria-labelledby="swipe-fig-cap">
+                <defs><marker id="sf-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#FFB547"/></marker></defs>
+                <!-- guides: the same side of the mouse lines up with each end of the card -->
+                <path d="M150 34V262M330 34V262" stroke="#FF5E3A" stroke-width="2" stroke-dasharray="6 5"/>
+                <text x="150" y="24" text-anchor="middle" class="sf-k">START</text>
+                <text x="330" y="24" text-anchor="middle" class="sf-k">STOP</text>
+                <!-- mouse at the start, and where it stops -->
+                <g transform="translate(150 40)">
+                  <rect width="84" height="122" rx="42" fill="rgba(244,241,232,0.10)" stroke="#EDF1EA" stroke-width="2.5"/>
+                  <path d="M42 0V46M0 46H84" stroke="#EDF1EA" stroke-width="1.6" opacity=".6"/><rect x="38" y="16" width="8" height="18" rx="4" fill="#EDF1EA" opacity=".7"/>
+                  <rect x="-3" y="40" width="7" height="44" rx="3.5" fill="#FF5E3A"/>
+                </g>
+                <g transform="translate(330 40)" opacity=".55">
+                  <rect width="84" height="122" rx="42" fill="none" stroke="#EDF1EA" stroke-width="2.5" stroke-dasharray="7 6"/>
+                  <rect x="-3" y="40" width="7" height="44" rx="3.5" fill="#FF5E3A"/>
+                </g>
+                <path d="M244 101H316" stroke="#FFB547" stroke-width="3" marker-end="url(#sf-arrow)"/>
+                <text x="280" y="90" text-anchor="middle" class="sf-s">slide</text>
+                <!-- the card, beside the mouse's path -->
+                <rect x="150" y="174" width="180" height="88" rx="9" fill="rgba(255,181,71,0.16)" stroke="#EDF1EA" stroke-width="2"/>
+                <rect x="166" y="198" width="30" height="22" rx="3" fill="rgba(255,181,71,0.6)"/>
+                <text x="240" y="236" text-anchor="middle" class="sf-s">bank card</text>
+                <path d="M150 282H330" stroke="#93A7AC" stroke-width="1.5"/><path d="M150 276V288M330 276V288" stroke="#93A7AC" stroke-width="1.5"/>
+                <text x="240" y="298" text-anchor="middle" class="sf-k">3.37 in · 8.56 cm</text>
+                <text x="448" y="100" class="sf-s"><tspan x="430" dy="0">Same side</tspan><tspan x="430" dy="16">of the mouse</tspan><tspan x="430" dy="16">at both lines</tspan></text>
+              </svg>
+              <figcaption id="swipe-fig-cap">Line up the mouse's left side with the card's left end. Slide until that same side reaches the card's right end. Keep the mouse beside the card, not on it.</figcaption>
+            </figure>
           </div>
           <div class="actions" id="brief-actions"></div>
         </div>
