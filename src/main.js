@@ -6,9 +6,11 @@ import { DEEP, SCREEN, deepNext, deepAnalyze, shuffled, screenPlan, altCurve, sc
 import { emptyReach, recordReach, coverage, stickReport, outerFromReach, hardwareRecs } from './hardware.js';
 import { clamp, pct } from './util.js';
 import { buildExport } from './export.js';
-import { DT, dailyCode, practiceCode, isCode, quantize, createChallenge, step as chStep, summary as chSummary,
+import { DT, hashSeed, dailyCode, practiceCode, isCode, quantize, createChallenge, step as chStep, summary as chSummary,
   newRecording, record, encodeReplay } from './challenge.js';
 import { reportCard } from './report.js';
+import { makeWorld, paintSky, paintTerrain, paintCompass, paintDrone, paintOffscreen, trailPoint, paintTrail,
+  noteFlash, paintFx, paintCrosshair, paintFigure, paintLens, paintCountdown } from './scenery.js';
 import { DUEL, duelPlan, duelCompare } from './duel.js';
 import { boardsOn, submitScore, fetchBoard, playerId, savedName, saveName } from './leaderboard.js';
 
@@ -510,7 +512,7 @@ function renderRail() {
     if (i < idx) li.className = 'done';
     if (i === idx) li.className = 'now';
     const n = document.createElement('span');
-    n.className = 'n'; n.textContent = String(i + 1);
+    n.className = 'n'; n.textContent = String(i + 1).padStart(2, '0');
     li.append(n, RAIL[k]);
     ol.append(li);
   });
@@ -619,7 +621,7 @@ function screenTable(sc, g) {
     sc.curve ? [g.curve.label, `${sc.curve.a} vs ${sc.curve.b}`, verdictText(sc.curve)] : null,
     sc.vert ? [g.vsens ? g.vsens.label : 'Vertical speed', `${sc.vert.a} vs ${sc.vert.b}`, verdictText(sc.vert)] : null
   ].filter(Boolean);
-  return `<div style="display:grid;gap:8px"><h3 style="font-size:16px">Tested blind at your best speed</h3>
+  return `<div style="display:grid;gap:8px"><h3 class="sub">Tested blind at your best speed</h3>
     <div class="table-wrap"><table><thead><tr><th>Setting</th><th>Compared</th><th>Winner</th></tr></thead>
     <tbody>${rows.map(r => `<tr><td>${r[0]}</td><td class="num">${r[1]}</td><td>${r[2]}</td></tr>`).join('')}</tbody></table></div>
     <p class="fine">Four rounds can only pick out a clear difference, about 15% or more. Smaller ones read as too close to tell.</p></div>`;
@@ -775,7 +777,7 @@ function renderResults() {
     ${verifyHtml}
     ${duelHtml}
     <div style="display:grid;gap:10px">
-      <h3 style="font-size:16px">What the tests measured</h3>
+      <h3 class="sub">What the tests measured</h3>
       <div class="table-wrap"><table>
         <thead><tr><th>Measure</th><th>${result.deep ? 'Rounds at your current speed' : 'At your current settings'}</th></tr></thead>
         <tbody>${lines.map(([label, val]) => `<tr><td>${label}</td><td class="num">${val}</td></tr>`).join('')}</tbody>
@@ -834,7 +836,7 @@ function renderAdsFields(g) {
     wrap.className = 'field';
     const label = document.createElement('label');
     label.htmlFor = id;
-    label.textContent = `${sp.label}, current value${pctUnit ? ' (%)' : unitLabel || ''}`;
+    label.textContent = `${sp.label}${pctUnit ? ' (%)' : unitLabel || ''}`;
     const input = document.createElement('input');
     Object.assign(input, { type: 'number', id, inputMode: 'decimal',
       min: pctUnit ? sp.min * 100 : sp.min, max: pctUnit ? sp.max * 100 : sp.max, step: pctUnit ? 1 : sp.step,
@@ -1002,7 +1004,7 @@ function drawArena() {
   if (chal) return drawScene(c, chalScene());
   const s = seg(), P = session.phase;
   drawScene(c, {
-    view, zoom: s.zoom || 1, phase: P, countLeft: session.countLeft,
+    view, zoom: s.zoom || 1, phase: P, countLeft: session.countLeft, worldKey: 'range-' + cfg.game, gameId: cfg.game,
     flick: P === 'run' && s.kind === 'flick' ? s.data : null,
     track: P === 'run' && s.kind === 'track' ? s.data : null,
     figure: s.kind !== 'drift',
@@ -1010,109 +1012,113 @@ function drawArena() {
   });
 }
 
-// One frame of the aim range. sc = { view, zoom, phase, countLeft, flick: { cur, flash }?, track?, figure, overlay? }.
+// The range's world (sky, ridges, sun) is generated from a key: one per game for calibration, one per
+// challenge code, so every daily range looks different.
+let world = null, worldKey = '';
+function worldFor(key) {
+  if (key !== worldKey) { worldKey = key; world = makeWorld(hashSeed(key)); }
+  return world;
+}
+const reducedMotion = () => !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+// One frame of the aim range. sc = { view, zoom, phase, countLeft, worldKey, gameId, flick: { cur, flash }?, track?,
+// figure, overlay?, hud? }.
 function drawScene(c, sc) {
-  const view = sc.view, P = sc.phase;
+  const view = sc.view, P = sc.phase, now = performance.now(), calm = reducedMotion();
   const ctx = c.getContext('2d'), W = c.width, H = c.height, d = window.devicePixelRatio || 1;
   const zoom = sc.zoom, fov = FOV / zoom;
   const ppd = W / fov, cx = W / 2, cy = H / 2;
-  const step = zoom >= 3 ? 1 : zoom > 1 ? 2.5 : 5, major = step * 6;
+  const cam = { yaw: view.yaw, pitch: view.pitch, ppd, cx, cy, W, H, d };
   const toX = yaw => cx + (yaw - view.yaw) * ppd, toY = pitch => cy - (pitch - view.pitch) * ppd;
-  ctx.fillStyle = tok('--arena'); ctx.fillRect(0, 0, W, H);
-
-  ctx.lineWidth = d;
-  const halfV = H / 2 / ppd;
-  for (let a = Math.ceil((view.yaw - fov / 2) / step) * step; a <= view.yaw + fov / 2; a += step) {
-    ctx.strokeStyle = Math.abs(a / major - Math.round(a / major)) < 1e-6 ? tok('--arena-major') : tok('--arena-grid');
-    const x = Math.round(toX(a)) + 0.5;
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
-  }
-  for (let a = Math.ceil((view.pitch - halfV) / step) * step; a <= view.pitch + halfV; a += step) {
-    const horizon = Math.abs(a) < 1e-6;
-    ctx.strokeStyle = horizon ? tok('--arena-major') : tok('--arena-grid');
-    ctx.lineWidth = horizon ? 2 * d : d;
-    const y = Math.round(toY(a)) + 0.5;
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-  }
-
-  // Aiming down sights: a darkened frame at 1.5x, a round scope mask at 4x.
-  // Drawn before the targets so the off-screen arrow stays on top; targets are clipped to the scope.
-  const scopeR = zoom >= 3 ? Math.min(W, H) * 0.46 : 0;
-  if (scopeR) {
-    ctx.fillStyle = tok('--arena-figure');
-    ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.arc(cx, cy, scopeR, 0, Math.PI * 2, true); ctx.fill();
-  } else if (zoom > 1) {
-    ctx.fillStyle = tok('--arena-figure'); ctx.globalAlpha = 0.45;
-    ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.rect(W * 0.08, H * 0.08, W * 0.84, H * 0.84); ctx.fill('evenodd');
-    ctx.globalAlpha = 1;
-  }
+  const w = worldFor(sc.worldKey);
+  paintSky(ctx, cam, w, now, calm);
+  paintTerrain(ctx, cam, w);
 
   const running = P === 'run';
-  const drawTarget = (t, r, lit) => {
+  const scopeR = zoom >= 3 ? Math.min(W, H) * 0.46 : 0;
+  const clipScope = () => { if (scopeR) { ctx.beginPath(); ctx.arc(cx, cy, scopeR, 0, Math.PI * 2); ctx.clip(); } };
+  const arrows = [];
+  const drawTarget = (t, r, opts) => {
     const x = toX(t.yaw), y = toY(t.pitch), R = r * ppd;
     const outside = scopeR ? Math.hypot(x - cx, y - cy) > scopeR + R : x < -R || x > W + R || y < -R || y > H + R;
     if (outside) {
-      // Out of view: an arrow on the edge (or the scope's rim) pointing toward it.
+      // Out of view: a chevron on the edge (or the scope's rim) with how far to turn.
       const ang = Math.atan2(y - cy, x - cx);
-      const ex = scopeR ? cx + Math.cos(ang) * (scopeR - 16 * d) : clamp(x, 24 * d, W - 24 * d);
-      const ey = scopeR ? cy + Math.sin(ang) * (scopeR - 16 * d) : clamp(y, 24 * d, H - 24 * d);
-      ctx.save(); ctx.translate(ex, ey); ctx.rotate(ang);
-      ctx.fillStyle = tok('--target');
-      ctx.beginPath(); ctx.moveTo(10 * d, 0); ctx.lineTo(-8 * d, -8 * d); ctx.lineTo(-8 * d, 8 * d); ctx.closePath(); ctx.fill();
-      ctx.restore();
+      const ex = scopeR ? cx + Math.cos(ang) * (scopeR - 18 * d) : clamp(x, 28 * d, W - 28 * d);
+      const ey = scopeR ? cy + Math.sin(ang) * (scopeR - 18 * d) : clamp(y, 28 * d, H - 28 * d);
+      arrows.push([ex, ey, ang, Math.hypot(t.yaw - view.yaw, t.pitch - view.pitch)]);
       return;
     }
-    ctx.save();
-    if (scopeR) { ctx.beginPath(); ctx.arc(cx, cy, scopeR, 0, Math.PI * 2); ctx.clip(); }
-    ctx.fillStyle = tok('--target');
-    ctx.globalAlpha = lit ? 1 : 0.85;
-    ctx.beginPath(); ctx.arc(x, y, R, 0, Math.PI * 2); ctx.fill();
-    ctx.globalAlpha = 1;
-    ctx.strokeStyle = tok('--arena-ink'); ctx.lineWidth = 2 * d;
-    ctx.beginPath(); ctx.arc(x, y, R * 0.45, 0, Math.PI * 2); ctx.stroke();
+    ctx.save(); clipScope();
+    paintDrone(ctx, x, y, R, cam, w, now, { ...opts, still: calm });
     ctx.restore();
   };
   if (running && sc.flick) {
-    const F = sc.flick;
-    drawTarget(F.cur, F.cur.r, false);
-    if (F.flash && F.flash.t > 0) {
-      ctx.strokeStyle = F.flash.good ? tok('--good') : tok('--arena-ink');
-      ctx.globalAlpha = clamp(F.flash.t / 0.3, 0, 1);
-      ctx.lineWidth = 2 * d;
-      ctx.beginPath(); ctx.arc(toX(F.flash.yaw), toY(F.flash.pitch), (F.flash.good ? 4 : 1.2) * ppd * (1.4 - F.flash.t), 0, Math.PI * 2); ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
+    noteFlash(w, sc.flick.flash, now);
+    drawTarget(sc.flick.cur, sc.flick.cur.r, { kind: sc.flick.cur.turn ? 'turn' : 'flick' });
   }
-  if (running && sc.track) drawTarget(sc.track.tgt, sc.track.r, sc.track.tgt.on);
+  if (running && sc.track) {
+    const pts = trailPoint(w, sc.track.tgt);
+    ctx.save(); clipScope(); paintTrail(ctx, pts, toX, toY, sc.track.r * ppd, cam, sc.track.tgt.on); ctx.restore();
+    drawTarget(sc.track.tgt, sc.track.r, { kind: 'track', lit: sc.track.tgt.on });
+  }
+  ctx.save(); clipScope(); paintFx(ctx, cam, w, now, toX, toY, calm); ctx.restore();
 
   // Third-person games: the character sits left of the crosshair and blocks part of the view.
-  if (game().camera === 'third' && sc.figure && zoom === 1) {
-    const fx = cx - W * 0.17;
-    ctx.fillStyle = tok('--arena-figure');
-    ctx.strokeStyle = tok('--arena-major'); ctx.lineWidth = d;
-    ctx.beginPath(); ctx.ellipse(fx, H * 1.02, W * 0.11, H * 0.26, 0, Math.PI, 0); ctx.fill(); ctx.stroke();
-    ctx.beginPath(); ctx.arc(fx + W * 0.01, H * 0.7, H * 0.085, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  }
+  if (GAMES[sc.gameId].camera === 'third' && sc.figure && zoom === 1) paintFigure(ctx, cam, w);
+  paintLens(ctx, cam, zoom);
+  for (const a of arrows) paintOffscreen(ctx, ...a, cam);
+  if (zoom === 1 && P !== 'intro') paintCompass(ctx, cam, w);
+  paintCrosshair(ctx, cam, running && sc.track && sc.track.tgt.on);
+  if (sc.hud && running) paintChalHud(ctx, cam, sc.hud);
 
-  const onT = running && sc.track && sc.track.tgt.on;
-  ctx.strokeStyle = onT ? tok('--good') : tok('--arena-ink');
-  ctx.lineWidth = 2 * d;
-  const gap = 5 * d, len = 11 * d;
-  ctx.beginPath();
-  ctx.moveTo(cx - gap - len, cy); ctx.lineTo(cx - gap, cy); ctx.moveTo(cx + gap, cy); ctx.lineTo(cx + gap + len, cy);
-  ctx.moveTo(cx, cy - gap - len); ctx.lineTo(cx, cy - gap); ctx.moveTo(cx, cy + gap); ctx.lineTo(cx, cy + gap + len);
-  ctx.stroke();
-
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   if (P === 'intro' || P === 'rate') {
-    ctx.fillStyle = tok('--arena'); ctx.globalAlpha = 0.55; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, 'rgba(5,10,16,0.35)'); g.addColorStop(1, 'rgba(5,10,16,0.7)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
   } else if (P === 'count') {
-    ctx.fillStyle = tok('--arena-ink');
-    ctx.font = `600 ${Math.round(H * 0.22)}px ${tok('--mono')}`;
-    ctx.fillText(String(Math.ceil(sc.countLeft)), cx, cy - H * 0.22);
+    paintCountdown(ctx, cam, Math.ceil(sc.countLeft), 1 - (sc.countLeft - Math.floor(sc.countLeft)), calm);
   } else if (sc.overlay) {
     sc.overlay(ctx, W, H, d);
   }
+}
+
+// Challenge HUD drawn into the range: rolling score, streak pips with the multiplier, a ring for time left.
+function paintChalHud(ctx, cam, h) {
+  const { W, d } = cam, pad = 18 * d;
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 8 * d;
+  ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+  ctx.fillStyle = '#FFB547';
+  ctx.font = `900 ${40 * d}px 'Big Shoulders Stencil Display', 'Big Shoulders Display', sans-serif`;
+  ctx.fillText(Math.round(h.shown).toLocaleString('en-US'), pad, pad + 34 * d);
+  ctx.fillStyle = 'rgba(244,241,232,0.75)';
+  ctx.font = `600 ${9 * d}px 'Martian Mono', monospace`;
+  ctx.fillText('POINTS', pad + 2 * d, pad + 48 * d);
+  ctx.shadowBlur = 0;
+  const pips = 10, pw = 11 * d, ph = 7 * d, filled = Math.min(Math.max(h.streak - 1, 0), pips);
+  for (let i = 0; i < pips; i++) {
+    const x = pad + i * (pw + 3 * d), y = pad + 56 * d;
+    ctx.fillStyle = i < filled ? '#FF5E3A' : 'rgba(244,241,232,0.18)';
+    ctx.beginPath(); ctx.moveTo(x + 3 * d, y); ctx.lineTo(x + pw, y); ctx.lineTo(x + pw - 3 * d, y + ph); ctx.lineTo(x, y + ph); ctx.closePath(); ctx.fill();
+  }
+  if (h.streak > 1) {
+    ctx.fillStyle = '#FF8A64'; ctx.font = `800 ${14 * d}px 'Big Shoulders Display', sans-serif`;
+    ctx.fillText(`×${(1 + 0.1 * Math.min(h.streak - 1, 10)).toFixed(1)}`, pad + pips * (pw + 3 * d) + 6 * d, pad + 63 * d);
+  }
+  const rx = W - pad - 24 * d, ry = pad + 24 * d, rr = 22 * d, frac = Math.max(0, h.left / h.total);
+  ctx.lineWidth = 4 * d;
+  ctx.strokeStyle = 'rgba(244,241,232,0.18)'; ctx.beginPath(); ctx.arc(rx, ry, rr, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = h.left < 10 ? '#FF5E3A' : '#F4F1E8';
+  ctx.beginPath(); ctx.arc(rx, ry, rr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac); ctx.stroke();
+  ctx.fillStyle = '#F4F1E8'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = `800 ${18 * d}px 'Big Shoulders Display', sans-serif`;
+  ctx.fillText(String(Math.ceil(h.left)), rx, ry + d);
+  if (h.label) {
+    ctx.font = `600 ${9 * d}px 'Martian Mono', monospace`; ctx.fillStyle = 'rgba(244,241,232,0.75)';
+    ctx.fillText(h.label, rx, ry + rr + 14 * d);
+  }
+  ctx.restore();
 }
 
 // Stick check overlay: hands-off readout, then the edge roll and trigger parts.
@@ -1188,14 +1194,14 @@ function drawSticks() {
     }
     ctx.fillStyle = tok('--ink');
     ctx.beginPath(); ctx.arc(cx + clamp(x, -1, 1) * R, cy + clamp(y, -1, 1) * R, 5 * d, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = tok('--muted'); ctx.font = `500 ${11 * d}px ${tok('--mono')}`;
+    ctx.fillStyle = tok('--muted'); ctx.font = `500 ${9.5 * d}px ${tok('--mono')}`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
     ctx.fillText(label, cx, H - 2 * d);
   };
   const s = seg();
   const dz = s && s.settings ? s.settings.dz : session && session.drift ? session.drift.rec : cfg.dz;
   one(W * 0.27, inp.lx, inp.ly, 'LEFT', 0);
-  one(W * 0.73, inp.rx, inp.ry, 'RIGHT · deadzone ' + dz.toFixed(2), inp.src === 'pad' ? dz : 0);
+  one(W * 0.73, inp.rx, inp.ry, 'RIGHT · DZ ' + dz.toFixed(2), inp.src === 'pad' ? dz : 0);
 }
 
 /* ---------- warm-up challenge ---------- */
@@ -1242,18 +1248,26 @@ function chalTick(dt, edge) {
 }
 
 function chalScene() {
-  const c = chal, it = c.st.item;
+  const c = chal, it = c.st.item, st = c.st;
+  const now = performance.now(), dt = c.lastDraw ? Math.min(0.1, (now - c.lastDraw) / 1000) : 0;
+  c.lastDraw = now;
+  c.shown = (c.shown || 0) + (st.score - (c.shown || 0)) * Math.min(1, dt * 9);
   return {
-    view: c.st.view, zoom: 1, phase: c.phase === 'run' ? 'run' : c.phase, countLeft: c.countLeft, figure: true,
+    view: st.view, zoom: 1, phase: c.phase === 'run' ? 'run' : c.phase, countLeft: c.countLeft, figure: true,
+    worldKey: c.code, gameId: c.game,
+    hud: { shown: c.shown, streak: st.streak, left: (st.ticks - st.tick) * DT, total: st.ticks * DT,
+      label: c.duel ? `RUN ${c.duel.i + 1}/${DUEL.runs}` : null },
     flick: it.kind !== 'track' ? { cur: it.T, flash: c.flash } : null,
     track: it.kind === 'track' ? it.TR : null,
-    overlay: c.pop && c.pop.t > 0 ? (ctx, W, H) => {
+    // Points for the last hit or miss rise from beside the score counter, keeping the aim area clear.
+    overlay: c.pop && c.pop.t > 0 ? (ctx, W, H, d) => {
       ctx.globalAlpha = clamp(c.pop.t / 0.3, 0, 1);
-      ctx.fillStyle = c.pop.text.startsWith('+') ? tok('--good') : tok('--target');
-      ctx.font = `600 ${Math.round(H * 0.06)}px ${tok('--mono')}`;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(c.pop.text, W / 2, H / 2 - H * 0.12 - (0.7 - c.pop.t) * H * 0.08);
-      ctx.globalAlpha = 1;
+      ctx.fillStyle = c.pop.text.startsWith('+') ? '#FFE7B0' : '#FF8A64';
+      ctx.font = `900 ${Math.round(26 * d)}px 'Big Shoulders Stencil Display', 'Big Shoulders Display', sans-serif`;
+      ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+      ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 8 * d;
+      ctx.fillText(c.pop.text, 18 * d + 150 * d, 18 * d + 34 * d - (0.7 - c.pop.t) * 18 * d);
+      ctx.shadowBlur = 0; ctx.globalAlpha = 1;
     } : null
   };
 }
@@ -1370,6 +1384,19 @@ function saveBest(code, kind, score) {
   }
   return { isBest, prev };
 }
+// Time left until the next daily range (codes roll over at midnight UTC).
+function tickWarmClock() {
+  const el = $('#warm-clock');
+  if (!el) return;
+  const now = new Date();
+  const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+  const left = Math.max(0, Math.floor((next - now.getTime()) / 1000));
+  const two = n => String(n).padStart(2, '0');
+  el.textContent = `${two(Math.floor(left / 3600))}:${two(Math.floor(left / 60) % 60)}:${two(left % 60)}`;
+}
+tickWarmClock();
+setInterval(tickWarmClock, 1000);
+
 function renderWarmBests() {
   const b = loadBests(), today = dailyCode();
   const rows = [['Today', (b.codes || {})[today]], ['Practice best', b.practice]].filter(r => r[1] != null);
@@ -1411,6 +1438,7 @@ function renderChalEnd() {
       <p class="lede">${best.prev == null ? 'Your first score on this ' + (c.kind === 'practice' ? 'practice board.' : 'challenge.')
         : best.isBest ? `Up from ${best.prev.toLocaleString('en-US')}.` : `Your best here is ${best.prev.toLocaleString('en-US')}.`}</p>
     </div>
+    ${medalHtml(sum.score)}
     <div class="ch-stats">
       ${stat('Accuracy', pct(sum.accuracy))}
       ${stat('Hits', sum.hits)}
@@ -1429,7 +1457,7 @@ function renderChalEnd() {
       <button class="btn" id="ch-back" type="button">Back to setup</button>
     </div>
     ${boardsOn() ? `<div class="board" id="board">
-      <div style="display:grid;gap:4px"><h3 style="font-size:16px">Leaderboard · ${c.code}</h3>
+      <div style="display:grid;gap:4px"><h3 class="sub">Leaderboard · ${c.code}</h3>
         <p class="fine">${c.src === 'pad' ? 'Controller' : 'On-screen stick'} board. Your run is replayed on the server before it counts.</p></div>
       <div class="actions">
         <label for="board-name" class="sr-only">Name on the leaderboard</label>
@@ -1445,12 +1473,37 @@ function renderChalEnd() {
   $('#ch-back').addEventListener('click', leaveChallenge);
 }
 
+// Medal tiers for a 60-second run, set from simulated players: casual about 2,500, decent about 9,000,
+// sharp about 15,000.
+const TIERS = [
+  { key: 'bronze', name: 'Bronze', min: 3000 },
+  { key: 'silver', name: 'Silver', min: 7000 },
+  { key: 'gold', name: 'Gold', min: 11000 },
+  { key: 'ace', name: 'Ace', min: 15000 }
+];
+function medalHtml(score) {
+  const got = [...TIERS].reverse().find(t => score >= t.min);
+  const next = TIERS.find(t => score < t.min);
+  const from = got ? got.min : 0;
+  const fill = next ? clamp((score - from) / (next.min - from), 0, 1) : 1;
+  return `<div class="medal-row">
+    <div class="medal ${got ? got.key : ''}" aria-hidden="true"><span>${got ? got.name : '–'}</span></div>
+    <div class="tier">
+      <b>${got ? `${got.name} range` : 'Unranked'}</b>
+      <div class="bar" role="img" aria-label="${pct(fill)} of the way to ${next ? next.name : 'the top'}"><i style="width:${(fill * 100).toFixed(1)}%"></i></div>
+      <small>${next ? `${(next.min - score).toLocaleString('en-US')} points to ${next.name} (${next.min.toLocaleString('en-US')}).` : 'Top tier. Share the code and see who can match it.'}</small>
+    </div>
+  </div>`;
+}
+
 function reportHtml({ rows, hints }) {
   const rate = v => v == null ? '–' : pct(v);
   const pace = v => v == null ? '–' : v <= 1 ? 'On pace' : `${pct(v - 1)} slow`;
-  const row = (label, r, extra) => r.n ? `<tr><td>${label}</td><td class="num">${r.n}</td><td class="num">${Math.round(r.pts).toLocaleString('en-US')}</td><td class="num">${extra}</td></tr>` : '';
+  const most = Math.max(1, ...['side', 'vert', 'turn', 'track'].map(k => rows[k].pts));
+  const bar = v => `<span class="pts-bar" style="width:${Math.max(2, 90 * Math.max(0, v) / most).toFixed(0)}px"></span>`;
+  const row = (label, r, extra) => r.n ? `<tr><td>${label}</td><td class="num">${r.n}</td><td class="num">${bar(r.pts)}${Math.round(r.pts).toLocaleString('en-US')}</td><td class="num">${extra}</td></tr>` : '';
   return `<div style="display:grid;gap:10px">
-    <h3 style="font-size:16px">Report card</h3>
+    <h3 class="sub">Report card</h3>
     <div class="table-wrap"><table>
       <thead><tr><th>Targets</th><th>Count</th><th>Points</th><th>Hit rate · pace</th></tr></thead>
       <tbody>
@@ -1575,6 +1628,7 @@ function updateStatus() {
       r = `${Math.max(0, s.warm + s.dur - TR.t).toFixed(1)} s${s.counter ? ' · ' + s.counter : ''}`;
     }
   }
+  $('#hud').classList.toggle('off', !!chal);
   $('#hud-l').textContent = l; $('#hud-r').textContent = r;
 }
 

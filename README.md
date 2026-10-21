@@ -189,6 +189,23 @@ Then put the project URL and public (anon or publishable) key in `src/config.js`
 every push to `main`. On the free plan this needs the repo to be public, with
 Settings → Pages → Source set to "GitHub Actions".
 
+## Look and feel
+
+A proving ground at dusk, as one committed dark look: Big Shoulders (stencil and condensed) for
+display type, Hanken Grotesk for reading, Martian Mono for numbers; ember for actions, amber for
+best values, mint for anything good. Plates have cut corners over a topographic contour sky, and
+the step rail is a trail of waypoints.
+
+The aim range (`src/scenery.js`) is drawn in the sim's own angular space, so everything in it
+stays fixed in the world as the camera turns: one of four dusk palettes, a sun, stars and three
+ridgelines generated from a seed (each challenge code gets its own range), haze at the horizon, a
+survey grid on the ground, a compass tape with real headings, drone targets with spinning guard
+rings, light beacons on turn-around targets, light trails on moving targets, hit sparks and
+shockwaves, chevrons with the angle to off-screen targets, and a scope lens with mil marks. The
+challenge HUD (rolling score, streak pips with the multiplier, a ring for time left) is drawn in
+the canvas. With reduced motion on, the rings, sparks and twinkle hold still. Nothing visual
+touches scoring.
+
 ## Develop
 
 ```sh
@@ -213,7 +230,8 @@ Open `dist/index.html` in Chrome or Edge with a controller connected. No server 
 - `supabase/`: scores table, submit-score function, shared submission logic
 - `src/export.js`: test data export
 - `src/hardware.js`: stick check measurements and the settings they suggest (pure)
-- `src/main.js`: UI, input polling, drawing, session flow
+- `src/main.js`: UI, input polling, scene assembly, session flow
+- `src/scenery.js`: the aim range's world, targets, effects and lens (drawing only)
 - `src/page.html`, `src/styles.css`: page shell
 - `scripts/build.mjs`: bundles everything into one HTML file
 
