@@ -11,6 +11,10 @@ export const GAMES = {
     moveDz: { label: 'Left stick min (deadzone)', fmt: d => String(Math.round(d * 100)) },
     outer: { label: 'Right stick max', fmt: d => String(Math.round(d * 100)) },
     trigger: { label: 'R2 / RT button deadzone', fmt: d => String(Math.round(d * 100)) },
+    ads: [
+      { key: 'adsLow', label: 'ADS sensitivity multiplier (low zoom)', zoom: 1.5, min: 0.5, max: 2, step: 0.01, def: 1, unit: 'x' },
+      { key: 'adsHigh', label: 'ADS sensitivity multiplier (high zoom)', zoom: 4, min: 0.5, max: 2, step: 0.01, def: 1, unit: 'x' }
+    ],
     curve: { label: 'Aim response curve type', def: 'mid', linear: 'Linear', mid: 'Standard', expo: 'Dynamic' }
   },
   fortnite: {
@@ -47,7 +51,13 @@ export const GAMES = {
       label: 'Look Response Curve', def: 'expo', linear: 'Linear', mid: 'Sinusoidal', expo: 'Exponential',
       fn: { mid: s => (1 - Math.cos(Math.PI * s)) / 2 }
     },
-    boost: { label: 'Horizontal Look Boost', mult: 1.55, vmult: 1.15, ramp: 1.6 }
+    boost: { label: 'Horizontal Look Boost', mult: 1.55, vmult: 1.15, ramp: 1.6 },
+    // Zoom Horizontal/Vertical Look Boost 55/30 with a 1.2 s ramp-up. The 200% slider top is estimated.
+    zoomBoost: { label: 'Zoom Horizontal Look Boost', mult: 1.55, vmult: 1.3, ramp: 1.2 },
+    ads: [
+      { key: 'zoom', label: 'Zoom Sensitivity Multiplier', zoom: 1.5, min: 0.01, max: 2, step: 0.01, def: 0.25, unit: '%', defKnown: false },
+      { key: 'scoped', label: 'Scoped Zoom Sensitivity Multiplier', zoom: 4, min: 0.01, max: 2, step: 0.01, def: 0.5, unit: '%', defKnown: false }
+    ]
   },
   other: {
     name: 'your game', camera: 'first', source: 'model',
@@ -79,6 +89,16 @@ export function extraSetting(g, key) {
   const own = g[key];
   if (own === null) return null;
   return { ...(own || GENERIC[key]), def: own && own.def != null ? own.def : EXTRA_DEF[key], known: !!own };
+}
+
+// ADS settings to test. Games without a known ADS menu get one generic 1.5x round, simulated at a
+// zoom-matched multiplier and reported as a relative change.
+const GENERIC_ADS = [{ key: 'ads', label: 'ADS sensitivity', zoom: 1.5, def: 1 / 1.5, generic: true }];
+export function adsSpecs(g) {
+  return g.ads || GENERIC_ADS;
+}
+export function fmtAds(spec, v) {
+  return spec.unit === '%' ? Math.round(v * 100) + '%' : v.toFixed(2);
 }
 
 export function gameTitle(g) {

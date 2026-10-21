@@ -8,9 +8,9 @@ settings for their game, each with the measurements behind it.
 
 | Mode | Time | What it does |
 |---|---|---|
-| Quick | ~2 min | Stick check, flick test (12 targets, some above or below), tracking test, then suggested settings with reasons. |
-| Verify | ~4 min | Quick, then a blind ABBA/BAAB test of old vs suggested settings. Reports how likely the new settings are better (bootstrap over targets and tracking seconds), next to the player's own feel ratings. |
-| Deep | ~5 min | Stick check, then 7–9 short blind rounds at different sensitivities. The first three bracket the current speed, round five repeats it as a control, and the rest go where the fitted curve says the best speed is. Reports the best setting, the range within noise of it, and whether sensitivity matters for this player at all. |
+| Quick | ~3 min | Stick check, flick test (12 targets, some above or below), tracking test, zoomed ADS rounds, then suggested settings with reasons. |
+| Verify | ~5 min | Quick, then a blind ABBA/BAAB test of old vs suggested settings. Reports how likely the new settings are better (bootstrap over targets and tracking seconds), next to the player's own feel ratings. |
+| Deep | ~6 min | Stick check, then 7–9 short blind rounds at different sensitivities. The first three bracket the current speed, round five repeats it as a control, and the rest go where the fitted curve says the best speed is. Reports the best setting, the range within noise of it, and whether sensitivity matters for this player at all. |
 
 ## Games
 
@@ -32,6 +32,17 @@ carried along with any horizontal change. Games with their own vertical setting 
 of Duty) get a value for it, and setup asks for the current one. Other games get a relative
 suggestion marked "If your game has it". Deep mode keeps the player's vertical-to-horizontal balance
 while it moves the horizontal speed, and scores vertical across all rounds.
+
+## ADS / zoom
+
+After the hip-fire tests come zoomed rounds: 8 targets and 8 seconds of tracking through a 1.5×
+sight, then 6 and 6 through a 4× scope when the game has a separate scoped setting. The view
+narrows by the zoom factor and targets shrink and slow by the same factor, like enemies at range.
+Turn speed is hip-fire speed times the ADS multiplier, with the game's zoom look boost if it has
+one. The same speed rules as hip-fire give a change in zoomed speed; the new multiplier lands on
+that speed even if hip-fire sensitivity also changes. ARC Raiders (Zoom / Scoped Zoom Sensitivity
+Multiplier) and Call of Duty (low / high zoom) get values in their menu's units; other games get one
+generic round and a relative change. Verify still compares hip-fire settings only.
 
 ## Stick check
 
@@ -107,6 +118,6 @@ Open `dist/index.html` in Chrome or Edge with a controller connected. No server 
 4. ~~Deep mode, sensitivity only (adaptive search)~~
 5. ~~Stick check: movement, outer and trigger deadzones~~
 6. ~~Vertical sensitivity~~
-7. ADS / zoom test
+7. ~~ADS / zoom test~~
 8. Turn-around drill for look boost and ramp-up
 9. Deep mode, multi-factor screening

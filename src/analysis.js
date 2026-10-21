@@ -41,12 +41,19 @@ export function summarize(flicks, track) {
 }
 
 // c = { game, style, sens, curve, dz }. drift = { r, l, rec } or null.
-export function recommend(s, c, drift) {
-  const g = GAMES[c.game], st = PLAYSTYLES[c.style];
+// Relative speed change the test results point to (+0.1 = 10% faster), weighted by playstyle.
+// Small signals round to zero so noise doesn't move a setting.
+export function speedAdjust(s, style) {
+  const st = PLAYSTYLES[style];
   const flickAdj = clamp((s.under - s.over) * 0.5, -0.3, 0.3);
   const trackAdj = clamp((s.behind - s.ahead) * 0.6 - (s.jitter > 2.5 ? 0.08 : 0), -0.3, 0.3);
-  let adj = st.wf * flickAdj + st.wt * trackAdj;
-  if (Math.abs(adj) < 0.04) adj = 0;
+  const adj = st.wf * flickAdj + st.wt * trackAdj;
+  return Math.abs(adj) < 0.04 ? 0 : adj;
+}
+
+export function recommend(s, c, drift) {
+  const g = GAMES[c.game];
+  const adj = speedAdjust(s, c.style);
   let sens = c.sens;
   if (adj !== 0) {
     const target = g.sens.rate(c.sens) * clamp(1 + adj, 0.7, 1.35);
@@ -138,4 +145,36 @@ export function driftDeadzone(maxRight) {
 export function settingsChanged(a, b) {
   return a.sens !== b.sens || a.curve !== b.curve || a.dz !== b.dz || (a.outer ?? 1) !== (b.outer ?? 1) ||
     a.vsens !== b.vsens || Math.abs((a.vmult ?? 1) - (b.vmult ?? 1)) > 0.01;
+}
+
+// ADS: the zoomed rounds measure how aiming down sights feels at the current multiplier. The new
+// multiplier keeps the zoomed speed the test points to even when hip-fire speed changes (hSens),
+// so a faster hip-fire suggestion doesn't also speed up ADS by accident.
+// spec = one entry from adsSpecs(); cur = current multiplier. Generic specs return a relative change.
+export function recommendAds(flicks, track, c, hSens, spec, cur) {
+  const g = GAMES[c.game];
+  const hMult = g.sens.rate(hSens) / g.sens.rate(c.sens);
+  const where = spec.zoom >= 3 ? `Through the ${spec.zoom}× scope` : `Aiming down sights at ${spec.zoom}×`;
+  if (!flicks || flicks.length < 3 || !track || !track.T) {
+    const why = 'Not measured, so it stays where it is' + (hMult !== 1 ? ', adjusted to offset your hip-fire change.' : '.');
+    return { next: snapAds(cur / hMult, spec), rel: 1 / hMult, measured: false, why };
+  }
+  const s = summarize(flicks, track);
+  const adj = speedAdjust(s, c.style);
+  const rel = (1 + clamp(adj, -0.3, 0.35)) / hMult;
+  let why = `${where}, you overshot ${pct(s.over)} of flicks and stopped short on ${pct(s.under)}, and trailed the target ${pct(s.behind)} of the time while running ahead ${pct(s.ahead)}.`;
+  why += adj > 0 ? ` Zoomed in you were mostly too slow, so ADS should turn about ${pct(adj)} faster.`
+    : adj < 0 ? ` Zoomed in you were mostly too fast, so ADS should turn about ${pct(-adj)} slower.`
+    : ' Those balance out, so your zoomed speed suits you.';
+  if (hMult !== 1) {
+    const dir = rel > 1.005 ? 'goes up' : rel < 0.995 ? 'comes down' : 'stays put';
+    why += ` Your hip-fire change alone would make ADS ${pct(Math.abs(hMult - 1))} ${hMult > 1 ? 'faster' : 'slower'}, so the multiplier ${dir} to land on that speed.`;
+  }
+  return { next: snapAds(cur * rel, spec), rel, measured: true, why, stats: s };
+}
+
+function snapAds(v, spec) {
+  if (spec.generic) return v;
+  const n = Math.round(clamp(v, spec.min, spec.max) / spec.step) * spec.step;
+  return Number(n.toFixed(4));
 }

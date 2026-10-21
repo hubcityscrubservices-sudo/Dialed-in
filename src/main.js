@@ -1,6 +1,6 @@
-import { GAMES, PLAYSTYLES, gameTitle, extraSetting } from './games.js';
+import { GAMES, PLAYSTYLES, gameTitle, extraSetting, adsSpecs, fmtAds } from './games.js';
 import { FOV, makeView, steer, newFlickTarget, flickStep, makeTrack, trackStep } from './sim.js';
-import { summarize, recommend, recommendVertical, driftDeadzone, settingsChanged } from './analysis.js';
+import { summarize, recommend, recommendVertical, recommendAds, driftDeadzone, settingsChanged } from './analysis.js';
 import { verifyPlan, verifyCompare, ratingSummary } from './verify.js';
 import { DEEP, deepNext, deepAnalyze, shuffled } from './deep.js';
 import { emptyReach, recordReach, coverage, stickReport, outerFromReach, hardwareRecs } from './hardware.js';
@@ -13,15 +13,17 @@ const verticalSlot = i => i % 5 === 1 || i % 5 === 3;
 const VERIFY = { flicks: 7, warmFlicks: 1, trackSeconds: 9, warmSeconds: 1.5 };
 const DEEP_ROUND = { flicks: 8, warmFlicks: 1, trackSeconds: 8, warmSeconds: 1.5 };
 const DRIFT_SECONDS = 4, ROLL_SECONDS = 10, SQUEEZE_SECONDS = 8;
-const RAIL = { setup: 'Setup', drift: 'Sticks', flick: 'Flicks', track: 'Tracking', deep: 'Search', verify: 'Verify', results: 'Results' };
+const RAIL = { setup: 'Setup', drift: 'Sticks', flick: 'Flicks', track: 'Tracking', deep: 'Search', ads: 'ADS', verify: 'Verify', results: 'Results' };
+const ADS = { flicks: 8, seconds: 8, scopedFlicks: 6, scopedSeconds: 6 };
 const RATINGS = [
   { v: 1, label: 'Rough', key: 'dl', glyph: '←' },
   { v: 2, label: 'OK', key: 'du', glyph: '↑' },
   { v: 3, label: 'Great', key: 'dr', glyph: '→' }
 ];
-const MODE_HINT = { quick: 'About 2 minutes', verify: 'About 4 minutes', deep: 'About 5 minutes' };
+const MODE_HINT = { quick: 'About 3 minutes', verify: 'About 5 minutes', deep: 'About 6 minutes' };
 
-const cfg = { game: 'arc', style: 'balanced', mode: 'verify', sens: GAMES.arc.sens.def, vsens: GAMES.arc.vsens.def, curve: 'mid', dz: 0.10 };
+const adsDefaults = g => Object.fromEntries(adsSpecs(g).map(sp => [sp.key, sp.def]));
+const cfg = { game: 'arc', style: 'balanced', mode: 'verify', sens: GAMES.arc.sens.def, vsens: GAMES.arc.vsens.def, ads: adsDefaults(GAMES.arc), curve: 'mid', dz: 0.10 };
 let screen = 'setup';  // setup | test | results
 let session = null;    // { segs, i, phase, countLeft, drift }
 let result = null;     // { cfg, stats, rec, drift, verify }
@@ -57,8 +59,37 @@ function quickSegments() {
       text: 'Twelve targets appear one at a time, some above or below you. Snap to each with the right stick and fire with RT / R2. Go at the speed you would in a real fight.' },
     { kind: 'track', rail: 'track', tag: 'quick', dur: QUICK.trackSeconds, warm: 0, settings: s, intro: true, title: 'Tracking test',
       text: 'Keep the crosshair on the strafing target for 15 seconds. No need to fire.' },
+    ...adsSegments(),
     { kind: 'analyze' }
   ];
+}
+
+// Zoomed rounds at the current hip-fire settings times each ADS multiplier: a 1.5x sight, then a 4x scope
+// when the game has a separate scoped setting. Targets shrink and slow by the zoom factor.
+function adsSegments() {
+  const base = settingsOf(cfg);
+  return adsSpecs(game()).flatMap(spec => {
+    const scoped = spec.zoom >= 3;
+    const settings = { ...base, adsMult: cfg.ads[spec.key], zoomed: true };
+    const title = scoped ? 'Scoped test' : 'ADS test';
+    const n = scoped ? ADS.scopedFlicks : ADS.flicks, dur = scoped ? ADS.scopedSeconds : ADS.seconds;
+    const what = scoped ? `Through a ${spec.zoom}× scope` : `Aiming down sights at ${spec.zoom}×`;
+    return [
+      { kind: 'flick', rail: 'ads', tag: 'ads', ads: spec.key, zoom: spec.zoom, n, warm: 0, settings, intro: true, title,
+        text: `${what}: ${n} small, distant targets, then ${dur} seconds of tracking. The view is already zoomed, so there's no need to hold aim.` },
+      { kind: 'track', rail: 'ads', tag: 'ads', ads: spec.key, zoom: spec.zoom, dur, warm: 1, settings, title,
+        text: 'Stay on the distant target.' }
+    ];
+  });
+}
+
+function adsRecs(c, hSens) {
+  return adsSpecs(GAMES[c.game]).map(spec => {
+    const f = session.segs.find(x => x.kind === 'flick' && x.ads === spec.key);
+    const t = session.segs.find(x => x.kind === 'track' && x.ads === spec.key);
+    const cur = c.ads[spec.key];
+    return { spec, cur, ...recommendAds(f && f.data ? f.data.list : [], t && t.data, c, hSens, spec, cur) };
+  });
 }
 
 function verifySegments(A, B) {
@@ -96,7 +127,7 @@ function deepStep() {
     D.pending = null;
   }
   const next = deepNext(D.history, PLAYSTYLES[cfg.style], game(), cfg.sens, D.order);
-  if (!next) { session.segs.push({ kind: 'deepDone' }); return advance(); }
+  if (!next) { session.segs.push(...adsSegments(), { kind: 'deepDone' }); return advance(); }
   const k = D.history.length + 1;
   const round = { x: next.x, sens: next.sens };
   const settings = { sens: next.sens, ...verticalFor(next.sens), curve: cfg.curve, dz: checkedDz(), outer: checkedOuter() };
@@ -142,6 +173,7 @@ function deepDone() {
   }
   // Every round scales vertical with horizontal, so the up/down vs side-to-side comparison holds across all of them.
   Object.assign(rec, recommendVertical(D.history.flatMap(h => h.flicks), c, rec.sens));
+  rec.ads = adsRecs(c, rec.sens);
   result = { cfg: c, stats, rec, drift: session.drift, verify: null,
     deep: { res, rounds: D.history.map(h => ({ sens: h.sens, rating: h.rating })) } };
   session = null;
@@ -196,8 +228,8 @@ function begin() {
 function startRun(s) {
   session.phase = 'run';
   if (s.kind === 'drift') s.data = { part: 'rest', t: 0, r: 0, l: 0, lt: 0, rt: 0, warn: 0, reachR: emptyReach(), reachL: emptyReach(), maxLt: 0, maxRt: 0, lDown: false, rDown: false };
-  if (s.kind === 'flick') s.data = { list: [], cur: newFlickTarget(view, Math.random, verticalSlot(0)), flash: null };
-  if (s.kind === 'track') s.data = makeTrack(s.warm);
+  if (s.kind === 'flick') s.data = { list: [], cur: newFlickTarget(view, Math.random, verticalSlot(0), 1 / (s.zoom || 1)), flash: null };
+  if (s.kind === 'track') s.data = makeTrack(s.warm, 1 / (s.zoom || 1));
   renderBrief(true);
 }
 function stop() {
@@ -219,6 +251,7 @@ function analyze() {
   const stats = summarize(fl, tr);
   const rec = withHardware(recommend(stats, c, session.drift), session.drift);
   Object.assign(rec, recommendVertical(fl, c, rec.sens));
+  rec.ads = adsRecs(c, rec.sens);
   result = { cfg: c, stats, rec, drift: session.drift, verify: null };
   if (c.mode === 'verify' && settingsChanged(c, rec)) {
     session.segs.push(...verifySegments(c, rec));
@@ -318,7 +351,7 @@ function tickFlick(s, dt, fireEdge) {
   if (out === 'hit' || out === 'timeout') {
     F.list.push(F.cur);
     if (F.list.length >= s.n) return advance();
-    F.cur = newFlickTarget(view, Math.random, verticalSlot(F.list.length));
+    F.cur = newFlickTarget(view, Math.random, verticalSlot(F.list.length), 1 / (s.zoom || 1));
   }
 }
 
@@ -344,7 +377,7 @@ function show(name) {
 
 function railKeys() {
   const deep = !!((session && session.deep) || (result && result.deep) || (!session && !result && cfg.mode === 'deep'));
-  const keys = deep ? ['setup', 'drift', 'deep'] : ['setup', 'drift', 'flick', 'track'];
+  const keys = deep ? ['setup', 'drift', 'deep', 'ads'] : ['setup', 'drift', 'flick', 'track', 'ads'];
   const verifying = (cfg.mode === 'verify' && !deep) || (result && result.verify) || (session && session.segs.some(s => s.rail === 'verify'));
   if (verifying) keys.push('verify');
   keys.push('results');
@@ -543,13 +576,17 @@ function renderResults() {
     ['On target while tracking', pct(s.onTarget)],
     ['Trailing the target', pct(s.behind)],
     ['Ahead of the target', pct(s.ahead)],
-    ['Extra corrections', s.jitter.toFixed(1) + '/s']
+    ['Extra corrections', s.jitter.toFixed(1) + '/s'],
+    ...(r.ads || []).filter(a => a.stats).flatMap(a => [
+      [`Flick throughput, zoomed ${a.spec.zoom}×`, a.stats.throughput == null ? '–' : a.stats.throughput.toFixed(2) + ' bits/s'],
+      [`Average tracking error, zoomed ${a.spec.zoom}×`, a.stats.trackErr == null ? '–' : a.stats.trackErr.toFixed(2) + '°']
+    ])
   ];
   const deepHtml = result.deep ? deepBlock(result.deep, g, c) : '';
   const hw = hardwareRecs(result.drift, g);
   let verifyHtml;
   if (v) verifyHtml = verifyBlock(v);
-  else if (settingsChanged(c, r)) verifyHtml = `<div class="offer"><p>Not sure about these? Run a blind test of your old settings against the new ones. About 2 minutes.</p><button class="btn primary" id="verify" type="button">Verify these settings</button></div>`;
+  else if (settingsChanged(c, r)) verifyHtml = `<div class="offer"><p>Not sure about these? Run a blind test of your old hip-fire settings against the new ones. About 2 minutes.</p><button class="btn primary" id="verify" type="button">Verify these settings</button></div>`;
   else verifyHtml = `<div class="offer"><p>Your current settings already fit, so there is nothing to verify.</p></div>`;
   const sourceNote = g.source === 'guides'
     ? ` ${g.name} menu names come from player guides and have not been checked against the game yet.`
@@ -566,6 +603,9 @@ function renderResults() {
       ${g.vsens
         ? row(g.vsens.label, c.vsens, r.vsens, tag(r.vsens, c.vsens), r.vWhy)
         : row('Vertical sensitivity', 'Now', vRel(r.vmult), tag(Math.round(r.vmult * 100), 100) + '<span class="tag">If your game has it</span>', r.vWhy)}
+      ${(r.ads || []).map(a => a.spec.generic
+        ? row('ADS sensitivity', 'Now', vRel(a.rel), tag(Math.round(a.rel * 100), 100) + '<span class="tag">If your game has it</span>', a.why)
+        : row(a.spec.label, fmtAds(a.spec, a.cur), fmtAds(a.spec, a.next), tag(a.next, a.cur), a.why)).join('')}
       ${row(g.dz.label, g.dz.fmt(c.dz), g.dz.fmt(r.dz), r.dzMeasured ? tag(r.dz, c.dz) : '<span class="tag">Not measured</span>', r.dzWhy)}
       ${row(g.curve.label, g.curve[c.curve], g.curve[r.curve], curveTag, r.curveWhy)}
       ${hw.map(h => row(h.st.label, h.st.fmt(h.cur), h.st.fmt(h.next),
@@ -595,6 +635,7 @@ function renderResults() {
   $('#copy').addEventListener('click', e => {
     const text = [`Dialed In, ${g.name} (${PLAYSTYLES[c.style].label})`,
       `${g.sens.label}: ${r.sens}`, g.vsens ? `${g.vsens.label}: ${r.vsens}` : `Vertical sensitivity: ${vRel(r.vmult)}`, `${g.dz.label}: ${g.dz.fmt(r.dz)}`, `${g.curve.label}: ${g.curve[r.curve]}`,
+      ...(r.ads || []).map(a => a.spec.generic ? `ADS sensitivity: ${vRel(a.rel)}` : `${a.spec.label}: ${fmtAds(a.spec, a.next)}`),
       ...hw.map(h => `${h.st.label}: ${h.st.fmt(h.next)}`)].join('\n');
     const pre = $('#copytext');
     pre.textContent = text;
@@ -606,6 +647,30 @@ function renderResults() {
 }
 
 /* ---------- setup form ---------- */
+
+// One input per ADS multiplier the game's menu has, in the menu's own units.
+function renderAdsFields(g) {
+  const box = $('#ads-fields');
+  box.textContent = '';
+  for (const sp of g.ads || []) {
+    const pctUnit = sp.unit === '%';
+    const wrap = document.createElement('div');
+    wrap.className = 'field';
+    const label = document.createElement('label');
+    label.htmlFor = 'ads-' + sp.key;
+    label.textContent = `${sp.label}, current value${pctUnit ? ' (%)' : ''}`;
+    const input = document.createElement('input');
+    Object.assign(input, { type: 'number', id: 'ads-' + sp.key, inputMode: 'decimal',
+      min: pctUnit ? sp.min * 100 : sp.min, max: pctUnit ? sp.max * 100 : sp.max, step: pctUnit ? 1 : sp.step,
+      value: pctUnit ? Math.round(cfg.ads[sp.key] * 100) : cfg.ads[sp.key].toFixed(2) });
+    const small = document.createElement('small');
+    small.textContent = sp.defKnown === false
+      ? 'Enter the value from your controller menu.'
+      : `${fmtAds(sp, sp.min)} to ${fmtAds(sp, sp.max)}. Default is ${fmtAds(sp, sp.def)}.`;
+    wrap.append(label, input, small);
+    box.append(wrap);
+  }
+}
 
 function syncSetup() {
   const g = game();
@@ -627,10 +692,12 @@ function syncSetup() {
       ? `${g.vsens.min} to ${g.vsens.max}. Enter the value from your controller menu.`
       : `${g.vsens.min} to ${g.vsens.max}. Default is ${g.vsens.def}.`;
   }
+  renderAdsFields(g);
   $('#game').value = cfg.game;
   const notes = [];
   if (g.camera === 'third') notes.push('Third-person camera.');
   if (g.boost) notes.push('Includes look boost, which speeds up turning at full stick.');
+  if (!g.ads) notes.push('ADS is tested at a zoom-matched speed and suggested as a relative change.');
   if (g.source === 'guides') notes.push('Menu names come from player guides and still need checking against the game.');
   $('#game-note').textContent = notes.join(' ');
   for (const name of ['style', 'mode']) {
@@ -643,6 +710,7 @@ $('#game').addEventListener('change', e => {
   cfg.game = e.target.value;
   cfg.sens = game().sens.def;
   cfg.vsens = game().vsens ? game().vsens.def : undefined;
+  cfg.ads = adsDefaults(game());
   syncSetup();
 });
 document.querySelectorAll('input[name="style"]').forEach(r => r.addEventListener('change', e => { cfg.style = e.target.value; }));
@@ -656,6 +724,11 @@ $('#go').addEventListener('click', () => {
     cfg.vsens = clamp(Number.isFinite(vv) ? Math.round(vv) : g.vsens.def, g.vsens.min, g.vsens.max);
   }
   cfg.vmult = 1;
+  cfg.ads = adsDefaults(g);
+  for (const sp of g.ads || []) {
+    const raw = Number($('#ads-' + sp.key).value);
+    if (Number.isFinite(raw) && raw > 0) cfg.ads[sp.key] = clamp(sp.unit === '%' ? raw / 100 : raw, sp.min, sp.max);
+  }
   cfg.curve = g.curve.def;
   cfg.dz = g.dz.def;
   cfg.outer = 1;
@@ -740,43 +813,63 @@ function drawArena() {
   if (screen !== 'test' || !fit(c)) return;
   const s = seg(), P = session.phase;
   const ctx = c.getContext('2d'), W = c.width, H = c.height, d = window.devicePixelRatio || 1;
-  const ppd = W / FOV, cx = W / 2, cy = H / 2;
+  const zoom = s.zoom || 1, fov = FOV / zoom;
+  const ppd = W / fov, cx = W / 2, cy = H / 2;
+  const step = zoom >= 3 ? 1 : zoom > 1 ? 2.5 : 5, major = step * 6;
   const toX = yaw => cx + (yaw - view.yaw) * ppd, toY = pitch => cy - (pitch - view.pitch) * ppd;
   ctx.fillStyle = tok('--arena'); ctx.fillRect(0, 0, W, H);
 
   ctx.lineWidth = d;
   const halfV = H / 2 / ppd;
-  for (let a = Math.ceil((view.yaw - FOV / 2) / 5) * 5; a <= view.yaw + FOV / 2; a += 5) {
-    ctx.strokeStyle = ((a % 30) + 30) % 30 === 0 ? tok('--arena-major') : tok('--arena-grid');
+  for (let a = Math.ceil((view.yaw - fov / 2) / step) * step; a <= view.yaw + fov / 2; a += step) {
+    ctx.strokeStyle = Math.abs(a / major - Math.round(a / major)) < 1e-6 ? tok('--arena-major') : tok('--arena-grid');
     const x = Math.round(toX(a)) + 0.5;
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
   }
-  for (let a = Math.ceil((view.pitch - halfV) / 5) * 5; a <= view.pitch + halfV; a += 5) {
-    ctx.strokeStyle = a === 0 ? tok('--arena-major') : tok('--arena-grid');
-    ctx.lineWidth = a === 0 ? 2 * d : d;
+  for (let a = Math.ceil((view.pitch - halfV) / step) * step; a <= view.pitch + halfV; a += step) {
+    const horizon = Math.abs(a) < 1e-6;
+    ctx.strokeStyle = horizon ? tok('--arena-major') : tok('--arena-grid');
+    ctx.lineWidth = horizon ? 2 * d : d;
     const y = Math.round(toY(a)) + 0.5;
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  // Aiming down sights: a darkened frame at 1.5x, a round scope mask at 4x.
+  // Drawn before the targets so the off-screen arrow stays on top; targets are clipped to the scope.
+  const scopeR = zoom >= 3 ? Math.min(W, H) * 0.46 : 0;
+  if (scopeR) {
+    ctx.fillStyle = tok('--arena-figure');
+    ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.arc(cx, cy, scopeR, 0, Math.PI * 2, true); ctx.fill();
+  } else if (zoom > 1) {
+    ctx.fillStyle = tok('--arena-figure'); ctx.globalAlpha = 0.45;
+    ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.rect(W * 0.08, H * 0.08, W * 0.84, H * 0.84); ctx.fill('evenodd');
+    ctx.globalAlpha = 1;
   }
 
   const running = P === 'run';
   const drawTarget = (t, r, lit) => {
     const x = toX(t.yaw), y = toY(t.pitch), R = r * ppd;
-    if (x < -R || x > W + R || y < -R || y > H + R) {
-      // Off screen: an arrow on the edge pointing toward it.
+    const outside = scopeR ? Math.hypot(x - cx, y - cy) > scopeR + R : x < -R || x > W + R || y < -R || y > H + R;
+    if (outside) {
+      // Out of view: an arrow on the edge (or the scope's rim) pointing toward it.
       const ang = Math.atan2(y - cy, x - cx);
-      const ex = clamp(x, 24 * d, W - 24 * d), ey = clamp(y, 24 * d, H - 24 * d);
+      const ex = scopeR ? cx + Math.cos(ang) * (scopeR - 16 * d) : clamp(x, 24 * d, W - 24 * d);
+      const ey = scopeR ? cy + Math.sin(ang) * (scopeR - 16 * d) : clamp(y, 24 * d, H - 24 * d);
       ctx.save(); ctx.translate(ex, ey); ctx.rotate(ang);
       ctx.fillStyle = tok('--target');
       ctx.beginPath(); ctx.moveTo(10 * d, 0); ctx.lineTo(-8 * d, -8 * d); ctx.lineTo(-8 * d, 8 * d); ctx.closePath(); ctx.fill();
       ctx.restore();
       return;
     }
+    ctx.save();
+    if (scopeR) { ctx.beginPath(); ctx.arc(cx, cy, scopeR, 0, Math.PI * 2); ctx.clip(); }
     ctx.fillStyle = tok('--target');
     ctx.globalAlpha = lit ? 1 : 0.85;
     ctx.beginPath(); ctx.arc(x, y, R, 0, Math.PI * 2); ctx.fill();
     ctx.globalAlpha = 1;
     ctx.strokeStyle = tok('--arena-ink'); ctx.lineWidth = 2 * d;
     ctx.beginPath(); ctx.arc(x, y, R * 0.45, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
   };
   if (running && s.kind === 'flick') {
     const F = s.data;
@@ -792,7 +885,7 @@ function drawArena() {
   if (running && s.kind === 'track') drawTarget(s.data.tgt, s.data.r, s.data.tgt.on);
 
   // Third-person games: the character sits left of the crosshair and blocks part of the view.
-  if (game().camera === 'third' && s.kind !== 'drift') {
+  if (game().camera === 'third' && s.kind !== 'drift' && zoom === 1) {
     const fx = cx - W * 0.17;
     ctx.fillStyle = tok('--arena-figure');
     ctx.strokeStyle = tok('--arena-major'); ctx.lineWidth = d;

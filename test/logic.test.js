@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { shape, steer, makeView, newFlickTarget, flickStep, makeTrack, trackStep } from '../src/sim.js';
-import { flickThroughput, recommend, summarize, driftDeadzone, recommendVertical, isVertical, settingsChanged } from '../src/analysis.js';
+import { flickThroughput, recommend, summarize, driftDeadzone, recommendVertical, isVertical, settingsChanged, recommendAds, speedAdjust } from '../src/analysis.js';
 import { verifyPlan, verifyCompare } from '../src/verify.js';
-import { GAMES } from '../src/games.js';
+import { GAMES, adsSpecs, fmtAds } from '../src/games.js';
 import { mulberry32 } from '../src/util.js';
 
 const trial = (D, along, t) => ({ D, first: { along, t } });
@@ -258,4 +258,65 @@ test('ordinary targets stay mostly sideways even when the player is looking up o
   }
   assert.equal(vertical, 0);
   assert.ok(short / 2000 < 0.01, `short share ${short / 2000}`);
+});
+
+// A finished tracking run with given shares of time behind and ahead.
+const trackOf = (behind, ahead) => ({ T: 10, errSum: 20, on: 1, behind: behind * 10, ahead: ahead * 10, near: 0, rev: 0, tRev: 0 });
+
+test('ADS: aiming down sights multiplies turn speed and uses zoom look boost', () => {
+  const g = GAMES.arc, s = { sens: 80, vsens: 60, curve: 'linear', dz: 0 };
+  const hip = steer(makeView(), { rx: 1, ry: 0 }, s, g, 0.05).vy;
+  const ads = steer(makeView(), { rx: 1, ry: 0 }, { ...s, adsMult: 0.25, zoomed: true }, g, 0.05).vy;
+  assert.ok(Math.abs(ads / hip - 0.25) < 1e-9);
+  const v = makeView();
+  for (let i = 0; i < 40; i++) steer(v, { rx: 1, ry: 0 }, { ...s, adsMult: 0.25, zoomed: true }, g, 0.05);
+  assert.ok(Math.abs(steer(v, { rx: 1, ry: 0 }, { ...s, adsMult: 0.25, zoomed: true }, g, 0.05).vy / ads - 1.55) < 1e-9);
+});
+
+test('ADS: zoomed targets are smaller and closer by the zoom factor', () => {
+  const a = newFlickTarget(makeView(), mulberry32(51), false, 1);
+  const b = newFlickTarget(makeView(), mulberry32(51), false, 0.25);
+  assert.ok(Math.abs(b.D / a.D - 0.25) < 1e-9 && Math.abs(b.r / a.r - 0.25) < 1e-9);
+  const tr = makeTrack(0, 0.25);
+  assert.ok(Math.abs(tr.r - 0.65) < 1e-9);
+});
+
+test('ADS: overshooting while zoomed lowers the multiplier, in the menu\'s own steps', () => {
+  const c = { ...cfg, game: 'arc', sens: 80, style: 'balanced' };
+  const [zoom] = adsSpecs(GAMES.arc);
+  const flicks = mix([], ['over', 'over', 'over', 'ok', 'over', 'ok']);
+  const r = recommendAds(flicks, trackOf(0.1, 0.5), c, 80, zoom, 0.25);
+  assert.ok(r.next < 0.25 && r.measured);
+  assert.equal(Number((r.next * 100).toFixed(6)) % 1, 0); // whole percent
+  assert.equal(fmtAds(zoom, 0.25), '25%');
+});
+
+test('ADS: a hip-fire change is offset so zoomed speed stays put', () => {
+  const c = { ...cfg, game: 'arc', sens: 80, style: 'balanced' };
+  const [, scoped] = adsSpecs(GAMES.arc);
+  const even = mix([], ['over', 'short', 'ok', 'ok']);
+  const r = recommendAds(even, trackOf(0.3, 0.3), c, 100, scoped, 0.5);
+  assert.equal(speedAdjust(r.stats, 'balanced'), 0);
+  assert.equal(r.next, 0.4); // 0.5 * 80/100
+  assert.match(r.why, /hip-fire change alone would make ADS 25% faster, so the multiplier comes down/);
+});
+
+test('ADS: games without a known menu get a relative change; unmeasured keeps the value', () => {
+  const c = { ...cfg, game: 'fortnite', sens: 45 };
+  const [spec] = adsSpecs(GAMES.fortnite);
+  assert.equal(spec.generic, true);
+  const r = recommendAds(mix([], ['short', 'short', 'miss', 'ok']), trackOf(0.6, 0.1), c, 45, spec, spec.def);
+  assert.ok(r.rel > 1);
+  const none = recommendAds([], null, { ...cfg, game: 'cod' }, 6, adsSpecs(GAMES.cod)[0], 1);
+  assert.equal(none.measured, false);
+  assert.equal(none.next, 1);
+});
+
+test('ADS: explanation matches the direction when the hip-fire change outweighs the zoomed result', () => {
+  const c = { ...cfg, game: 'fortnite', sens: 45, style: 'balanced' };
+  const [spec] = adsSpecs(GAMES.fortnite);
+  // Slightly too slow zoomed in, but hip-fire goes up a lot.
+  const r = recommendAds(mix([], ['short', 'short', 'ok', 'ok']), trackOf(0.35, 0.25), c, 60, spec, spec.def);
+  assert.ok(r.rel < 1);
+  assert.match(r.why, /faster\. .*multiplier comes down/);
 });
