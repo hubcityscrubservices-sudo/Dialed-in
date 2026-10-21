@@ -366,3 +366,13 @@ pre#copytext { font: 12px/1.5 var(--mono); background: rgba(8, 16, 23, 0.6); bor
 .swipe-fig .sf-k { font: 600 13px var(--mono); fill: var(--ink); letter-spacing: .06em; }
 .swipe-fig .sf-s { font: 500 13px var(--body); fill: var(--muted); }
 .swipe-fig figcaption { color: var(--muted); font-size: 13.5px; line-height: 1.45; }
+
+/* Leaderboard: which board, and each row's input on the combined one */
+.board-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.board-tabs button { font: 700 13px var(--display); text-transform: uppercase; letter-spacing: .08em; color: var(--muted);
+  background: transparent; border: 1px solid var(--line, rgba(147, 167, 172, 0.35)); padding: 10px 14px; min-height: 40px; cursor: pointer; }
+.board-tabs button:hover { color: var(--ink); }
+.board-tabs button[aria-selected="true"] { color: var(--ink); border-color: var(--ember); background: rgba(255, 94, 58, 0.12); }
+.input-tag { font: 600 11px var(--mono); letter-spacing: .04em; padding: 2px 7px; border: 1px solid currentColor; color: var(--muted); white-space: nowrap; }
+.input-tag.mouse { color: var(--sun); }
+.input-tag.pad { color: #8FD3E8; }

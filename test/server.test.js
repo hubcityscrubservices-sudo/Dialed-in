@@ -40,7 +40,7 @@ function memoryDb() {
     async getBest(code, p, input) { return rows.get(`${code}|${p}|${input}`) || null; },
     async save(row) { rows.set(`${row.code}|${row.player_id}|${row.input}`, row); },
     async rank(code, input, score) {
-      const board = [...rows.values()].filter(r => r.code === code && r.input === input);
+      const board = [...rows.values()].filter(r => r.code === code && (input == null || r.input === input));
       return { rank: board.filter(r => r.score > score).length + 1, total: board.length };
     }
   };
@@ -105,4 +105,45 @@ test("settings outside the game's menu are refused", () => {
   assert.equal(cleanSettings('fortnite', { ...settings, boost: 55 }), null);
   const fort = cleanSettings('fortnite', { sens: 45, vmult: 1, curve: 'mid', dz: 0.1, outer: 1 });
   assert.deepEqual(fort, { sens: 45, vmult: 1, curve: 'mid', dz: 0.1, outer: 1 });
+});
+
+// A mouse player: counts toward the target each tick, at a carried degrees per count.
+function mouseRun(code, dpc = 0.033) {
+  const ms = { sens: 1.5, vmult: 1, curve: 'linear', dz: 0, outer: 1, dpc };
+  const st = createChallenge(code, 'm-cs2', ms), rec = newRecording();
+  while (!st.done) {
+    const it = st.item, tgt = it.kind === 'track' ? it.TR.tgt : it.T;
+    const ey = tgt.yaw - st.view.yaw, ep = tgt.pitch - st.view.pitch;
+    const mx = Math.round(ey / dpc * 0.2), my = Math.round(-ep / dpc * 0.2);
+    const r = it.kind === 'track' ? it.TR.r : it.T.r;
+    const fire = it.kind !== 'track' && Math.hypot(ey, ep) < r * 0.8 && !st.prevFire;
+    record(rec, mx, my, fire); step(st, mx, my, fire);
+  }
+  return { settings: ms, score: summary(st).score, replay: encodeReplay(rec) };
+}
+
+test('mouse runs are verified with their own degrees per count, on their own and the combined board', async () => {
+  const db = memoryDb(), code = 'd-2026-10-21';
+  const pad = run(code);
+  await handleSubmit(body(code, pad), db, NOW);
+  const m = mouseRun(code);
+  const res = await handleSubmit(body(code, m, { game: 'm-cs2', input: 'mouse', settings: m.settings, playerId: '7f1c2e9a-3b4d-4c5e-8f70-112233445566' }), db, NOW);
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.verified, m.score);
+  assert.deepEqual([res.body.rank, res.body.total, res.body.totalAll], [1, 1, 2]);
+  // A different degrees per count replays to a different score, so it can't be swapped after the fact.
+  const lie = await handleSubmit(body(code, m, { game: 'm-cs2', input: 'mouse', settings: { ...m.settings, dpc: 0.05 } }), db, NOW);
+  assert.equal(lie.status, 422);
+});
+
+test('input type must match the game, and mouse runs need their degrees per count', async () => {
+  const db = memoryDb(), code = 'd-2026-10-21', m = mouseRun(code);
+  const asPad = await handleSubmit(body(code, m, { game: 'm-cs2', input: 'pad', settings: m.settings }), db, NOW);
+  assert.equal(asPad.status, 400);
+  const { dpc, ...noDpc } = m.settings;
+  const missing = await handleSubmit(body(code, m, { game: 'm-cs2', input: 'mouse', settings: noDpc }), db, NOW);
+  assert.equal(missing.status, 400);
+  const padRun = run(code);
+  const padWithDpc = await handleSubmit(body(code, padRun, { settings: { ...settings, dpc: 0.02 } }), db, NOW);
+  assert.equal(padWithDpc.status, 400);
 });

@@ -57,8 +57,10 @@ export const MOUSE_FULL = 150;
 
 // A mouse turns by counts x degrees per count, the same on both axes (no curve, deadzone or boost).
 // input = { mx, my } counts since the last step; +my is the mouse moving toward the player (look down).
+// settings.dpc, when set, is the degrees per count to use as is: challenge runs carry it so a replay
+// (in the browser or on the server) needs no knowledge of the player's mouse or calibration.
 export function steerMouse(view, input, settings, game, dt) {
-  const dpc = game.sens.rate(settings.sens) * (settings.adsMult ?? 1);
+  const dpc = (settings.dpc ?? game.sens.rate(settings.sens)) * (settings.adsMult ?? 1);
   const dy = (input.mx || 0) * dpc, dp = -(input.my || 0) * dpc * (settings.vmult ?? 1);
   view.yaw += dy;
   view.pitch = clamp(view.pitch + dp, -40, 40);

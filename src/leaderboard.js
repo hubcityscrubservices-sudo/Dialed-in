@@ -16,11 +16,13 @@ export async function submitScore(payload) {
   try { return await res.json(); } catch (e) { return { ok: false, error: `The leaderboard replied with ${res.status}.` }; }
 }
 
+// input: 'pad' | 'virtual' | 'mouse', or 'all' for the combined board.
 export async function fetchBoard(code, input, limit = 10) {
   const q = new URLSearchParams({
-    select: 'name,score,accuracy,best_streak,game,created_at',
-    code: `eq.${code}`, input: `eq.${input}`, order: 'score.desc,created_at.asc', limit: String(limit)
+    select: 'name,score,accuracy,best_streak,game,input,created_at',
+    code: `eq.${code}`, order: 'score.desc,created_at.asc', limit: String(limit)
   });
+  if (input !== 'all') q.set('input', `eq.${input}`);
   const res = await fetch(`${SUPABASE.url}/rest/v1/scores?${q}`, { headers: headers(false) });
   if (!res.ok) throw new Error(`Board request failed with ${res.status}`);
   return res.json();

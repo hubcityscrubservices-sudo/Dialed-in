@@ -28,6 +28,10 @@ export function cleanSettings(game, s) {
   const out = {};
   if (!num(s.sens, g.sens.min, g.sens.max) || !onStep(s.sens, g.sens.step)) return null;
   out.sens = s.sens;
+  // Mouse runs carry their degrees per count: a full turn somewhere between ~0.5 and ~300 cm at
+  // common DPIs. Any value in range is a legitimate sensitivity choice.
+  if (g.device === 'mouse') { if (!num(s.dpc, 0.0005, 1)) return null; out.dpc = s.dpc; }
+  else if (s.dpc != null) return null;
   if (g.vsens) {
     if (!num(s.vsens, g.vsens.min, g.vsens.max) || !onStep(s.vsens, g.vsens.step)) return null;
     out.vsens = s.vsens;
@@ -55,7 +59,8 @@ export function codeAllowed(code, now) {
   return true;
 }
 
-// db: { getBest(code, playerId, input), save(row), rank(code, input, score) -> { rank, total } }
+// db: { getBest(code, playerId, input), save(row), rank(code, input | null, score) -> { rank, total } }
+// rank with input null counts every input type (the combined board).
 export async function handleSubmit(raw, db, now = new Date()) {
   if (typeof raw !== 'string' || raw.length > LIMITS.bodyBytes) return fail(413, 'Submission is too large.');
   let b;
@@ -63,9 +68,9 @@ export async function handleSubmit(raw, db, now = new Date()) {
   if (!b || typeof b !== 'object') return fail(400, 'Submission is empty.');
   if (!codeAllowed(b.code, now)) return fail(400, 'That challenge code is not open.');
   if (!GAMES[b.game]) return fail(400, 'Unknown game.');
-  // Mouse runs depend on the player's own calibration and get their own board later.
-  if (GAMES[b.game].device === 'mouse') return fail(400, 'Mouse scores are not on the leaderboard yet.');
-  if (!['pad', 'virtual'].includes(b.input)) return fail(400, 'Unknown input type.');
+  // Mouse games are played with a mouse and controller games with a stick, so input and game must agree.
+  const mouseGame = GAMES[b.game].device === 'mouse';
+  if (!(mouseGame ? ['mouse'] : ['pad', 'virtual']).includes(b.input)) return fail(400, 'Unknown input type for this game.');
   if (typeof b.playerId !== 'string' || !UUID.test(b.playerId)) return fail(400, 'Missing player id.');
   const name = cleanName(b.name);
   if (!name) return fail(400, 'Names are 2 to 20 letters, numbers, spaces, dots, dashes or underscores.');
@@ -91,5 +96,6 @@ export async function handleSubmit(raw, db, now = new Date()) {
   }
   const best = saved ? sum.score : prev.score;
   const { rank, total } = await db.rank(b.code, b.input, best);
-  return { status: 200, body: { ok: true, verified: sum.score, saved, best, rank, total } };
+  const all = await db.rank(b.code, null, best);
+  return { status: 200, body: { ok: true, verified: sum.score, saved, best, rank, total, rankAll: all.rank, totalAll: all.total } };
 }

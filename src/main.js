@@ -1501,7 +1501,10 @@ function startChallenge(code, kind, opts = {}) {
   if (!opts.settings) { readSetup(); syncSetup(); }
   session = null;
   calibrate();
-  const settings = opts.settings || settingsOf(cfg), game = opts.game || cfg.game;
+  let settings = opts.settings || settingsOf(cfg);
+  const game = opts.game || cfg.game;
+  // Mouse runs carry their degrees per count, so the replay doesn't depend on this browser's calibration.
+  if (GAMES[game].device === 'mouse') settings = { ...settings, dpc: GAMES[game].sens.rate(settings.sens) };
   chal = { st: createChallenge(code, game, settings, { seconds: opts.seconds }), rec: newRecording(), code, kind, phase: 'intro',
     countLeft: 0, acc: 0, flash: null, pop: null, src: inp.src, settings, game, duel: opts.duel || null };
   view.yaw = 0; view.pitch = 0;
@@ -1760,10 +1763,13 @@ function renderChalEnd() {
       <button class="btn" id="ch-share" type="button">Copy result</button>
       <button class="btn" id="ch-back" type="button">Back to setup</button>
     </div>
-    ${c.src === 'mouse' ? '<p class="fine">Mouse runs will get their own leaderboard. Your best is kept in this browser, and every run is recorded so it can be checked when the board opens.</p>'
-      : boardsOn() ? `<div class="board" id="board">
+    ${boardsOn() ? `<div class="board" id="board">
       <div style="display:grid;gap:4px"><h3 class="sub">Leaderboard · ${c.code}</h3>
-        <p class="fine">${c.src === 'pad' ? 'Controller' : 'On-screen stick'} board. Your run is replayed on the server before it counts.</p></div>
+        <p class="fine">Your run goes on the ${INPUT_LABEL[c.src].toLowerCase()} board and the combined one. Every run is replayed on the server before it counts.</p></div>
+      <div class="board-tabs" role="tablist" aria-label="Which board">
+        ${['all', 'pad', 'mouse', ...(c.src === 'virtual' ? ['virtual'] : [])].map(k =>
+          `<button type="button" role="tab" data-board="${k}" aria-selected="${k === c.src}">${k === 'all' ? 'All inputs' : INPUT_LABEL[k]}</button>`).join('')}
+      </div>
       <div class="actions">
         <label for="board-name" class="sr-only">Name on the leaderboard</label>
         <input id="board-name" type="text" maxlength="20" autocomplete="nickname" placeholder="Your name" value="">
@@ -1773,7 +1779,7 @@ function renderChalEnd() {
       <div class="table-wrap" id="board-table"><p class="fine">Loading the board…</p></div>
     </div>` : '<p class="fine">Scores are kept in this browser for now. Every run is recorded so its score can be checked once leaderboards open.</p>'}`;
   $('#ch-again').addEventListener('click', () => startChallenge(c.kind === 'practice' ? practiceCode() : c.code, c.kind));
-  if (boardsOn() && c.src !== 'mouse') wireBoard(c, sum);
+  if (boardsOn()) wireBoard(c, sum);
   $('#ch-share').addEventListener('click', e => copyText(shareText, e.currentTarget));
   $('#ch-back').addEventListener('click', leaveChallenge);
 }
@@ -1826,15 +1832,20 @@ function reportHtml({ rows, hints }) {
 
 const BOARD_BLOCKED = 'Couldn\'t reach the leaderboard. The claude.ai preview blocks outside connections, so use the website version for leaderboards.';
 
+const INPUT_LABEL = { pad: 'Controller', mouse: 'Mouse', virtual: 'On-screen stick' };
+let boardReq = 0;
+// input: one input type, or 'all' (the combined board, with an Input column).
 async function loadBoard(code, input) {
-  const box = $('#board-table');
+  const box = $('#board-table'), req = ++boardReq;
+  document.querySelectorAll('.board-tabs [data-board]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.board === input)));
   try {
     const rows = await fetchBoard(code, input);
-    if (!$('#board-table')) return;
+    if (!$('#board-table') || req !== boardReq) return;
+    const all = input === 'all';
     box.innerHTML = rows.length
-      ? `<table><thead><tr><th>#</th><th>Name</th><th>Score</th><th>Accuracy</th><th>Streak</th><th>Game</th></tr></thead><tbody>${rows.map((r, i) =>
-        `<tr><td class="num">${i + 1}</td><td>${esc(r.name)}</td><td class="num">${r.score.toLocaleString('en-US')}</td><td class="num">${r.accuracy == null ? '–' : pct(r.accuracy)}</td><td class="num">${r.best_streak ?? '–'}</td><td>${esc(GAMES[r.game] ? gameTitle(GAMES[r.game]) : r.game)}</td></tr>`).join('')}</tbody></table>`
-      : '<p class="fine">No scores yet. Be the first.</p>';
+      ? `<table><thead><tr><th>#</th><th>Name</th>${all ? '<th>Input</th>' : ''}<th>Score</th><th>Accuracy</th><th>Streak</th><th>Game</th></tr></thead><tbody>${rows.map((r, i) =>
+        `<tr><td class="num">${i + 1}</td><td>${esc(r.name)}</td>${all ? `<td><span class="input-tag ${esc(r.input)}">${esc(INPUT_LABEL[r.input] || r.input)}</span></td>` : ''}<td class="num">${r.score.toLocaleString('en-US')}</td><td class="num">${r.accuracy == null ? '–' : pct(r.accuracy)}</td><td class="num">${r.best_streak ?? '–'}</td><td>${esc(GAMES[r.game] ? gameTitle(GAMES[r.game]) : r.game)}</td></tr>`).join('')}</tbody></table>`
+      : `<p class="fine">No ${all ? '' : INPUT_LABEL[input].toLowerCase() + ' '}scores yet. Be the first.</p>`;
   } catch (e) {
     box.innerHTML = `<p class="fine">${BOARD_BLOCKED}</p>`;
   }
@@ -1843,7 +1854,9 @@ async function loadBoard(code, input) {
 function wireBoard(c, sum) {
   const nameEl = $('#board-name');
   nameEl.value = savedName();
-  loadBoard(c.code, c.src);
+  let shown = c.src;
+  loadBoard(c.code, shown);
+  document.querySelectorAll('.board-tabs [data-board]').forEach(b => b.addEventListener('click', () => { shown = b.dataset.board; loadBoard(c.code, shown); }));
   $('#board-submit').addEventListener('click', async e => {
     const btn = e.currentTarget, status = $('#board-status');
     const name = nameEl.value.trim().replace(/\s+/g, ' ');
@@ -1854,11 +1867,12 @@ function wireBoard(c, sum) {
       const res = await submitScore({ code: c.code, game: c.game, input: c.src, playerId: playerId(), name,
         settings: c.settings, score: sum.score, replay: c.result.replay });
       if (!res.ok) { status.textContent = res.error || 'The score was not saved.'; btn.disabled = false; return; }
+      const where = `#${res.rank} of ${res.total} on the ${INPUT_LABEL[c.src].toLowerCase()} board${res.rankAll ? `, #${res.rankAll} of ${res.totalAll} across all inputs` : ''}`;
       status.textContent = res.saved
-        ? `Verified and saved. You're #${res.rank} of ${res.total}.`
-        : `Verified. Your best here is still ${res.best.toLocaleString('en-US')}, #${res.rank} of ${res.total}.`;
+        ? `Verified and saved. You're ${where}.`
+        : `Verified. Your best here is still ${res.best.toLocaleString('en-US')}: ${where}.`;
       btn.textContent = 'Submitted';
-      loadBoard(c.code, c.src);
+      loadBoard(c.code, shown);
     } catch (err) {
       status.textContent = BOARD_BLOCKED;
       btn.disabled = false;
@@ -1871,8 +1885,9 @@ async function loadWarmTop() {
   const el = $('#warm-top');
   if (!boardsOn() || !el) return;
   try {
-    const rows = await fetchBoard(dailyCode(), 'pad', 3);
-    el.textContent = rows.length ? `Today's top: ${rows.map((r, i) => `${i + 1}. ${r.name} ${r.score.toLocaleString('en-US')}`).join('   ')}` : 'No scores on today\'s board yet.';
+    const rows = await fetchBoard(dailyCode(), 'all', 3);
+    const tag = { pad: 'controller', mouse: 'mouse', virtual: 'on-screen' };
+    el.textContent = rows.length ? `Today's top: ${rows.map((r, i) => `${i + 1}. ${r.name} ${r.score.toLocaleString('en-US')} (${tag[r.input] || r.input})`).join('   ')}` : 'No scores on today\'s board yet.';
   } catch (e) { el.textContent = ''; }
 }
 

@@ -77,8 +77,8 @@ of rates). The turn drill, ADS rounds and curve/vertical screening are controlle
   input isn't available (a fast swipe travels further than slow ones), and the report rate from coalesced
   pointer events.
 - **Results** give the sensitivity in the game's own units with cm/360 beside it.
-- **Challenge.** Mouse runs record raw counts per tick and replay exactly, but mouse scores stay in the
-  browser until a separate mouse board exists (the server refuses them for now).
+- **Challenge.** Mouse runs record raw counts per tick and carry their degrees per count, so the
+  server replays them exactly and they go on the leaderboard like controller runs.
 
 ## Field of view
 
@@ -190,13 +190,16 @@ against real play. Built by `src/export.js`.
 ## Leaderboards
 
 - `supabase/migrations/20261021000000_scores.sql`: one `scores` row per player, code and input type
-  (controller or on-screen stick), holding their best verified run. Row-level security lets anyone
+  (controller, mouse or on-screen stick; mouse added in `20261022000000_scores_mouse.sql`), holding their
+  best verified run. The end screen shows the board for your input or all inputs together, with each
+  row's input marked; the warm-up panel's top three is the combined board. Row-level security lets anyone
   read the board columns; recordings, settings and player ids are not readable, and there are no
   write policies.
 - `supabase/functions/submit-score`: checks the code (no future dailies), name, settings (within the
   game's menu) and that the run is a full 60 seconds, replays the recording with the same engine the
   browser used, and stores the replayed score only if it matches the claimed one. Keeps each
-  player's best and returns their rank.
+  player's best and returns their rank on their input's board and across all inputs. Input must
+  match the game (mouse games only with a mouse), and mouse runs must carry their degrees per count.
 - `supabase/functions/_shared/engine/` is a copy of the engine made by `npm run sync:engine` (part of
   `npm run build`); a test fails if it drifts from `src/`.
 - `src/config.js` holds the project URL and public key; empty means leaderboards are off. The
@@ -210,7 +213,7 @@ board be reviewed.
 ```sh
 supabase login
 supabase link --project-ref <project-ref>        # the id in the project URL
-supabase db push                                 # creates the scores table
+supabase db push                                 # creates the scores table (and allows mouse runs)
 supabase functions deploy submit-score --no-verify-jwt
 ```
 

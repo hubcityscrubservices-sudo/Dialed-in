@@ -26,11 +26,14 @@ const store = {
     const { error } = await db.from('scores').upsert(row, { onConflict: 'code,player_id,input' });
     if (error) throw error;
   },
-  async rank(code: string, input: string, score: number) {
-    const ahead = await db.from('scores').select('id', { count: 'exact', head: true })
-      .eq('code', code).eq('input', input).gt('score', score);
-    const all = await db.from('scores').select('id', { count: 'exact', head: true })
-      .eq('code', code).eq('input', input);
+  // input null = every input type (the combined board).
+  async rank(code: string, input: string | null, score: number) {
+    const board = () => {
+      const q = db.from('scores').select('id', { count: 'exact', head: true }).eq('code', code);
+      return input ? q.eq('input', input) : q;
+    };
+    const ahead = await board().gt('score', score);
+    const all = await board();
     if (ahead.error) throw ahead.error;
     if (all.error) throw all.error;
     return { rank: (ahead.count ?? 0) + 1, total: all.count ?? 0 };
