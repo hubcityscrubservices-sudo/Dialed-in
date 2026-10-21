@@ -173,4 +173,24 @@ pre#copytext { font: 13px/1.5 var(--mono); background: var(--bg); border: 1px so
 .offer { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 14px 16px; border-radius: 10px; background: var(--bg); border: 1px dashed var(--line); }
 .offer p { color: var(--muted); font-size: 14px; max-width: 52ch; }
 
+/* deep chart */
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.c-grid { stroke: var(--line); stroke-width: 1; }
+.c-axis { fill: var(--muted); font: 500 12px var(--mono); }
+.c-band { fill: var(--accent); opacity: .12; }
+.c-mark { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 4 4; }
+.c-best { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 4 4; }
+.c-fit { fill: none; stroke: var(--ink); stroke-width: 2; stroke-linejoin: round; }
+.c-dot { fill: var(--accent); stroke: var(--bg); stroke-width: 2; }
+.c-hit { fill: transparent; cursor: pointer; }
+.c-hit:focus-visible { outline: none; stroke: var(--accent); stroke-width: 2; }
+.chart-tip { position: absolute; transform: translate(-50%, calc(-100% - 12px)); pointer-events: none; white-space: nowrap; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: 500 12px var(--mono); box-shadow: 0 4px 14px rgba(0, 0, 0, .15); }
+.chart-key { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.chart-key span { display: inline-flex; align-items: center; gap: 6px; }
+.chart-key i { display: inline-block; flex: none; }
+.k-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+.k-line { width: 16px; height: 2px; background: var(--ink); }
+.k-band { width: 14px; height: 10px; background: var(--accent); opacity: .25; }
+
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

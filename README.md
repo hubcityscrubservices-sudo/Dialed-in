@@ -10,7 +10,7 @@ settings for their game, each with the measurements behind it.
 |---|---|---|
 | Quick | ~2 min | Drift check, flick test, tracking test, then suggested settings with reasons. |
 | Verify | ~4 min | Quick, then a blind ABBA/BAAB test of old vs suggested settings. Reports how likely the new settings are better (bootstrap over targets and tracking seconds), next to the player's own feel ratings. |
-| Deep | next build | Screening rounds that change settings between blocks to find which ones matter for this player, then an adaptive search on those. |
+| Deep | ~5 min | Drift check, then 7–9 short blind rounds at different sensitivities. The first three bracket the current speed, round five repeats it as a control, and the rest go where the fitted curve says the best speed is. Reports the best setting, the range within noise of it, and whether sensitivity matters for this player at all. |
 
 ## Games
 
@@ -28,6 +28,27 @@ third-person camera and Look Boost (extra turn speed at full stick).
 - Overshoot, stopping short, trailing/leading and extra corrections drive the direction of each
   suggestion (`src/analysis.js`).
 
+## Deep mode
+
+Each round is scored as speed and accuracy combined (flick throughput and tracking error, each
+scaled to the session average and weighted by playstyle). The scores are fit with
+`score = a + b·x + c·x² + d·t`, where `x` is log2 of the turn-speed multiplier and `t` is round
+order, so warm-up doesn't tilt the result. Bootstrapping the trials inside each round gives the
+range of plausible best speeds and how often a 30% speed change costs more than 4% of the score:
+at least 80% of the time means sensitivity matters, at most 30% means it doesn't, anything else
+is unclear.
+
+Checked against simulated players (`test/deep.test.js`, plus a 40-player sweep): a clear best
+speed inside the tested range is found within about 5% in 7 rounds. When the best speed is far
+from the current one, the estimate leans about 9% toward the current speed and the verdict is
+more often "unclear". Players with no real preference are called "matters" about 5% of the time.
+
+## Hosting
+
+`.github/workflows/pages.yml` tests, builds and publishes `dist/index.html` to GitHub Pages on
+every push to `main`. On the free plan this needs the repo to be public, with
+Settings → Pages → Source set to "GitHub Actions".
+
 ## Develop
 
 ```sh
@@ -44,6 +65,7 @@ Open `dist/index.html` in Chrome or Edge with a controller connected. No server 
 - `src/sim.js`: stick shaping, look boost, flick and tracking trials (pure)
 - `src/analysis.js`: throughput, summaries, recommendations (pure)
 - `src/verify.js`: blind test plan and bootstrap comparison (pure)
+- `src/deep.js`: Deep mode search, curve fit and read-out (pure)
 - `src/main.js`: UI, input polling, drawing, session flow
 - `src/page.html`, `src/styles.css`: page shell
 - `scripts/build.mjs`: bundles everything into one HTML file
@@ -53,5 +75,5 @@ Open `dist/index.html` in Chrome or Edge with a controller connected. No server 
 1. ~~Fitts' throughput scoring~~
 2. ~~Verify mode~~
 3. ~~ARC Raiders profile with third-person camera~~
-4. Deep mode, sensitivity only (adaptive search)
+4. ~~Deep mode, sensitivity only (adaptive search)~~
 5. Deep mode, multi-factor screening (sensitivity, deadzone, curve, ADS)

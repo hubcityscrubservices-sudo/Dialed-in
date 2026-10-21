@@ -2,19 +2,21 @@ import { GAMES, PLAYSTYLES, gameTitle } from './games.js';
 import { FOV, makeView, steer, newFlickTarget, flickStep, makeTrack, trackStep } from './sim.js';
 import { summarize, recommend, driftDeadzone, settingsChanged } from './analysis.js';
 import { verifyPlan, verifyCompare, ratingSummary } from './verify.js';
+import { DEEP, deepNext, deepAnalyze, shuffled } from './deep.js';
 import { clamp, pct } from './util.js';
 
 const $ = s => document.querySelector(s);
 const QUICK = { flicks: 10, trackSeconds: 15 };
 const VERIFY = { flicks: 7, warmFlicks: 1, trackSeconds: 9, warmSeconds: 1.5 };
+const DEEP_ROUND = { flicks: 8, warmFlicks: 1, trackSeconds: 8, warmSeconds: 1.5 };
 const DRIFT_SECONDS = 4;
-const RAIL = { setup: 'Setup', drift: 'Drift', flick: 'Flicks', track: 'Tracking', verify: 'Verify', results: 'Results' };
+const RAIL = { setup: 'Setup', drift: 'Drift', flick: 'Flicks', track: 'Tracking', deep: 'Search', verify: 'Verify', results: 'Results' };
 const RATINGS = [
   { v: 1, label: 'Rough', key: 'dl', glyph: '←' },
   { v: 2, label: 'OK', key: 'du', glyph: '↑' },
   { v: 3, label: 'Great', key: 'dr', glyph: '→' }
 ];
-const MODE_HINT = { quick: 'About 2 minutes', verify: 'About 4 minutes' };
+const MODE_HINT = { quick: 'About 2 minutes', verify: 'About 4 minutes', deep: 'About 5 minutes' };
 
 const cfg = { game: 'arc', style: 'balanced', mode: 'verify', sens: GAMES.arc.sens.def, curve: 'mid', dz: 0.10 };
 let screen = 'setup';  // setup | test | results
@@ -62,16 +64,87 @@ function verifySegments(A, B) {
   return segs;
 }
 
+function deepSegments() {
+  return [
+    { kind: 'drift', rail: 'drift', title: 'Drift check',
+      text: 'Set the controller down and keep your thumbs off both sticks for 4 seconds. This measures how far the sticks wander on their own.' },
+    { kind: 'deepNext' }
+  ];
+}
+
+// Queues the next search round, or the read-out when the search is done.
+function deepStep() {
+  const D = session.deep;
+  if (D.pending) {
+    const r = D.pending, parts = session.segs.filter(x => x.round === r);
+    const fl = parts.find(x => x.kind === 'flick'), tr = parts.find(x => x.kind === 'track'), ra = parts.find(x => x.kind === 'rate');
+    D.history.push({ x: r.x, sens: r.sens, flicks: fl.data.list.slice(fl.warm), chunks: tr.data.chunks, track: tr.data, rating: ra.data });
+    D.pending = null;
+  }
+  const next = deepNext(D.history, PLAYSTYLES[cfg.style], game(), cfg.sens, D.order);
+  if (!next) { session.segs.push({ kind: 'deepDone' }); return advance(); }
+  const k = D.history.length + 1;
+  const round = { x: next.x, sens: next.sens };
+  const settings = { sens: next.sens, curve: cfg.curve, dz: session.drift ? session.drift.rec : cfg.dz };
+  const title = `Round ${k}`;
+  D.pending = round;
+  session.segs.push(
+    { kind: 'flick', rail: 'deep', round, n: DEEP_ROUND.flicks, warm: DEEP_ROUND.warmFlicks, settings, intro: true, title,
+      text: k === 1
+        ? `The search runs ${DEEP.minRounds} to ${DEEP.maxRounds} short rounds. Each is ${DEEP_ROUND.flicks} targets, then ${DEEP_ROUND.trackSeconds} seconds of tracking, at a hidden sensitivity. Each round's speed is picked from how you did in the earlier ones.`
+        : `${DEEP_ROUND.flicks} targets, then tracking. The sensitivity has probably changed. Play the way you normally would.` },
+    { kind: 'track', rail: 'deep', round, dur: DEEP_ROUND.trackSeconds, warm: DEEP_ROUND.warmSeconds, settings, title, text: 'Stay on the moving target.' },
+    { kind: 'rate', rail: 'deep', round, title: `How did round ${k} feel?`, text: 'Go with your gut. Your ratings are shown next to the scores at the end.' },
+    { kind: 'deepNext' }
+  );
+  advance();
+}
+
+function deepDone() {
+  const D = session.deep;
+  const c = { ...cfg };
+  const res = deepAnalyze(D.history, PLAYSTYLES[c.style], game(), c.sens);
+  // Curve and deadzone advice come from the rounds played at the current speed.
+  const base = D.history.filter(h => h.sens === c.sens);
+  const from = base.length ? base : D.history;
+  const stats = summarize(from.flatMap(h => h.flicks), from[0].track);
+  const rec = recommend(stats, c, session.drift);
+  if (res) {
+    rec.sens = res.verdict === 'flat' ? c.sens : res.best.sens;
+    rec.sensWhy = deepWhy(res, c);
+  }
+  result = { cfg: c, stats, rec, drift: session.drift, verify: null,
+    deep: { res, rounds: D.history.map(h => ({ sens: h.sens, rating: h.rating })) } };
+  session = null;
+  show('results');
+}
+
+function deepWhy(res, c) {
+  const g = GAMES[c.game];
+  const [lo, hi] = [res.range[0].sens, res.range[1].sens];
+  const span = lo === hi ? `${lo}` : `${lo} to ${hi}`;
+  if (res.verdict === 'matters') {
+    const edge = res.edge ? ` Your best score came at the ${res.edge === 'hi' ? 'fastest' : 'slowest'} speed tested, so the true best may sit a little beyond it.` : '';
+    return `Your score peaked at ${res.best.sens} and fell about ${pct(res.drop)} when the speed was 30% off that. Anything from ${span} is within the noise of your best.${edge}`;
+  }
+  if (res.verdict === 'flat') {
+    return `Your score barely changed across the speeds tested (${pct(Math.max(0, res.drop))} at 30% off your best). Sensitivity is not what limits your aim, so keep whatever feels best. Your current ${c.sens} is fine.`;
+  }
+  return `Best guess is ${res.best.sens}, but your rounds varied too much to be sure. Anything from ${span} is reasonable in ${g.name}. Running the search again would narrow it down.`;
+}
+
 /* ---------- session flow ---------- */
 
-function start(segs, drift) {
-  session = { segs, i: 0, phase: 'intro', countLeft: 0, drift };
+function start(segs, drift, deep = null) {
+  session = { segs, i: 0, phase: 'intro', countLeft: 0, drift, deep };
   enter();
 }
 function enter() {
   const s = seg();
   if (s.kind === 'analyze') return analyze();
   if (s.kind === 'verdict') return verdict();
+  if (s.kind === 'deepNext') return deepStep();
+  if (s.kind === 'deepDone') return deepDone();
   resetView();
   s.data = null;
   if (s.kind === 'rate') session.phase = 'rate';
@@ -206,8 +279,9 @@ function show(name) {
 }
 
 function railKeys() {
-  const keys = ['setup', 'drift', 'flick', 'track'];
-  const verifying = cfg.mode === 'verify' || (result && result.verify) || (session && session.segs.some(s => s.rail === 'verify'));
+  const deep = !!((session && session.deep) || (result && result.deep) || (!session && !result && cfg.mode === 'deep'));
+  const keys = deep ? ['setup', 'drift', 'deep'] : ['setup', 'drift', 'flick', 'track'];
+  const verifying = (cfg.mode === 'verify' && !deep) || (result && result.verify) || (session && session.segs.some(s => s.rail === 'verify'));
   if (verifying) keys.push('verify');
   keys.push('results');
   return keys;
@@ -305,6 +379,83 @@ function verifyBlock(v) {
   </div>`;
 }
 
+function deepBlock(d, g, c) {
+  const res = d.res;
+  if (!res) return `<div class="verdict"><h3>Not enough data to fit</h3><p>Some rounds were too short to score. Run Deep mode again.</p></div>`;
+  const head = { matters: 'Sensitivity matters for you', flat: 'Sensitivity barely matters for you', unclear: 'No clear best speed yet' }[res.verdict];
+  const warm = res.warmup > 0.05
+    ? `<p class="fine">You improved about ${pct(res.warmup)} from the first round to the last. The fit allows for that warm-up, so later rounds don't score higher just for coming later.</p>`
+    : '';
+  const rows = res.points.map((p, i) => `<tr><td class="num">${p.round}</td><td class="num">${p.sens}${p.sens === c.sens ? ' (current)' : ''}</td><td class="num">${Math.round(p.y / res.top * 100)}%</td><td>${feelLabel(d.rounds[i].rating)}</td></tr>`).join('');
+  return `<div class="verdict ${res.verdict === 'matters' ? 'better' : ''}">
+    <div style="display:grid;gap:4px"><p class="eyebrow">Deep search · ${res.points.length} rounds</p><h3>${head}</h3>
+      <p>Each dot is one round's score at that sensitivity. The line is the fitted trend, and the shaded band is the range that scores within the noise of your best.</p></div>
+    ${deepChart(res, c, g)}
+    ${warm}
+    <div class="table-wrap"><table><thead><tr><th>Round</th><th>${g.sens.label}</th><th>Score vs best</th><th>Felt</th></tr></thead><tbody>${rows}</tbody></table></div>
+  </div>`;
+}
+
+function deepChart(res, c, g) {
+  const W = 600, H = 250, L = 46, R = 16, T = 22, B = 40;
+  const pad = Math.max(0.08, (res.hi - res.lo) * 0.06);
+  const x0 = res.lo - pad, x1 = res.hi + pad;
+  const vals = res.points.map(p => p.y / res.top * 100).concat(res.curve.map(p => p.y / res.top * 100), [100]);
+  // Round gridline steps (5, 10, 20, 25 or 50 points) so the axis reads cleanly.
+  const lo = Math.min(...vals) - 3, hi = Math.max(...vals) + 3;
+  const step = [5, 10, 20, 25, 50].find(st => (Math.ceil(hi / st) - Math.floor(lo / st)) <= 5) || 100;
+  const y0 = Math.floor(lo / step) * step, y1 = Math.ceil(hi / step) * step;
+  const sx = x => L + (x - x0) / (x1 - x0) * (W - L - R);
+  const sy = v => T + (y1 - v) / (y1 - y0) * (H - T - B);
+  let out = '';
+  for (let v = y0; v <= y1; v += step) {
+    const y = sy(v).toFixed(1);
+    out += `<line class="c-grid" x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/><text class="c-axis" x="${L - 8}" y="${y}" text-anchor="end" dominant-baseline="middle">${Math.round(v)}%</text>`;
+  }
+  const bx0 = sx(clamp(res.range[0].x, x0, x1)), bx1 = sx(clamp(res.range[1].x, x0, x1));
+  out += `<rect class="c-band" x="${bx0.toFixed(1)}" y="${T}" width="${Math.max(2, bx1 - bx0).toFixed(1)}" height="${H - T - B}"/>`;
+  const marker = (x, label, cls) => `<line class="${cls}" x1="${sx(x).toFixed(1)}" x2="${sx(x).toFixed(1)}" y1="${T}" y2="${H - B}"/><text class="c-axis" x="${sx(x).toFixed(1)}" y="${T - 8}" text-anchor="middle">${label}</text>`;
+  const bestFar = Math.abs(sx(res.best.x) - sx(0)) > 46;
+  out += marker(0, 'Current', 'c-mark');
+  if (res.verdict !== 'flat' && bestFar) out += marker(res.best.x, 'Best', 'c-best');
+  out += `<path class="c-fit" d="${res.curve.map((p, i) => `${i ? 'L' : 'M'}${sx(p.x).toFixed(1)},${sy(p.y / res.top * 100).toFixed(1)}`).join('')}"/>`;
+  // Setting labels under the tested speeds, skipping any that would collide.
+  const ticks = [...new Map(res.points.map(p => [p.sens, p.x])).entries()].sort((a, b) => a[1] - b[1]);
+  let lastX = -Infinity;
+  for (const [sens, x] of ticks) {
+    const px = sx(x);
+    if (px - lastX < 34) continue;
+    lastX = px;
+    out += `<text class="c-axis" x="${px.toFixed(1)}" y="${H - B + 18}" text-anchor="middle">${sens}</text>`;
+  }
+  out += `<text class="c-axis" x="${(L + W - R) / 2}" y="${H - 4}" text-anchor="middle">${g.sens.label}</text>`;
+  for (const p of res.points) {
+    const cx = sx(p.x).toFixed(1), cy = sy(p.y / res.top * 100).toFixed(1);
+    out += `<circle class="c-dot" cx="${cx}" cy="${cy}" r="5"/>`;
+    out += `<circle class="c-hit" cx="${cx}" cy="${cy}" r="14" tabindex="0" data-tip="Round ${p.round} · ${p.sens} · ${Math.round(p.y / res.top * 100)}% of best"/>`;
+  }
+  return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Round scores by sensitivity with fitted trend">${out}</svg><div class="chart-tip" hidden></div></div>
+    <div class="chart-key"><span><i class="k-dot"></i>Round score</span><span><i class="k-line"></i>Fitted trend</span><span><i class="k-band"></i>Best range</span></div>`;
+}
+
+function wireChart() {
+  const wrap = document.querySelector('#p-results .chart');
+  if (!wrap) return;
+  const tip = wrap.querySelector('.chart-tip');
+  const showTip = e => {
+    const a = wrap.getBoundingClientRect(), b = e.target.getBoundingClientRect();
+    tip.textContent = e.target.dataset.tip;
+    tip.style.left = (b.left + b.width / 2 - a.left) + 'px';
+    tip.style.top = (b.top + b.height / 2 - a.top) + 'px';
+    tip.hidden = false;
+  };
+  const hideTip = () => { tip.hidden = true; };
+  wrap.querySelectorAll('.c-hit').forEach(el => {
+    el.addEventListener('pointerenter', showTip); el.addEventListener('focus', showTip);
+    el.addEventListener('pointerleave', hideTip); el.addEventListener('blur', hideTip);
+  });
+}
+
 function renderResults() {
   const { cfg: c, stats: s, rec: r, verify: v } = result;
   const g = GAMES[c.game];
@@ -324,6 +475,7 @@ function renderResults() {
     ['Ahead of the target', pct(s.ahead)],
     ['Extra corrections', s.jitter.toFixed(1) + '/s']
   ];
+  const deepHtml = result.deep ? deepBlock(result.deep, g, c) : '';
   let verifyHtml;
   if (v) verifyHtml = verifyBlock(v);
   else if (settingsChanged(c, r)) verifyHtml = `<div class="offer"><p>Not sure about these? Run a blind test of your old settings against the new ones. About 2 minutes.</p><button class="btn primary" id="verify" type="button">Verify these settings</button></div>`;
@@ -343,11 +495,12 @@ function renderResults() {
       ${row(g.dz.label, g.dz.fmt(c.dz), g.dz.fmt(r.dz), r.dzMeasured ? tag(r.dz, c.dz) : '<span class="tag">Not measured</span>', r.dzWhy)}
       ${row(g.curve.label, g.curve[c.curve], g.curve[r.curve], curveTag, r.curveWhy)}
     </div>
+    ${deepHtml}
     ${verifyHtml}
     <div style="display:grid;gap:10px">
       <h3 style="font-size:16px">What the tests measured</h3>
       <div class="table-wrap"><table>
-        <thead><tr><th>Measure</th><th>At your current settings</th></tr></thead>
+        <thead><tr><th>Measure</th><th>${result.deep ? 'Rounds at your current speed' : 'At your current settings'}</th></tr></thead>
         <tbody>${lines.map(([label, val]) => `<tr><td>${label}</td><td class="num">${val}</td></tr>`).join('')}</tbody>
       </table></div>
     </div>
@@ -360,6 +513,7 @@ function renderResults() {
 
   const vb = $('#verify');
   if (vb) vb.addEventListener('click', () => start(verifySegments(c, r), result.drift));
+  wireChart();
   $('#restart').addEventListener('click', () => { result = null; session = null; syncSetup(); show('setup'); });
   $('#copy').addEventListener('click', e => {
     const text = [`Dialed In, ${g.name} (${PLAYSTYLES[c.style].label})`,
@@ -405,7 +559,8 @@ $('#go').addEventListener('click', () => {
   cfg.dz = g.dz.def;
   result = null;
   syncSetup();
-  start(quickSegments(), null);
+  if (cfg.mode === 'deep') start(deepSegments(), null, { order: shuffled(DEEP.initial), history: [], pending: null });
+  else start(quickSegments(), null);
 });
 
 /* ---------- input ---------- */
@@ -629,7 +784,7 @@ function updateStatus() {
   if (screen === 'test' && session.phase === 'run') {
     if (s.kind === 'flick') {
       l = `Target ${Math.min(s.data.list.length + 1, s.n)} / ${s.n}`;
-      r = `${s.data.list.filter(x => x.hit).length} hits`;
+      r = `${s.data.list.filter(x => x.hit).length} hits${s.round ? ' · ' + s.title : ''}`;
     } else if (s.kind === 'track') {
       const TR = s.data;
       l = TR.t < TR.warm ? 'Settle in' : `On target ${pct(TR.T ? TR.on / TR.T : 0)}`;
