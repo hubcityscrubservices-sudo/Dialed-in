@@ -113,13 +113,13 @@ function verifySegments(A, B) {
   const segs = [];
   plan.forEach((r, k) => {
     const title = `Round ${k + 1} of ${plan.length}`;
-    segs.push({ kind: 'flick', rail: 'verify', key: r.key, n: VERIFY.flicks, warm: VERIFY.warmFlicks, settings: r.settings, intro: true, title,
+    segs.push({ kind: 'flick', rail: 'verify', key: r.key, counter: title, n: VERIFY.flicks, warm: VERIFY.warmFlicks, settings: r.settings, intro: true, title,
       text: k === 0
         ? `Blind test. Each round is ${VERIFY.flicks} targets, then ${VERIFY.trackSeconds} seconds of tracking. Two rounds use your old settings and two use the new ones, in a hidden order.`
         : `Same drill. The settings may have changed. ${VERIFY.flicks} targets, then tracking.` });
-    segs.push({ kind: 'track', rail: 'verify', key: r.key, dur: VERIFY.trackSeconds, warm: VERIFY.warmSeconds, settings: r.settings, title,
+    segs.push({ kind: 'track', rail: 'verify', key: r.key, counter: title, dur: VERIFY.trackSeconds, warm: VERIFY.warmSeconds, settings: r.settings, title,
       text: 'Stay on the moving target.' });
-    segs.push({ kind: 'rate', rail: 'verify', key: r.key, title: `How did round ${k + 1} feel?`,
+    segs.push({ kind: 'rate', rail: 'verify', key: r.key, counter: title, title: `How did round ${k + 1} feel?`,
       text: 'Go with your gut. Your answer is shown next to the measurements at the end.' });
   });
   segs.push({ kind: 'verdict' });
@@ -152,15 +152,16 @@ function deepStep() {
   const k = D.history.length + 1;
   const round = { x: next.x, sens: next.sens };
   const settings = { sens: next.sens, ...verticalFor(next.sens), curve: cfg.curve, dz: checkedDz(), outer: checkedOuter() };
-  const title = `Round ${k}`;
+  // The search always plays DEEP.minRounds; it adds up to two more only when the best speed is still unclear.
+  const title = k <= DEEP.minRounds ? `Round ${k} of ${DEEP.minRounds}` : `Extra round ${k - DEEP.minRounds} of up to ${DEEP.maxRounds - DEEP.minRounds}`;
   D.pending = round;
   session.segs.push(
-    { kind: 'flick', rail: 'deep', round, n: DEEP_ROUND.flicks, warm: DEEP_ROUND.warmFlicks, settings, intro: true, title,
+    { kind: 'flick', rail: 'deep', round, counter: title, n: DEEP_ROUND.flicks, warm: DEEP_ROUND.warmFlicks, settings, intro: true, title,
       text: k === 1
-        ? `The search runs ${DEEP.minRounds} to ${DEEP.maxRounds} short rounds. Each is ${DEEP_ROUND.flicks} targets, then ${DEEP_ROUND.trackSeconds} seconds of tracking, at a hidden sensitivity. Each round's speed is picked from how you did in the earlier ones.`
+        ? `The search runs ${DEEP.minRounds} short rounds, plus up to ${DEEP.maxRounds - DEEP.minRounds} extra if your best speed is still unclear. Each is ${DEEP_ROUND.flicks} targets, then ${DEEP_ROUND.trackSeconds} seconds of tracking, at a hidden sensitivity. Each round's speed is picked from how you did in the earlier ones.`
         : `${DEEP_ROUND.flicks} targets, then tracking. The sensitivity has probably changed. Play the way you normally would.` },
-    { kind: 'track', rail: 'deep', round, dur: DEEP_ROUND.trackSeconds, warm: DEEP_ROUND.warmSeconds, settings, title, text: 'Stay on the moving target.' },
-    { kind: 'rate', rail: 'deep', round, title: `How did round ${k} feel?`, text: 'Go with your gut. Your ratings are shown next to the scores at the end.' },
+    { kind: 'track', rail: 'deep', round, counter: title, dur: DEEP_ROUND.trackSeconds, warm: DEEP_ROUND.warmSeconds, settings, title, text: 'Stay on the moving target.' },
+    { kind: 'rate', rail: 'deep', round, counter: title, title: `How did round ${k} feel?`, text: 'Go with your gut. Your ratings are shown next to the scores at the end.' },
     { kind: 'deepNext' }
   );
   advance();
@@ -180,11 +181,11 @@ function screenSegments(D, best) {
     const settings = { sens: best, ...D.screen.verts[p.vert], curve: D.screen.curves[p.curve], dz: checkedDz(), outer: checkedOuter(), boost: cfg.boost, boostRamp: cfg.boostRamp };
     const title = `Check ${k + 1} of 4`;
     return [
-      { kind: 'flick', rail: 'screen', screen: p, n: DEEP_ROUND.flicks, warm: DEEP_ROUND.warmFlicks, settings, intro: true, title,
+      { kind: 'flick', rail: 'screen', screen: p, counter: title, n: DEEP_ROUND.flicks, warm: DEEP_ROUND.warmFlicks, settings, intro: true, title,
         text: k === 0
           ? `Four more rounds at your best speed. The response curve and vertical speed change between them, hidden, to see whether either one matters for you.`
           : `Same drill. ${DEEP_ROUND.flicks} targets, then tracking.` },
-      { kind: 'track', rail: 'screen', screen: p, dur: DEEP_ROUND.trackSeconds, warm: DEEP_ROUND.warmSeconds, settings, title, text: 'Stay on the moving target.' }
+      { kind: 'track', rail: 'screen', screen: p, counter: title, dur: DEEP_ROUND.trackSeconds, warm: DEEP_ROUND.warmSeconds, settings, title, text: 'Stay on the moving target.' }
     ];
   });
 }
@@ -1185,11 +1186,11 @@ function updateStatus() {
   if (screen === 'test' && session.phase === 'run') {
     if (s.kind === 'flick') {
       l = `Target ${Math.min(s.data.list.length + 1, s.n)} / ${s.n}`;
-      r = `${s.data.list.filter(x => x.hit).length} hits${s.round ? ' · ' + s.title : ''}`;
+      r = `${s.data.list.filter(x => x.hit).length} hits${s.counter ? ' · ' + s.counter : ''}`;
     } else if (s.kind === 'track') {
       const TR = s.data;
       l = TR.t < TR.warm ? 'Settle in' : `On target ${pct(TR.T ? TR.on / TR.T : 0)}`;
-      r = `${Math.max(0, s.warm + s.dur - TR.t).toFixed(1)} s`;
+      r = `${Math.max(0, s.warm + s.dur - TR.t).toFixed(1)} s${s.counter ? ' · ' + s.counter : ''}`;
     }
   }
   $('#hud-l').textContent = l; $('#hud-r').textContent = r;
