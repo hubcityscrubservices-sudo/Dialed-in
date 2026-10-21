@@ -1,4 +1,5 @@
-import { flickThroughput, trackError } from './analysis.js';
+import { flickThroughput, trackError, isVertical } from './analysis.js';
+import { verifyCompare, sideOf } from './verify.js';
 import { clamp, mean, resample, quantile } from './util.js';
 
 // Deep mode, sensitivity only. Each round plays at a hidden speed x = log2(turn rate / current turn rate).
@@ -171,5 +172,37 @@ export function deepAnalyze(history, w, game, cur, rng = Math.random, iters = 40
     top: fit.at(peak.x),
     // Raw scores with the warm-up trend removed, so they sit on the same scale as the curve.
     points: history.map((h, i) => ({ x: h.x, sens: h.sens, y: ys[i] - fit.d * (ts[i] - tMid), round: i + 1 }))
+  };
+}
+
+/* ---------- screening: which other settings matter ---------- */
+
+// After the sensitivity search, four rounds at the best speed cover every pairing of two curves and
+// two vertical speeds (a 2x2 full factorial) in random order. Each factor is then judged by pooling
+// the two rounds at each of its levels, so every round counts toward both answers.
+export const SCREEN = { vLow: 0.87, vHigh: 1.15 };
+
+export function screenPlan(rng = Math.random) {
+  return shuffled([[0, 0], [0, 1], [1, 0], [1, 1]], rng).map(([curve, vert]) => ({ curve, vert }));
+}
+
+// The curve to test against the current one: the one the quick read-out leans to, if the menu shows
+// it differently, else the nearest slot with a different menu name.
+export function altCurve(game, cur, wanted) {
+  const label = k => game.curve[k];
+  if (wanted && wanted !== cur && label(wanted) !== label(cur)) return wanted;
+  const order = ['linear', 'mid', 'expo'], i = order.indexOf(cur);
+  for (const k of [order[i - 1], order[i + 1], ...order]) if (k && label(k) !== label(cur)) return k;
+  return null;
+}
+
+// rounds = [{ curve: 0|1, vert: 0|1, flicks, chunks }]. Curve uses the playstyle's mix of flicks and
+// tracking; vertical speed is judged on up/down targets only.
+export function screenAnalyze(rounds, w, rng = Math.random, iters = 1000) {
+  const pool = pred => sideOf(rounds.filter(pred));
+  const vpool = pred => sideOf(rounds.filter(pred).map(r => ({ flicks: r.flicks.filter(isVertical), chunks: r.chunks })));
+  return {
+    curve: verifyCompare({ A: pool(r => r.curve === 0), B: pool(r => r.curve === 1) }, w, rng, iters),
+    vert: verifyCompare({ A: vpool(r => r.vert === 0), B: vpool(r => r.vert === 1) }, { wf: 1, wt: 0 }, rng, iters)
   };
 }

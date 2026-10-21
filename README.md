@@ -10,7 +10,7 @@ settings for their game, each with the measurements behind it.
 |---|---|---|
 | Quick | ~3 min | Stick check, flick test (12 targets, some above or below), tracking test, turn-around drill, zoomed ADS rounds, then suggested settings with reasons. |
 | Verify | ~5 min | Quick, then a blind ABBA/BAAB test of old vs suggested settings. Reports how likely the new settings are better (bootstrap over targets and tracking seconds), next to the player's own feel ratings. |
-| Deep | ~6 min | Stick check, then 7–9 short blind rounds at different sensitivities. The first three bracket the current speed, round five repeats it as a control, and the rest go where the fitted curve says the best speed is. Reports the best setting, the range within noise of it, and whether sensitivity matters for this player at all. |
+| Deep | ~8 min | Stick check, then 7–9 short blind rounds at different sensitivities. The first three bracket the current speed, round five repeats it as a control, and the rest go where the fitted curve says the best speed is. Reports the best setting, the range within noise of it, and whether sensitivity matters for this player at all. |
 
 ## Games
 
@@ -93,6 +93,31 @@ speed inside the tested range is found within about 5% in 7 rounds. When the bes
 from the current one, the estimate leans about 9% toward the current speed and the verdict is
 more often "unclear". Players with no real preference are called "matters" about 5% of the time.
 
+## Deep mode: other settings, tested blind
+
+After the sensitivity search, four rounds at the best speed cover every pairing of two response
+curves (the current one and the one the quick read-out leans to, or the nearest other option) and
+two vertical speeds (13% slower and 15% faster than the current balance): a 2×2 full factorial in
+random order. Each setting is judged by pooling the two rounds at each level, curve on the
+playstyle's mix of flicks and tracking, vertical speed on up/down targets only. A clear winner
+replaces the read-out's advice; otherwise the current setting stays and the results say the
+setting didn't make a measurable difference.
+
+## How sure the blind tests are
+
+Verify and screening share one comparison. It resamples whole rounds and then the targets inside
+them, so a good or bad round counts as noise, and it only names a winner at 90% odds with at least a
+15% overall difference. Against simulated players with round-to-round swings, that calls a winner
+10–13% of the time when there is no real difference, and catches a 30% difference 85–88% of the
+time. Differences around 15% are caught about 40% of the time; the results say so. (The earlier
+rule, 80% odds with no minimum, called a winner in about 45% of no-difference runs.)
+
+## Test data
+
+"Copy test data" on the results page copies every measurement from the run (stick check, every
+target and tracking second, ratings, settings used, results) as JSON, for tuning thresholds
+against real play. Built by `src/export.js`.
+
 ## Hosting
 
 `.github/workflows/pages.yml` tests, builds and publishes `dist/index.html` to GitHub Pages on
@@ -116,6 +141,7 @@ Open `dist/index.html` in Chrome or Edge with a controller connected. No server 
 - `src/analysis.js`: throughput, summaries, recommendations (pure)
 - `src/verify.js`: blind test plan and bootstrap comparison (pure)
 - `src/deep.js`: Deep mode search, curve fit and read-out (pure)
+- `src/export.js`: test data export
 - `src/hardware.js`: stick check measurements and the settings they suggest (pure)
 - `src/main.js`: UI, input polling, drawing, session flow
 - `src/page.html`, `src/styles.css`: page shell
@@ -131,4 +157,5 @@ Open `dist/index.html` in Chrome or Edge with a controller connected. No server 
 6. ~~Vertical sensitivity~~
 7. ~~ADS / zoom test~~
 8. ~~Turn-around drill for look boost and ramp-up~~
-9. Deep mode, multi-factor screening
+9. ~~Deep mode, multi-factor screening~~ (curve and vertical speed)
+10. Tune thresholds from real runs (Copy test data)

@@ -115,3 +115,48 @@ test('a score that keeps rising to the edge counts as mattering', () => {
   assert.equal(res.edge, 'hi');
   assert.ok(res.drop > 0.04);
 });
+
+import { screenPlan, altCurve, screenAnalyze } from '../src/deep.js';
+
+test('screening plan covers every curve/vertical pairing once', () => {
+  for (const seed of [1, 2, 3]) {
+    const plan = screenPlan(mulberry32(seed));
+    assert.deepEqual(plan.map(p => `${p.curve}${p.vert}`).sort(), ['00', '01', '10', '11']);
+  }
+});
+
+test('alternative curve: follows the read-out when the menu can show it, else a neighbour', () => {
+  assert.equal(altCurve(GAMES.arc, 'expo', 'linear'), 'linear');
+  assert.equal(altCurve(GAMES.arc, 'expo', 'expo'), 'mid');
+  assert.equal(altCurve(GAMES.fortnite, 'mid', 'expo'), 'linear'); // expo shows as the same "Exponential"
+  assert.equal(altCurve(GAMES.cod, 'linear', null), 'mid');
+});
+
+// A screening round: overall quality q (lower is better), vertical quality vq applied to up/down targets.
+function sround(curve, vert, rng, q, vq) {
+  const flicks = [], chunks = [];
+  for (let i = 0; i < 7; i++) {
+    const v = i % 3 === 1;
+    const D = 12 + rng() * 24, k = v ? vq : q;
+    flicks.push({ D, uy: v ? 0.95 : 0.2, first: { along: D + (rng() - 0.5) * 3 * k, t: 0.6 * k * (0.9 + rng() * 0.2) } });
+  }
+  for (let i = 0; i < 7; i++) chunks.push(3 * q * (0.9 + rng() * 0.2));
+  return { curve, vert, flicks, chunks };
+}
+
+test('screening finds the setting that matters and calls the other one close', () => {
+  const rng = mulberry32(71);
+  // The alternative curve is clearly better overall; vertical speed makes no difference.
+  const rounds = screenPlan(rng).map(p => sround(p.curve, p.vert, rng, p.curve ? 0.75 : 1.1, p.curve ? 0.75 : 1.1));
+  const res = screenAnalyze(rounds, w, mulberry32(72), 600);
+  assert.equal(res.curve.verdict, 'better');
+  assert.equal(res.vert.verdict, 'close');
+});
+
+test('screening judges vertical speed on up/down targets only', () => {
+  const rng = mulberry32(73);
+  const rounds = screenPlan(rng).map(p => sround(p.curve, p.vert, rng, 1, p.vert ? 1.5 : 0.7));
+  const res = screenAnalyze(rounds, w, mulberry32(74), 600);
+  assert.equal(res.vert.verdict, 'worse'); // the faster vertical level did worse
+  assert.notEqual(res.curve.verdict, 'better');
+});

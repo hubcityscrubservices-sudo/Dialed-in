@@ -1,10 +1,11 @@
 import { GAMES, PLAYSTYLES, gameTitle, extraSetting, adsSpecs, fmtAds } from './games.js';
 import { FOV, makeView, steer, newFlickTarget, flickStep, makeTrack, trackStep, newTurnTarget, turnStep } from './sim.js';
 import { summarize, recommend, recommendVertical, recommendAds, turnStats, recommendTurn, driftDeadzone, settingsChanged } from './analysis.js';
-import { verifyPlan, verifyCompare, ratingSummary } from './verify.js';
-import { DEEP, deepNext, deepAnalyze, shuffled } from './deep.js';
+import { verifyPlan, verifyCompare, ratingSummary, sideOf } from './verify.js';
+import { DEEP, SCREEN, deepNext, deepAnalyze, shuffled, screenPlan, altCurve, screenAnalyze } from './deep.js';
 import { emptyReach, recordReach, coverage, stickReport, outerFromReach, hardwareRecs } from './hardware.js';
 import { clamp, pct } from './util.js';
+import { buildExport } from './export.js';
 
 const $ = s => document.querySelector(s);
 const QUICK = { flicks: 12, trackSeconds: 15 };
@@ -13,7 +14,7 @@ const verticalSlot = i => i % 5 === 1 || i % 5 === 3;
 const VERIFY = { flicks: 7, warmFlicks: 1, trackSeconds: 9, warmSeconds: 1.5 };
 const DEEP_ROUND = { flicks: 8, warmFlicks: 1, trackSeconds: 8, warmSeconds: 1.5 };
 const DRIFT_SECONDS = 4, ROLL_SECONDS = 10, SQUEEZE_SECONDS = 8;
-const RAIL = { setup: 'Setup', drift: 'Sticks', flick: 'Flicks', track: 'Tracking', deep: 'Search', turn: 'Turns', ads: 'ADS', verify: 'Verify', results: 'Results' };
+const RAIL = { setup: 'Setup', drift: 'Sticks', flick: 'Flicks', track: 'Tracking', deep: 'Search', screen: 'Screen', turn: 'Turns', ads: 'ADS', verify: 'Verify', results: 'Results' };
 const ADS = { flicks: 8, seconds: 8, scopedFlicks: 6, scopedSeconds: 6 };
 const TURNS = 6;
 const RATINGS = [
@@ -21,7 +22,7 @@ const RATINGS = [
   { v: 2, label: 'OK', key: 'du', glyph: '↑' },
   { v: 3, label: 'Great', key: 'dr', glyph: '→' }
 ];
-const MODE_HINT = { quick: 'About 3 minutes', verify: 'About 5 minutes', deep: 'About 6 minutes' };
+const MODE_HINT = { quick: 'About 3 minutes', verify: 'About 5 minutes', deep: 'About 8 minutes' };
 
 const adsDefaults = g => Object.fromEntries(adsSpecs(g).map(sp => [sp.key, sp.def]));
 const boostDefaults = g => g.boost && g.boost.setting ? { boost: g.boost.setting.def, boostRamp: g.boost.rampSetting.def } : { boost: undefined, boostRamp: undefined };
@@ -142,7 +143,12 @@ function deepStep() {
     D.pending = null;
   }
   const next = deepNext(D.history, PLAYSTYLES[cfg.style], game(), cfg.sens, D.order);
-  if (!next) { session.segs.push(turnSegment(), ...adsSegments(), { kind: 'deepDone' }); return advance(); }
+  if (!next) {
+    D.res = deepAnalyze(D.history, PLAYSTYLES[cfg.style], game(), cfg.sens);
+    const best = D.res && D.res.verdict !== 'flat' ? D.res.best.sens : cfg.sens;
+    session.segs.push(...screenSegments(D, best), turnSegment(), ...adsSegments(), { kind: 'deepDone' });
+    return advance();
+  }
   const k = D.history.length + 1;
   const round = { x: next.x, sens: next.sens };
   const settings = { sens: next.sens, ...verticalFor(next.sens), curve: cfg.curve, dz: checkedDz(), outer: checkedOuter() };
@@ -158,6 +164,79 @@ function deepStep() {
     { kind: 'deepNext' }
   );
   advance();
+}
+
+// Screening: four blind rounds at the best speed covering both curves x two vertical speeds.
+function screenSegments(D, best) {
+  const g = game();
+  const base = D.history.filter(h => h.sens === cfg.sens);
+  const from = base.length ? base : D.history;
+  const wanted = recommend(summarize(from.flatMap(h => h.flicks), from[0].track), cfg, session.drift).curve;
+  const alt = altCurve(g, cfg.curve, wanted);
+  const vBase = verticalFor(best);
+  const vAt = f => g.vsens ? { vsens: nearestVsens(g.vsens.rate(vBase.vsens) * f) } : { vmult: vBase.vmult * f };
+  D.screen = { best, curves: [cfg.curve, alt || cfg.curve], verts: [vAt(SCREEN.vLow), vAt(SCREEN.vHigh)], vBase };
+  return screenPlan().flatMap((p, k) => {
+    const settings = { sens: best, ...D.screen.verts[p.vert], curve: D.screen.curves[p.curve], dz: checkedDz(), outer: checkedOuter(), boost: cfg.boost, boostRamp: cfg.boostRamp };
+    const title = `Check ${k + 1} of 4`;
+    return [
+      { kind: 'flick', rail: 'screen', screen: p, n: DEEP_ROUND.flicks, warm: DEEP_ROUND.warmFlicks, settings, intro: true, title,
+        text: k === 0
+          ? `Four more rounds at your best speed. The response curve and vertical speed change between them, hidden, to see whether either one matters for you.`
+          : `Same drill. ${DEEP_ROUND.flicks} targets, then tracking.` },
+      { kind: 'track', rail: 'screen', screen: p, dur: DEEP_ROUND.trackSeconds, warm: DEEP_ROUND.warmSeconds, settings, title, text: 'Stay on the moving target.' }
+    ];
+  });
+}
+
+function nearestVsens(rateTarget) {
+  const v = game().vsens;
+  let best = v.min, err = Infinity;
+  for (let x = v.min; x <= v.max; x += v.step) {
+    const e = Math.abs(v.rate(x) - rateTarget);
+    if (e < err) { err = e; best = x; }
+  }
+  return best;
+}
+
+// Applies the screening result. A decisive verdict replaces the curve and vertical advice; a close
+// one keeps the current curve and the current vertical balance.
+function applyScreen(rec, c, D) {
+  const S = D.screen, g = game();
+  const rounds = [];
+  for (const x of session.segs) {
+    if (!x.screen || x.data == null) continue;
+    if (x.kind === 'flick') rounds.push({ ...x.screen, flicks: x.data.list.slice(x.warm), chunks: [] });
+    if (x.kind === 'track' && rounds.length) rounds[rounds.length - 1].chunks.push(...x.data.chunks);
+  }
+  if (!S || rounds.length < 4) return;
+  const res = screenAnalyze(rounds, PLAYSTYLES[c.style]);
+  const out = {};
+  const odds = p => pct(p >= 0.5 ? p : 1 - p);
+  if (S.curves[1] !== S.curves[0] && res.curve) {
+    const cv = res.curve, [l0, l1] = S.curves.map(k => g.curve[k]);
+    out.curve = { a: l0, b: l1, verdict: cv.verdict, delta: cv.overall.delta, p: cv.overall.p };
+    if (cv.verdict === 'better') {
+      rec.curve = S.curves[1];
+      rec.curveWhy = `In blind rounds at your best speed, ${l1} beat your ${l0} by about ${pct(cv.overall.delta)} overall (${odds(cv.overall.p)} likely real). Switch to ${l1}.`;
+    } else {
+      rec.curve = S.curves[0];
+      rec.curveWhy = cv.verdict === 'worse'
+        ? `In blind rounds at your best speed, your ${l0} beat ${l1} by about ${pct(-cv.overall.delta)} overall (${odds(cv.overall.p)} likely real). Keep ${l0}.`
+        : `In blind rounds at your best speed, ${l0} and ${l1} scored too close to tell apart, so the curve isn't what limits your aim. Keep ${l0}.`;
+    }
+  }
+  if (res.vert) {
+    const vt = res.vert;
+    const show = lv => g.vsens ? String(lv.vsens) : vRel(lv.vmult / S.vBase.vmult);
+    out.vert = { a: show(S.verts[0]), b: show(S.verts[1]), verdict: vt.verdict, delta: vt.overall.delta, p: vt.overall.p };
+    const pick = vt.verdict === 'better' ? S.verts[1] : vt.verdict === 'worse' ? S.verts[0] : S.vBase;
+    if (g.vsens) rec.vsens = pick.vsens; else rec.vmult = pick.vmult;
+    rec.vWhy = vt.verdict === 'close'
+      ? 'In blind rounds, changing vertical speed by about 15% either way made no clear difference on up-and-down targets, so keep your current balance.'
+      : `In blind rounds, the ${vt.verdict === 'better' ? 'faster' : 'slower'} vertical speed scored about ${pct(Math.abs(vt.overall.delta))} better on up-and-down targets (${odds(vt.overall.p)} likely real).`;
+  }
+  rec.screen = out;
 }
 
 // Deep rounds keep the player's vertical-to-horizontal balance while the horizontal speed moves.
@@ -176,7 +255,7 @@ function verticalFor(sens) {
 function deepDone() {
   const D = session.deep;
   const c = { ...cfg };
-  const res = deepAnalyze(D.history, PLAYSTYLES[c.style], game(), c.sens);
+  const res = D.res;
   // Curve and deadzone advice come from the rounds played at the current speed.
   const base = D.history.filter(h => h.sens === c.sens);
   const from = base.length ? base : D.history;
@@ -188,11 +267,12 @@ function deepDone() {
   }
   // Every round scales vertical with horizontal, so the up/down vs side-to-side comparison holds across all of them.
   Object.assign(rec, recommendVertical(D.history.flatMap(h => h.flicks), c, rec.sens));
+  applyScreen(rec, c, D);
   rec.ads = adsRecs(c, rec.sens);
   rec.turn = turnRec(c);
   rec.boost = c.boost; rec.boostRamp = c.boostRamp;
-  result = { cfg: c, stats, rec, drift: session.drift, verify: null,
-    deep: { res, rounds: D.history.map(h => ({ sens: h.sens, rating: h.rating })) } };
+  result = { cfg: c, stats, rec, drift: session.drift, verify: null, segs: session.segs, pad: inp.name,
+    deep: { res, rounds: D.history.map(h => ({ sens: h.sens, rating: h.rating })), screen: rec.screen } };
   session = null;
   show('results');
 }
@@ -272,7 +352,7 @@ function analyze() {
   rec.turn = turnRec(c);
   // Verify compares the other settings; look boost stays at the player's values on both sides.
   rec.boost = c.boost; rec.boostRamp = c.boostRamp;
-  result = { cfg: c, stats, rec, drift: session.drift, verify: null };
+  result = { cfg: c, stats, rec, drift: session.drift, verify: null, segs: session.segs, pad: inp.name };
   if (c.mode === 'verify' && settingsChanged(c, rec)) {
     session.segs.push(...verifySegments(c, rec));
     return advance();
@@ -282,20 +362,23 @@ function analyze() {
 }
 
 function verdict() {
-  const groups = { A: { flicks: [], chunks: [], ratings: [] }, B: { flicks: [], chunks: [], ratings: [] } };
+  // One round = a flick segment and the tracking segment after it, kept apart for the round-level bootstrap.
+  const groups = { A: { rounds: [], ratings: [] }, B: { rounds: [], ratings: [] } };
   for (const s of session.segs) {
     if (!s.key || s.data == null) continue;
     const g = groups[s.key];
-    if (s.kind === 'flick') g.flicks.push(...s.data.list.slice(s.warm));
-    if (s.kind === 'track') g.chunks.push(...s.data.chunks);
+    if (s.kind === 'flick') g.rounds.push({ flicks: s.data.list.slice(s.warm), chunks: [] });
+    if (s.kind === 'track' && g.rounds.length) g.rounds[g.rounds.length - 1].chunks.push(...s.data.chunks);
     if (s.kind === 'rate') g.ratings.push(s.data);
   }
+  const A = sideOf(groups.A.rounds), B = sideOf(groups.B.rounds);
+  if (result.segs !== session.segs) result.segs = result.segs.concat(session.segs);
   result.verify = {
-    cmp: verifyCompare(groups, PLAYSTYLES[result.cfg.style]),
+    cmp: verifyCompare({ A, B }, PLAYSTYLES[result.cfg.style]),
     feelA: ratingSummary(groups.A.ratings),
     feelB: ratingSummary(groups.B.ratings),
-    targets: groups.A.flicks.length + groups.B.flicks.length,
-    seconds: groups.A.chunks.length + groups.B.chunks.length
+    targets: A.flicks.length + B.flicks.length,
+    seconds: A.chunks.length + B.chunks.length
   };
   session = null;
   show('results');
@@ -398,7 +481,7 @@ function show(name) {
 
 function railKeys() {
   const deep = !!((session && session.deep) || (result && result.deep) || (!session && !result && cfg.mode === 'deep'));
-  const keys = deep ? ['setup', 'drift', 'deep', 'turn', 'ads'] : ['setup', 'drift', 'flick', 'track', 'turn', 'ads'];
+  const keys = deep ? ['setup', 'drift', 'deep', 'screen', 'turn', 'ads'] : ['setup', 'drift', 'flick', 'track', 'turn', 'ads'];
   const verifying = (cfg.mode === 'verify' && !deep) || (result && result.verify) || (session && session.segs.some(s => s.rail === 'verify'));
   if (verifying) keys.push('verify');
   keys.push('results');
@@ -486,7 +569,7 @@ function verifyBlock(v) {
   const body = {
     better: `${pct(p)} likely the new settings are better for you, based on ${v.targets} targets and ${v.seconds} seconds of tracking. Go with them.`,
     worse: `${pct(1 - p)} likely your old settings suit you better, based on ${v.targets} targets and ${v.seconds} seconds of tracking. Keep them. If your stick drifts, still take the deadzone change.`,
-    close: `The difference was smaller than the round-to-round noise, so either works. Go with whichever felt better.`
+    close: `Four short rounds can only pick out a clear difference, about 15% or more, and this wasn't one. Either works, so go with whichever felt better.`
   }[c.verdict];
   return `<div class="verdict ${c.verdict}">
     <div style="display:grid;gap:4px"><p class="eyebrow">Blind test result</p><h3>${head}</h3><p>${body}</p></div>
@@ -511,8 +594,23 @@ function deepBlock(d, g, c) {
       <p>Each dot is one round's score at that sensitivity. The line is the fitted trend, and the shaded band is the range that scores within the noise of your best.</p></div>
     ${deepChart(res, c, g)}
     ${warm}
+    ${screenTable(d.screen, g)}
     <div class="table-wrap"><table><thead><tr><th>Round</th><th>${g.sens.label}</th><th>Score vs best</th><th>Felt</th></tr></thead><tbody>${rows}</tbody></table></div>
   </div>`;
+}
+
+function screenTable(sc, g) {
+  if (!sc || (!sc.curve && !sc.vert)) return '';
+  const verdictText = x => x.verdict === 'close' ? 'Too close to tell'
+    : `${x.verdict === 'better' ? x.b : x.a} by about ${pct(Math.abs(x.delta))} (${pct(x.p >= 0.5 ? x.p : 1 - x.p)} likely)`;
+  const rows = [
+    sc.curve ? [g.curve.label, `${sc.curve.a} vs ${sc.curve.b}`, verdictText(sc.curve)] : null,
+    sc.vert ? [g.vsens ? g.vsens.label : 'Vertical speed', `${sc.vert.a} vs ${sc.vert.b}`, verdictText(sc.vert)] : null
+  ].filter(Boolean);
+  return `<div style="display:grid;gap:8px"><h3 style="font-size:16px">Tested blind at your best speed</h3>
+    <div class="table-wrap"><table><thead><tr><th>Setting</th><th>Compared</th><th>Winner</th></tr></thead>
+    <tbody>${rows.map(r => `<tr><td>${r[0]}</td><td class="num">${r[1]}</td><td>${r[2]}</td></tr>`).join('')}</tbody></table></div>
+    <p class="fine">Four rounds can only pick out a clear difference, about 15% or more. Smaller ones read as too close to tell.</p></div>`;
 }
 
 function deepChart(res, c, g) {
@@ -668,28 +766,37 @@ function renderResults() {
     </div>
     <div class="actions">
       <button class="btn" id="copy" type="button">Copy settings</button>
+      <button class="btn" id="export" type="button">Copy test data</button>
       <button class="btn" id="restart" type="button">Start over</button>
     </div>
     <pre id="copytext" hidden></pre>
-    <p class="fine">Prototype. Turn speeds come from a simplified model of each game, so treat these numbers as a close starting point rather than an exact match.${sourceNote} Flick throughput combines speed and accuracy into one score (higher is better).</p>`;
+    <p class="fine">Prototype. Turn speeds come from a simplified model of each game, so treat these numbers as a close starting point rather than an exact match.${sourceNote} Flick throughput combines speed and accuracy into one score (higher is better). Copy test data puts every measurement from this run on your clipboard, to paste back for tuning.</p>`;
 
   const vb = $('#verify');
   if (vb) vb.addEventListener('click', () => start(verifySegments(c, r), result.drift));
   wireChart();
   $('#restart').addEventListener('click', () => { result = null; session = null; syncSetup(); show('setup'); });
+  $('#export').addEventListener('click', e => {
+    const data = buildExport({ cfg: c, drift: result.drift, rec: r, segs: result.segs || [], pad: result.pad, deep: result.deep, verify: v });
+    copyText(JSON.stringify(data), e.currentTarget);
+  });
   $('#copy').addEventListener('click', e => {
     const text = [`Dialed In, ${g.name} (${PLAYSTYLES[c.style].label})`,
       `${g.sens.label}: ${r.sens}`, g.vsens ? `${g.vsens.label}: ${r.vsens}` : `Vertical sensitivity: ${vRel(r.vmult)}`, `${g.dz.label}: ${g.dz.fmt(r.dz)}`, `${g.curve.label}: ${g.curve[r.curve]}`,
       ...(r.ads || []).map(a => a.spec.generic ? `ADS sensitivity: ${vRel(a.rel)}` : `${a.spec.label}: ${fmtAds(a.spec, a.next)}`),
       ...(r.turn && r.turn.boost != null ? [`${g.boost.setting.label}: ${r.turn.boost}`, `${g.boost.rampSetting.label}: ${r.turn.ramp.toFixed(1)}`] : []),
       ...hw.map(h => `${h.st.label}: ${h.st.fmt(h.next)}`)].join('\n');
-    const pre = $('#copytext');
-    pre.textContent = text;
-    const btn = e.currentTarget;
-    const fallback = () => { pre.hidden = false; btn.textContent = 'Select the text below'; };
-    try { navigator.clipboard.writeText(text).then(() => { btn.textContent = 'Copied'; }, fallback); }
-    catch (err) { fallback(); }
+    copyText(text, e.currentTarget);
   });
+}
+
+// Copies to the clipboard, or shows the text to select by hand when the browser refuses.
+function copyText(text, btn) {
+  const pre = $('#copytext');
+  pre.textContent = text;
+  const fallback = () => { pre.hidden = false; btn.textContent = 'Select the text below'; };
+  try { navigator.clipboard.writeText(text).then(() => { btn.textContent = 'Copied'; }, fallback); }
+  catch (err) { fallback(); }
 }
 
 /* ---------- setup form ---------- */

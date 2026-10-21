@@ -165,8 +165,8 @@ pre#copytext { font: 13px/1.5 var(--mono); background: var(--bg); border: 1px so
 .verdict.better { border-color: var(--good); }
 .verdict.worse { border-color: var(--warn); }
 .verdict h3 { font-size: 19px; font-weight: 600; }
-.verdict.better h3 { color: var(--good); }
-.verdict.worse h3 { color: var(--warn); }
+.verdict.better > div:first-child h3 { color: var(--good); }
+.verdict.worse > div:first-child h3 { color: var(--warn); }
 .vgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 @media (max-width: 620px) { .vgrid { grid-template-columns: minmax(0, 1fr); } }
 .vcell { display: grid; gap: 2px; min-width: 0; }

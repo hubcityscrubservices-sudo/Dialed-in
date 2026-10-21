@@ -8,18 +8,38 @@ export function verifyPlan(A, B, rng = Math.random) {
   return order.map(key => ({ key, settings: key === 'A' ? A : B }));
 }
 
-const BETTER = 0.8, WORSE = 0.2;
+// A winner needs 90% odds and at least a 15% overall difference. Checked against simulated players
+// with round-to-round swings: with no real difference this calls a winner about 10-13% of the time,
+// and it catches a 30% difference about 85% of the time. Smaller differences mostly read as close.
+const BETTER = 0.9, WORSE = 0.1, MIN_DELTA = 0.15;
 
-// data = { A: { flicks, chunks }, B: { flicks, chunks } }; weights = { wf, wt } from the playstyle.
-// Bootstraps trials and tracking seconds to estimate how likely B beats A.
-export function verifyCompare(data, weights, rng = Math.random, iters = 2000) {
+// Pools rounds into one side, keeping the rounds so the bootstrap can resample them.
+export function sideOf(rounds) {
+  return { rounds, flicks: rounds.flatMap(r => r.flicks), chunks: rounds.flatMap(r => r.chunks) };
+}
+
+// Two-level bootstrap: whole rounds first, then targets and tracking seconds inside each, so
+// round-to-round swings (warm-up, a lapse in focus) count as noise rather than as a difference.
+function resampleSide(side, rng) {
+  if (side.rounds && side.rounds.length > 1) {
+    const rs = resample(side.rounds, rng);
+    return { flicks: rs.flatMap(r => resample(r.flicks, rng)), chunks: rs.flatMap(r => resample(r.chunks, rng)) };
+  }
+  return { flicks: resample(side.flicks, rng), chunks: resample(side.chunks, rng) };
+}
+
+// data = { A: side, B: side } where a side is sideOf(rounds) or plain { flicks, chunks };
+// weights = { wf, wt } from the playstyle. Estimates how likely B beats A.
+// opts: thresholds for the verdict. A winner needs p >= better (or <= worse) and an overall difference
+// of at least minDelta, because a handful of rounds can't tell small differences from a good round.
+export function verifyCompare(data, weights, rng = Math.random, iters = 2000, opts = {}) {
+  const { better = BETTER, worse = WORSE, minDelta = MIN_DELTA } = opts;
   const point = scoreDelta(data.A, data.B, weights);
   if (!point) return null;
   let n = 0, fWin = 0, tWin = 0, oWin = 0;
   const overall = [];
   for (let i = 0; i < iters; i++) {
-    const a = { flicks: resample(data.A.flicks, rng), chunks: resample(data.A.chunks, rng) };
-    const b = { flicks: resample(data.B.flicks, rng), chunks: resample(data.B.chunks, rng) };
+    const a = resampleSide(data.A, rng), b = resampleSide(data.B, rng);
     const d = scoreDelta(a, b, weights);
     if (!d) continue;
     n++;
@@ -35,7 +55,7 @@ export function verifyCompare(data, weights, rng = Math.random, iters = 2000) {
     flick: { delta: point.flick, p: fWin / n },
     track: { delta: point.track, p: tWin / n },
     overall: { delta: point.overall, p, lo: quantile(overall, 0.1), hi: quantile(overall, 0.9) },
-    verdict: p >= BETTER ? 'better' : p <= WORSE ? 'worse' : 'close'
+    verdict: p >= better && point.overall >= minDelta ? 'better' : p <= worse && point.overall <= -minDelta ? 'worse' : 'close'
   };
 }
 
