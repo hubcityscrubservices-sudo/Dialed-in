@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { shape, steer, makeView, newFlickTarget, flickStep, makeTrack, trackStep } from '../src/sim.js';
-import { flickThroughput, recommend, summarize, driftDeadzone } from '../src/analysis.js';
+import { flickThroughput, recommend, summarize, driftDeadzone, recommendVertical, isVertical, settingsChanged } from '../src/analysis.js';
 import { verifyPlan, verifyCompare } from '../src/verify.js';
 import { GAMES } from '../src/games.js';
 import { mulberry32 } from '../src/util.js';
@@ -186,4 +186,76 @@ test('recommend says so when the current curve already matches the advice', () =
   const r = recommend({ ...base, over: 0.6, under: 0.1, behind: 0.1, ahead: 0.5 }, arc, null);
   assert.equal(r.curve, 'expo');
   assert.match(r.curveWhy, /current Exponential curve already does that/);
+});
+
+// Flick records with a direction and an outcome.
+const fl = (vertical, outcome) => ({ uy: vertical ? 0.95 : 0.2, overshoot: outcome === 'over', hit: outcome !== 'miss', segs: outcome === 'short' ? 3 : 1 });
+const mix = (vOut, hOut) => [...vOut.map(o => fl(true, o)), ...hOut.map(o => fl(false, o))];
+
+test('vertical targets sit mostly above or below', () => {
+  const rng = mulberry32(31);
+  for (let i = 0; i < 50; i++) {
+    const view = { yaw: 0, pitch: (rng() - 0.5) * 30, boostT: 0 };
+    const T = newFlickTarget(view, rng, true);
+    assert.ok(isVertical(T), `uy ${T.uy}`);
+    assert.ok(T.D >= 8, `D ${T.D}`);
+  }
+});
+
+test('vertical speed: overshooting only up and down lowers vertical relative to horizontal', () => {
+  const c = { ...cfg, game: 'arc', sens: 80, vsens: 60 };
+  const r = recommendVertical(mix(['over', 'over', 'over', 'ok'], ['ok', 'ok', 'short', 'over', 'ok']), c, 80);
+  assert.ok(r.vsens < 60);
+  assert.equal(r.vMeasured, true);
+  assert.match(r.vWhy, /runs ahead/);
+});
+
+test('vertical speed: stopping short only up and down raises it', () => {
+  const c = { ...cfg, game: 'cod', sens: 6, vsens: 6 };
+  const r = recommendVertical(mix(['short', 'short', 'miss', 'ok'], ['ok', 'ok', 'over', 'ok', 'short']), c, 6);
+  assert.ok(r.vsens > 6);
+});
+
+test('vertical speed follows the horizontal change when the patterns match', () => {
+  const c = { ...cfg, game: 'arc', sens: 80, vsens: 60 };
+  const r = recommendVertical(mix(['ok', 'over', 'short', 'ok'], ['ok', 'over', 'short', 'ok']), c, 100);
+  assert.equal(r.vsens, 75); // 60 * 100/80
+  assert.match(r.vWhy, /follows your horizontal change/);
+});
+
+test('games without a vertical setting get a relative adjustment', () => {
+  const c = { ...cfg, game: 'fortnite', sens: 45 };
+  const r = recommendVertical(mix(['over', 'over', 'over'], ['ok', 'ok', 'ok']), c, 45);
+  assert.equal(r.vsens, undefined);
+  assert.ok(r.vmult < 1);
+  const few = recommendVertical(mix(['over'], ['ok', 'ok', 'ok']), c, 45);
+  assert.equal(few.vMeasured, false);
+  assert.equal(few.vmult, 1);
+});
+
+test('vertical changes count as a settings change', () => {
+  assert.ok(settingsChanged({ ...cfg, vsens: 60 }, { ...cfg, vsens: 55 }));
+  assert.ok(!settingsChanged({ ...cfg, vmult: 1 }, { ...cfg, vmult: 1.005 }));
+});
+
+test('ARC Raiders turns vertically at its own setting, boosted by Vertical Look Boost', () => {
+  const g = GAMES.arc, s = { sens: 80, vsens: 60, curve: 'linear', dz: 0 };
+  const v = makeView();
+  const first = steer(v, { rx: 0, ry: -1 }, s, g, 0.05).vp;
+  assert.ok(Math.abs(first - g.vsens.rate(60)) < 1e-9);
+  for (let i = 0; i < 60; i++) steer(v, { rx: 0, ry: -1 }, s, g, 0.05);
+  assert.ok(Math.abs(steer(v, { rx: 0, ry: -1 }, s, g, 0.05).vp / first - 1.15) < 1e-9);
+});
+
+test('ordinary targets stay mostly sideways even when the player is looking up or down', () => {
+  const rng = mulberry32(41);
+  let vertical = 0, short = 0;
+  for (let i = 0; i < 2000; i++) {
+    const view = { yaw: 0, pitch: (rng() - 0.5) * 80, boostT: 0 };
+    const T = newFlickTarget(view, rng, false);
+    if (isVertical(T)) vertical++;
+    if (T.D < 8) short++;
+  }
+  assert.equal(vertical, 0);
+  assert.ok(short / 2000 < 0.01, `short share ${short / 2000}`);
 });

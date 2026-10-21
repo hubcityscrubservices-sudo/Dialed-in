@@ -21,17 +21,26 @@ export function shape(x, y, dz, curve, outer = 1) {
   return [x / m * o, y / m * o, o];
 }
 
-// Turns the view for one frame. `settings` is { sens, curve, dz, outer? }.
+// Vertical turn speed at full stick. Games with their own vertical setting use it; the rest turn
+// vertically at PITCH_SCALE of horizontal, times an optional relative adjustment.
+export function verticalRate(game, settings) {
+  if (game.vsens && settings.vsens != null) return game.vsens.rate(settings.vsens);
+  return game.sens.rate(settings.sens) * PITCH_SCALE * (settings.vmult ?? 1);
+}
+
+// Turns the view for one frame. `settings` is { sens, vsens?, vmult?, curve, dz, outer? }.
 export function steer(view, input, settings, game, dt, minDz = 0) {
   const rate = game.sens.rate(settings.sens);
   const curve = (game.curve.fn && game.curve.fn[settings.curve]) || CURVE_EXP[settings.curve];
   const [sx, sy, mag] = shape(input.rx, input.ry, Math.max(settings.dz, minDz), curve, settings.outer ?? 1);
-  let boost = 1;
+  let boost = 1, vboost = 1;
   if (game.boost) {
     view.boostT = mag >= 0.95 ? view.boostT + dt : 0;
-    boost = 1 + (game.boost.mult - 1) * clamp((view.boostT - BOOST_DELAY) / (game.boost.ramp ?? BOOST_RAMP), 0, 1);
+    const ramp = clamp((view.boostT - BOOST_DELAY) / (game.boost.ramp ?? BOOST_RAMP), 0, 1);
+    boost = 1 + (game.boost.mult - 1) * ramp;
+    vboost = 1 + ((game.boost.vmult ?? 1) - 1) * ramp;
   }
-  const vy = sx * rate * boost, vp = -sy * rate * PITCH_SCALE;
+  const vy = sx * rate * boost, vp = -sy * verticalRate(game, settings) * vboost;
   view.yaw += vy * dt;
   view.pitch = clamp(view.pitch + vp * dt, -40, 40);
   return { vy, vp, mag };
@@ -39,11 +48,27 @@ export function steer(view, input, settings, game, dt, minDz = 0) {
 
 /* ---------- flick trials ---------- */
 
-export function newFlickTarget(view, rng = Math.random) {
-  const ang = rng() * Math.PI * 2;
-  const dist = 12 + rng() * 24;
-  const yaw = view.yaw + Math.cos(ang) * dist;
-  const pitch = clamp(view.pitch + Math.sin(ang) * dist * 0.6, -18, 18);
+// A vertical target sits mostly above or below (within 25 degrees of straight up or down),
+// on whichever side has room. The rest sit left or right, up to 50 degrees off horizontal, so the
+// two groups never overlap when vertical aim is scored separately.
+export function newFlickTarget(view, rng = Math.random, vertical = false) {
+  let yaw, pitch;
+  if (vertical) {
+    const up = view.pitch > 5 ? false : view.pitch < -5 ? true : rng() < 0.5;
+    const ang = (up ? 1 : -1) * Math.PI / 2 + (rng() - 0.5) * (50 * Math.PI / 180);
+    const dist = 10 + rng() * 12;
+    yaw = view.yaw + Math.cos(ang) * dist;
+    pitch = clamp(view.pitch + Math.sin(ang) * dist, -30, 30);
+  } else {
+    const ang = (rng() < 0.5 ? 0 : Math.PI) + (rng() - 0.5) * (100 * Math.PI / 180);
+    const dist = 12 + rng() * 24;
+    yaw = view.yaw + Math.cos(ang) * dist;
+    // Mirror rather than clamp when the target would leave the play band, so a player already looking
+    // up or down doesn't get a squashed, mostly vertical target.
+    let dp = Math.sin(ang) * dist * 0.6;
+    if (Math.abs(view.pitch + dp) > 30) dp = -dp;
+    pitch = clamp(view.pitch + dp, -30, 30);
+  }
   const dy = yaw - view.yaw, dp = pitch - view.pitch, D = Math.hypot(dy, dp);
   const r = 1.8 + rng() * 1.2;
   return {

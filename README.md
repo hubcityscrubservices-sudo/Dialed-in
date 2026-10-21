@@ -8,7 +8,7 @@ settings for their game, each with the measurements behind it.
 
 | Mode | Time | What it does |
 |---|---|---|
-| Quick | ~2 min | Stick check, flick test, tracking test, then suggested settings with reasons. |
+| Quick | ~2 min | Stick check, flick test (12 targets, some above or below), tracking test, then suggested settings with reasons. |
 | Verify | ~4 min | Quick, then a blind ABBA/BAAB test of old vs suggested settings. Reports how likely the new settings are better (bootstrap over targets and tracking seconds), next to the player's own feel ratings. |
 | Deep | ~5 min | Stick check, then 7–9 short blind rounds at different sensitivities. The first three bracket the current speed, round five repeats it as a control, and the rest go where the fitted curve says the best speed is. Reports the best setting, the range within noise of it, and whether sensitivity matters for this player at all. |
 
@@ -22,6 +22,16 @@ Sinusoidal, Exponential) come from the PS5 Wireless Controller screen. The game 
 trigger deadzone, so those rows don't appear for it. The range models a third-person camera, Look
 Boost (+55% turn speed at full stick, ramping up over 1.6 s, an assumption about what 55 means) and
 Sinusoidal as an S-curve. A game can give each curve slot its own shape (`curve.fn`).
+
+## Vertical sensitivity
+
+Two of every five flick targets sit mostly above or below (within 25° of vertical); the rest stay
+within 50° of horizontal, so the two groups never mix. Comparing overshoot and stopping short on
+up/down targets against side-to-side ones gives a vertical-to-horizontal adjustment, which is then
+carried along with any horizontal change. Games with their own vertical setting (ARC Raiders, Call
+of Duty) get a value for it, and setup asks for the current one. Other games get a relative
+suggestion marked "If your game has it". Deep mode keeps the player's vertical-to-horizontal balance
+while it moves the horizontal speed, and scores vertical across all rounds.
 
 ## Stick check
 
@@ -96,7 +106,7 @@ Open `dist/index.html` in Chrome or Edge with a controller connected. No server 
 3. ~~ARC Raiders profile with third-person camera~~
 4. ~~Deep mode, sensitivity only (adaptive search)~~
 5. ~~Stick check: movement, outer and trigger deadzones~~
-6. Vertical sensitivity
+6. ~~Vertical sensitivity~~
 7. ADS / zoom test
 8. Turn-around drill for look boost and ramp-up
 9. Deep mode, multi-factor screening

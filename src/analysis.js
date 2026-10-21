@@ -30,6 +30,8 @@ export function summarize(flicks, track) {
     avgTime: hits.length ? mean(hits.map(f => f.t)) : null,
     over: flicks.filter(f => f.overshoot).length / n,
     under: flicks.filter(f => !f.overshoot && (!f.hit || f.segs >= 3)).length / n,
+    overV: flicks.some(isVertical) ? overRate(flicks.filter(isVertical)) : null,
+    underV: flicks.some(isVertical) ? underRate(flicks.filter(isVertical)) : null,
     trackErr: track.T ? track.errSum / track.T : null,
     onTarget: track.on / T,
     behind: track.behind / T,
@@ -91,10 +93,49 @@ export function recommend(s, c, drift) {
   return { sens, curve, dz, sensWhy, curveWhy, dzWhy, dzMeasured: !!drift };
 }
 
+// A flick counts as vertical when most of its travel is up or down.
+export const isVertical = f => Math.abs(f.uy) >= 0.7;
+const overRate = fs => fs.filter(f => f.overshoot).length / fs.length;
+const underRate = fs => fs.filter(f => !f.overshoot && (!f.hit || f.segs >= 3)).length / fs.length;
+const MIN_VERTICAL = 3;
+
+// Vertical speed relative to horizontal: compares error patterns on up/down targets with side-to-side ones,
+// then carries the horizontal change (hSens vs c.sens) across so the ratio holds unless the data says otherwise.
+// Returns { vsens } for games with their own vertical setting, otherwise { vmult } relative to now.
+export function recommendVertical(flicks, c, hSens) {
+  const g = GAMES[c.game];
+  const v = flicks.filter(isVertical), h = flicks.filter(f => !isVertical(f));
+  const hMult = g.sens.rate(hSens) / g.sens.rate(c.sens);
+  const measured = v.length >= MIN_VERTICAL && h.length >= MIN_VERTICAL;
+  let rel = 0, why;
+  if (measured) {
+    const [oV, uV, oH, uH] = [overRate(v), underRate(v), overRate(h), underRate(h)];
+    rel = clamp(((uV - oV) - (uH - oH)) * 0.4, -0.3, 0.3);
+    if (Math.abs(rel) < 0.05) rel = 0;
+    why = `On up-and-down targets you overshot ${pct(oV)} and stopped short on ${pct(uV)}, against ${pct(oH)} and ${pct(uH)} side to side.`;
+    if (rel > 0) why += ' Your vertical aim lags behind your horizontal aim, so raise it relative to horizontal.';
+    else if (rel < 0) why += ' Your vertical aim runs ahead of your horizontal aim, so lower it relative to horizontal.';
+    else why += ' The two match, so keep the same balance between them.';
+  } else {
+    why = 'Too few up-and-down targets to judge, so keep the same balance between vertical and horizontal.';
+  }
+  const factor = hMult * (1 + rel);
+  if (hMult !== 1) why += ` This also follows your horizontal change.`;
+  if (!g.vsens) return { vmult: (c.vmult ?? 1) * factor, vMeasured: measured, vWhy: why };
+  const target = g.vsens.rate(c.vsens) * factor;
+  let vsens = c.vsens, err = Infinity;
+  for (let x = g.vsens.min; x <= g.vsens.max; x += g.vsens.step) {
+    const e = Math.abs(g.vsens.rate(x) - target);
+    if (e < err) { err = e; vsens = x; }
+  }
+  return { vsens, vMeasured: measured, vWhy: why };
+}
+
 export function driftDeadzone(maxRight) {
   return clamp(Math.ceil((maxRight * 1.15 + 0.02) * 100) / 100, 0.03, 0.25);
 }
 
 export function settingsChanged(a, b) {
-  return a.sens !== b.sens || a.curve !== b.curve || a.dz !== b.dz || (a.outer ?? 1) !== (b.outer ?? 1);
+  return a.sens !== b.sens || a.curve !== b.curve || a.dz !== b.dz || (a.outer ?? 1) !== (b.outer ?? 1) ||
+    a.vsens !== b.vsens || Math.abs((a.vmult ?? 1) - (b.vmult ?? 1)) > 0.01;
 }

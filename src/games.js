@@ -6,6 +6,7 @@ export const GAMES = {
   cod: {
     name: 'Call of Duty', camera: 'first', source: 'model',
     sens: { label: 'Horizontal stick sensitivity', min: 1, max: 20, step: 1, def: 6, rate: s => s * 48 },
+    vsens: { label: 'Vertical stick sensitivity', min: 1, max: 20, step: 1, def: 6, rate: s => s * 38.4 },
     dz: { label: 'Right stick min (deadzone)', def: 0.10, fmt: d => String(Math.round(d * 100)) },
     moveDz: { label: 'Left stick min (deadzone)', fmt: d => String(Math.round(d * 100)) },
     outer: { label: 'Right stick max', fmt: d => String(Math.round(d * 100)) },
@@ -32,10 +33,12 @@ export const GAMES = {
   arc: {
     // Menu names, ranges and curve options from a player's PS5 Wireless Controller screen; defaults
     // there are that player's values. The menu has no outer or trigger deadzone. Look Boost (55) is
-    // modeled as +55% turn speed at full stick, ramping up over 1.6 s. Sinusoidal is modeled as an
+    // modeled as +55% turn speed at full stick (Vertical Look Boost 15 as +15%), ramping up over 1.6 s.
+    // Vertical Sensitivity shares the horizontal scale. Sinusoidal is modeled as an
     // S-curve: softer than linear near center, quicker than exponential through the middle.
     name: 'ARC Raiders', camera: 'third', source: 'menu',
     sens: { label: 'Horizontal Sensitivity', min: 1, max: 400, step: 1, def: 80, defKnown: false, rate: s => s * 2.6 },
+    vsens: { label: 'Vertical Sensitivity', min: 1, max: 400, step: 1, def: 60, defKnown: false, rate: s => s * 2.6 },
     dz: { label: 'Look Inner Deadzone', def: 0.05, fmt: d => String(Math.round(d * 100)) },
     moveDz: { label: 'Movement Inner Deadzone', def: 0.15, fmt: d => String(Math.round(d * 100)) },
     outer: null,
@@ -44,7 +47,7 @@ export const GAMES = {
       label: 'Look Response Curve', def: 'expo', linear: 'Linear', mid: 'Sinusoidal', expo: 'Exponential',
       fn: { mid: s => (1 - Math.cos(Math.PI * s)) / 2 }
     },
-    boost: { label: 'Horizontal Look Boost', mult: 1.55, ramp: 1.6 }
+    boost: { label: 'Horizontal Look Boost', mult: 1.55, vmult: 1.15, ramp: 1.6 }
   },
   other: {
     name: 'your game', camera: 'first', source: 'model',

@@ -1,13 +1,15 @@
 import { GAMES, PLAYSTYLES, gameTitle, extraSetting } from './games.js';
 import { FOV, makeView, steer, newFlickTarget, flickStep, makeTrack, trackStep } from './sim.js';
-import { summarize, recommend, driftDeadzone, settingsChanged } from './analysis.js';
+import { summarize, recommend, recommendVertical, driftDeadzone, settingsChanged } from './analysis.js';
 import { verifyPlan, verifyCompare, ratingSummary } from './verify.js';
 import { DEEP, deepNext, deepAnalyze, shuffled } from './deep.js';
 import { emptyReach, recordReach, coverage, stickReport, outerFromReach, hardwareRecs } from './hardware.js';
 import { clamp, pct } from './util.js';
 
 const $ = s => document.querySelector(s);
-const QUICK = { flicks: 10, trackSeconds: 15 };
+const QUICK = { flicks: 12, trackSeconds: 15 };
+// Two of every five flick targets sit mostly above or below, to measure vertical aim.
+const verticalSlot = i => i % 5 === 1 || i % 5 === 3;
 const VERIFY = { flicks: 7, warmFlicks: 1, trackSeconds: 9, warmSeconds: 1.5 };
 const DEEP_ROUND = { flicks: 8, warmFlicks: 1, trackSeconds: 8, warmSeconds: 1.5 };
 const DRIFT_SECONDS = 4, ROLL_SECONDS = 10, SQUEEZE_SECONDS = 8;
@@ -19,7 +21,7 @@ const RATINGS = [
 ];
 const MODE_HINT = { quick: 'About 2 minutes', verify: 'About 4 minutes', deep: 'About 5 minutes' };
 
-const cfg = { game: 'arc', style: 'balanced', mode: 'verify', sens: GAMES.arc.sens.def, curve: 'mid', dz: 0.10 };
+const cfg = { game: 'arc', style: 'balanced', mode: 'verify', sens: GAMES.arc.sens.def, vsens: GAMES.arc.vsens.def, curve: 'mid', dz: 0.10 };
 let screen = 'setup';  // setup | test | results
 let session = null;    // { segs, i, phase, countLeft, drift }
 let result = null;     // { cfg, stats, rec, drift, verify }
@@ -30,7 +32,7 @@ let lastT = 0, gpBlocked = false;
 
 const game = () => GAMES[cfg.game];
 const seg = () => session && session.segs[session.i];
-const settingsOf = c => ({ sens: c.sens, curve: c.curve, dz: c.dz, outer: c.outer ?? 1 });
+const settingsOf = c => ({ sens: c.sens, vsens: c.vsens, vmult: c.vmult ?? 1, curve: c.curve, dz: c.dz, outer: c.outer ?? 1 });
 
 /* ---------- session plans ---------- */
 
@@ -52,7 +54,7 @@ function quickSegments() {
   return [
     STICK_CHECK,
     { kind: 'flick', rail: 'flick', tag: 'quick', n: QUICK.flicks, warm: 0, settings: s, intro: true, title: 'Flick test',
-      text: 'Ten targets appear one at a time. Snap to each with the right stick and fire with RT / R2. Go at the speed you would in a real fight.' },
+      text: 'Twelve targets appear one at a time, some above or below you. Snap to each with the right stick and fire with RT / R2. Go at the speed you would in a real fight.' },
     { kind: 'track', rail: 'track', tag: 'quick', dur: QUICK.trackSeconds, warm: 0, settings: s, intro: true, title: 'Tracking test',
       text: 'Keep the crosshair on the strafing target for 15 seconds. No need to fire.' },
     { kind: 'analyze' }
@@ -97,7 +99,7 @@ function deepStep() {
   if (!next) { session.segs.push({ kind: 'deepDone' }); return advance(); }
   const k = D.history.length + 1;
   const round = { x: next.x, sens: next.sens };
-  const settings = { sens: next.sens, curve: cfg.curve, dz: checkedDz(), outer: checkedOuter() };
+  const settings = { sens: next.sens, ...verticalFor(next.sens), curve: cfg.curve, dz: checkedDz(), outer: checkedOuter() };
   const title = `Round ${k}`;
   D.pending = round;
   session.segs.push(
@@ -110,6 +112,19 @@ function deepStep() {
     { kind: 'deepNext' }
   );
   advance();
+}
+
+// Deep rounds keep the player's vertical-to-horizontal balance while the horizontal speed moves.
+function verticalFor(sens) {
+  const g = game();
+  if (!g.vsens) return { vmult: cfg.vmult ?? 1 };
+  const target = g.vsens.rate(cfg.vsens) * g.sens.rate(sens) / g.sens.rate(cfg.sens);
+  let best = cfg.vsens, err = Infinity;
+  for (let v = g.vsens.min; v <= g.vsens.max; v += g.vsens.step) {
+    const e = Math.abs(g.vsens.rate(v) - target);
+    if (e < err) { err = e; best = v; }
+  }
+  return { vsens: best };
 }
 
 function deepDone() {
@@ -125,6 +140,8 @@ function deepDone() {
     rec.sens = res.verdict === 'flat' ? c.sens : res.best.sens;
     rec.sensWhy = deepWhy(res, c);
   }
+  // Every round scales vertical with horizontal, so the up/down vs side-to-side comparison holds across all of them.
+  Object.assign(rec, recommendVertical(D.history.flatMap(h => h.flicks), c, rec.sens));
   result = { cfg: c, stats, rec, drift: session.drift, verify: null,
     deep: { res, rounds: D.history.map(h => ({ sens: h.sens, rating: h.rating })) } };
   session = null;
@@ -179,7 +196,7 @@ function begin() {
 function startRun(s) {
   session.phase = 'run';
   if (s.kind === 'drift') s.data = { part: 'rest', t: 0, r: 0, l: 0, lt: 0, rt: 0, warn: 0, reachR: emptyReach(), reachL: emptyReach(), maxLt: 0, maxRt: 0, lDown: false, rDown: false };
-  if (s.kind === 'flick') s.data = { list: [], cur: newFlickTarget(view), flash: null };
+  if (s.kind === 'flick') s.data = { list: [], cur: newFlickTarget(view, Math.random, verticalSlot(0)), flash: null };
   if (s.kind === 'track') s.data = makeTrack(s.warm);
   renderBrief(true);
 }
@@ -201,6 +218,7 @@ function analyze() {
   const c = { ...cfg };
   const stats = summarize(fl, tr);
   const rec = withHardware(recommend(stats, c, session.drift), session.drift);
+  Object.assign(rec, recommendVertical(fl, c, rec.sens));
   result = { cfg: c, stats, rec, drift: session.drift, verify: null };
   if (c.mode === 'verify' && settingsChanged(c, rec)) {
     session.segs.push(...verifySegments(c, rec));
@@ -300,7 +318,7 @@ function tickFlick(s, dt, fireEdge) {
   if (out === 'hit' || out === 'timeout') {
     F.list.push(F.cur);
     if (F.list.length >= s.n) return advance();
-    F.cur = newFlickTarget(view);
+    F.cur = newFlickTarget(view, Math.random, verticalSlot(F.list.length));
   }
 }
 
@@ -503,6 +521,9 @@ function wireChart() {
   });
 }
 
+// Relative vertical change for games without their own vertical setting.
+const vRel = m => Math.abs(m - 1) < 0.01 ? 'Same' : `${m > 1 ? '+' : '−'}${Math.round(Math.abs(m - 1) * 100)}%`;
+
 function renderResults() {
   const { cfg: c, stats: s, rec: r, verify: v } = result;
   const g = GAMES[c.game];
@@ -516,6 +537,8 @@ function renderResults() {
     ['Average time to hit', s.avgTime == null ? '–' : s.avgTime.toFixed(2) + ' s'],
     ['Overshot', pct(s.over)],
     ['Stopped short', pct(s.under)],
+    ['Overshot, up and down only', s.overV == null ? '–' : pct(s.overV)],
+    ['Stopped short, up and down only', s.underV == null ? '–' : pct(s.underV)],
     ['Average tracking error', s.trackErr == null ? '–' : s.trackErr.toFixed(1) + '°'],
     ['On target while tracking', pct(s.onTarget)],
     ['Trailing the target', pct(s.behind)],
@@ -540,6 +563,9 @@ function renderResults() {
     </div>
     <div class="recs">
       ${row(g.sens.label, c.sens, r.sens, tag(r.sens, c.sens), r.sensWhy)}
+      ${g.vsens
+        ? row(g.vsens.label, c.vsens, r.vsens, tag(r.vsens, c.vsens), r.vWhy)
+        : row('Vertical sensitivity', 'Now', vRel(r.vmult), tag(Math.round(r.vmult * 100), 100) + '<span class="tag">If your game has it</span>', r.vWhy)}
       ${row(g.dz.label, g.dz.fmt(c.dz), g.dz.fmt(r.dz), r.dzMeasured ? tag(r.dz, c.dz) : '<span class="tag">Not measured</span>', r.dzWhy)}
       ${row(g.curve.label, g.curve[c.curve], g.curve[r.curve], curveTag, r.curveWhy)}
       ${hw.map(h => row(h.st.label, h.st.fmt(h.cur), h.st.fmt(h.next),
@@ -568,7 +594,7 @@ function renderResults() {
   $('#restart').addEventListener('click', () => { result = null; session = null; syncSetup(); show('setup'); });
   $('#copy').addEventListener('click', e => {
     const text = [`Dialed In, ${g.name} (${PLAYSTYLES[c.style].label})`,
-      `${g.sens.label}: ${r.sens}`, `${g.dz.label}: ${g.dz.fmt(r.dz)}`, `${g.curve.label}: ${g.curve[r.curve]}`,
+      `${g.sens.label}: ${r.sens}`, g.vsens ? `${g.vsens.label}: ${r.vsens}` : `Vertical sensitivity: ${vRel(r.vmult)}`, `${g.dz.label}: ${g.dz.fmt(r.dz)}`, `${g.curve.label}: ${g.curve[r.curve]}`,
       ...hw.map(h => `${h.st.label}: ${h.st.fmt(h.next)}`)].join('\n');
     const pre = $('#copytext');
     pre.textContent = text;
@@ -590,6 +616,17 @@ function syncSetup() {
   $('#sens-range').textContent = g.sens.defKnown === false
     ? `${g.sens.min} to ${g.sens.max}. Enter the value from your controller menu.`
     : `${g.sens.min} to ${g.sens.max}. Default is ${g.sens.def}. Not sure? Leave the default.`;
+  const vf = $('#vsens-field');
+  vf.hidden = !g.vsens;
+  if (g.vsens) {
+    const vs = $('#vsens');
+    $('#vsens-label').textContent = g.vsens.label;
+    vs.min = g.vsens.min; vs.max = g.vsens.max; vs.step = g.vsens.step;
+    vs.value = cfg.vsens;
+    $('#vsens-range').textContent = g.vsens.defKnown === false
+      ? `${g.vsens.min} to ${g.vsens.max}. Enter the value from your controller menu.`
+      : `${g.vsens.min} to ${g.vsens.max}. Default is ${g.vsens.def}.`;
+  }
   $('#game').value = cfg.game;
   const notes = [];
   if (g.camera === 'third') notes.push('Third-person camera.');
@@ -602,13 +639,23 @@ function syncSetup() {
   }
   $('#go-hint').textContent = MODE_HINT[cfg.mode];
 }
-$('#game').addEventListener('change', e => { cfg.game = e.target.value; cfg.sens = game().sens.def; syncSetup(); });
+$('#game').addEventListener('change', e => {
+  cfg.game = e.target.value;
+  cfg.sens = game().sens.def;
+  cfg.vsens = game().vsens ? game().vsens.def : undefined;
+  syncSetup();
+});
 document.querySelectorAll('input[name="style"]').forEach(r => r.addEventListener('change', e => { cfg.style = e.target.value; }));
 document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', e => { cfg.mode = e.target.value; syncSetup(); renderRail(); }));
 $('#go').addEventListener('click', () => {
   const g = game();
   const v = Number($('#sens').value);
   cfg.sens = clamp(Number.isFinite(v) ? Math.round(v) : g.sens.def, g.sens.min, g.sens.max);
+  if (g.vsens) {
+    const vv = Number($('#vsens').value);
+    cfg.vsens = clamp(Number.isFinite(vv) ? Math.round(vv) : g.vsens.def, g.vsens.min, g.vsens.max);
+  }
+  cfg.vmult = 1;
   cfg.curve = g.curve.def;
   cfg.dz = g.dz.def;
   cfg.outer = 1;
