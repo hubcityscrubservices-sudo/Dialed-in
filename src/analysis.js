@@ -92,5 +92,5 @@ export function driftDeadzone(maxRight) {
 }
 
 export function settingsChanged(a, b) {
-  return a.sens !== b.sens || a.curve !== b.curve || a.dz !== b.dz;
+  return a.sens !== b.sens || a.curve !== b.curve || a.dz !== b.dz || (a.outer ?? 1) !== (b.outer ?? 1);
 }

@@ -1,16 +1,17 @@
-import { GAMES, PLAYSTYLES, gameTitle } from './games.js';
+import { GAMES, PLAYSTYLES, gameTitle, extraSetting } from './games.js';
 import { FOV, makeView, steer, newFlickTarget, flickStep, makeTrack, trackStep } from './sim.js';
 import { summarize, recommend, driftDeadzone, settingsChanged } from './analysis.js';
 import { verifyPlan, verifyCompare, ratingSummary } from './verify.js';
 import { DEEP, deepNext, deepAnalyze, shuffled } from './deep.js';
+import { emptyReach, recordReach, coverage, stickReport, outerFromReach, hardwareRecs } from './hardware.js';
 import { clamp, pct } from './util.js';
 
 const $ = s => document.querySelector(s);
 const QUICK = { flicks: 10, trackSeconds: 15 };
 const VERIFY = { flicks: 7, warmFlicks: 1, trackSeconds: 9, warmSeconds: 1.5 };
 const DEEP_ROUND = { flicks: 8, warmFlicks: 1, trackSeconds: 8, warmSeconds: 1.5 };
-const DRIFT_SECONDS = 4;
-const RAIL = { setup: 'Setup', drift: 'Drift', flick: 'Flicks', track: 'Tracking', deep: 'Search', verify: 'Verify', results: 'Results' };
+const DRIFT_SECONDS = 4, ROLL_SECONDS = 10, SQUEEZE_SECONDS = 8;
+const RAIL = { setup: 'Setup', drift: 'Sticks', flick: 'Flicks', track: 'Tracking', deep: 'Search', verify: 'Verify', results: 'Results' };
 const RATINGS = [
   { v: 1, label: 'Rough', key: 'dl', glyph: '←' },
   { v: 2, label: 'OK', key: 'du', glyph: '↑' },
@@ -29,15 +30,27 @@ let lastT = 0, gpBlocked = false;
 
 const game = () => GAMES[cfg.game];
 const seg = () => session && session.segs[session.i];
-const settingsOf = c => ({ sens: c.sens, curve: c.curve, dz: c.dz });
+const settingsOf = c => ({ sens: c.sens, curve: c.curve, dz: c.dz, outer: c.outer ?? 1 });
 
 /* ---------- session plans ---------- */
+
+const STICK_CHECK = { kind: 'drift', rail: 'drift', title: 'Stick check',
+  text: 'Three quick parts, about 15 seconds: hands off, roll both sticks around their edges, then squeeze the triggers. This measures drift, how far each stick reaches, and trigger travel.' };
+const STICK_PART_TEXT = {
+  rest: 'Set the controller down and keep your thumbs off both sticks.',
+  roll: 'Push both sticks all the way out and roll them slowly around the edge. Two full circles.',
+  squeeze: 'Squeeze both triggers all the way, slowly, then let go.'
+};
+
+// The look and outer deadzones the range should use once the stick check has run.
+const checkedDz = () => session.drift ? session.drift.rec : cfg.dz;
+const outerFor = check => check && check.reachR && extraSetting(game(), 'outer') ? outerFromReach(check.reachR.minReach) : 1;
+const checkedOuter = () => outerFor(session.drift);
 
 function quickSegments() {
   const s = settingsOf(cfg);
   return [
-    { kind: 'drift', rail: 'drift', title: 'Drift check',
-      text: 'Set the controller down and keep your thumbs off both sticks for 4 seconds. This measures how far the sticks wander on their own.' },
+    STICK_CHECK,
     { kind: 'flick', rail: 'flick', tag: 'quick', n: QUICK.flicks, warm: 0, settings: s, intro: true, title: 'Flick test',
       text: 'Ten targets appear one at a time. Snap to each with the right stick and fire with RT / R2. Go at the speed you would in a real fight.' },
     { kind: 'track', rail: 'track', tag: 'quick', dur: QUICK.trackSeconds, warm: 0, settings: s, intro: true, title: 'Tracking test',
@@ -66,8 +79,7 @@ function verifySegments(A, B) {
 
 function deepSegments() {
   return [
-    { kind: 'drift', rail: 'drift', title: 'Drift check',
-      text: 'Set the controller down and keep your thumbs off both sticks for 4 seconds. This measures how far the sticks wander on their own.' },
+    STICK_CHECK,
     { kind: 'deepNext' }
   ];
 }
@@ -85,7 +97,7 @@ function deepStep() {
   if (!next) { session.segs.push({ kind: 'deepDone' }); return advance(); }
   const k = D.history.length + 1;
   const round = { x: next.x, sens: next.sens };
-  const settings = { sens: next.sens, curve: cfg.curve, dz: session.drift ? session.drift.rec : cfg.dz };
+  const settings = { sens: next.sens, curve: cfg.curve, dz: checkedDz(), outer: checkedOuter() };
   const title = `Round ${k}`;
   D.pending = round;
   session.segs.push(
@@ -108,7 +120,7 @@ function deepDone() {
   const base = D.history.filter(h => h.sens === c.sens);
   const from = base.length ? base : D.history;
   const stats = summarize(from.flatMap(h => h.flicks), from[0].track);
-  const rec = recommend(stats, c, session.drift);
+  const rec = withHardware(recommend(stats, c, session.drift), session.drift);
   if (res) {
     rec.sens = res.verdict === 'flat' ? c.sens : res.best.sens;
     rec.sensWhy = deepWhy(res, c);
@@ -136,6 +148,7 @@ function deepWhy(res, c) {
 /* ---------- session flow ---------- */
 
 function start(segs, drift, deep = null) {
+  segs = segs.map(x => ({ ...x }));
   session = { segs, i: 0, phase: 'intro', countLeft: 0, drift, deep };
   enter();
 }
@@ -165,7 +178,7 @@ function begin() {
 }
 function startRun(s) {
   session.phase = 'run';
-  if (s.kind === 'drift') s.data = { t: 0, r: 0, l: 0, warn: 0 };
+  if (s.kind === 'drift') s.data = { part: 'rest', t: 0, r: 0, l: 0, lt: 0, rt: 0, warn: 0, reachR: emptyReach(), reachL: emptyReach(), maxLt: 0, maxRt: 0, lDown: false, rDown: false };
   if (s.kind === 'flick') s.data = { list: [], cur: newFlickTarget(view), flash: null };
   if (s.kind === 'track') s.data = makeTrack(s.warm);
   renderBrief(true);
@@ -175,12 +188,19 @@ function stop() {
   show(result ? 'results' : 'setup');
 }
 
+// The outer deadzone changes how the range turns, so it travels with the settings Verify and Deep compare.
+// Games without the setting keep the stick's natural reach.
+function withHardware(rec, check) {
+  rec.outer = outerFor(check);
+  return rec;
+}
+
 function analyze() {
   const fl = session.segs.find(x => x.kind === 'flick' && x.tag === 'quick').data.list;
   const tr = session.segs.find(x => x.kind === 'track' && x.tag === 'quick').data;
   const c = { ...cfg };
   const stats = summarize(fl, tr);
-  const rec = recommend(stats, c, session.drift);
+  const rec = withHardware(recommend(stats, c, session.drift), session.drift);
   result = { cfg: c, stats, rec, drift: session.drift, verify: null };
   if (c.mode === 'verify' && settingsChanged(c, rec)) {
     session.segs.push(...verifySegments(c, rec));
@@ -234,14 +254,40 @@ function rate(v) { seg().data = v; advance(); }
 
 function tickDrift(s, dt) {
   const D = s.data;
-  const r = Math.hypot(inp.rx, inp.ry), l = Math.hypot(inp.lx, inp.ly);
-  D.warn -= dt;
-  if (r > 0.35 || l > 0.35) { D.t = 0; D.r = 0; D.l = 0; D.warn = 1.2; return; }
-  D.t += dt; D.r = Math.max(D.r, r); D.l = Math.max(D.l, l);
-  if (D.t >= DRIFT_SECONDS) {
-    session.drift = { r: D.r, l: D.l, rec: driftDeadzone(D.r) };
-    advance();
+  D.t += dt;
+  if (D.part === 'rest') {
+    const r = Math.hypot(inp.rx, inp.ry), l = Math.hypot(inp.lx, inp.ly);
+    D.warn -= dt;
+    if (r > 0.35 || l > 0.35) { Object.assign(D, { t: 0, r: 0, l: 0, lt: 0, rt: 0, warn: 1.2 }); return; }
+    D.r = Math.max(D.r, r); D.l = Math.max(D.l, l);
+    D.lt = Math.max(D.lt, inp.lt); D.rt = Math.max(D.rt, inp.rt);
+    if (D.t >= DRIFT_SECONDS) nextStickPart(D);
+  } else if (D.part === 'roll') {
+    recordReach(D.reachR, inp.rx, inp.ry);
+    recordReach(D.reachL, inp.lx, inp.ly);
+    const done = coverage(D.reachR) >= 1 && coverage(D.reachL) >= 1 && D.t > 2;
+    if (done || D.t >= ROLL_SECONDS) nextStickPart(D);
+  } else {
+    D.maxLt = Math.max(D.maxLt, inp.lt); D.maxRt = Math.max(D.maxRt, inp.rt);
+    if (inp.lt > 0.5) D.lDown = true;
+    if (inp.rt > 0.5) D.rDown = true;
+    const released = D.lDown && D.rDown && inp.lt < 0.1 && inp.rt < 0.1;
+    if (released || D.t >= SQUEEZE_SECONDS) nextStickPart(D);
   }
+}
+function nextStickPart(D) {
+  D.t = 0;
+  if (D.part === 'rest') D.part = 'roll';
+  else if (D.part === 'roll') D.part = 'squeeze';
+  else {
+    session.drift = {
+      r: D.r, l: D.l, rec: driftDeadzone(D.r),
+      reachR: stickReport(D.reachR), reachL: stickReport(D.reachL),
+      trig: D.lDown || D.rDown ? { restL: D.lt, restR: D.rt, maxL: D.maxLt, maxR: D.maxRt } : null
+    };
+    return advance();
+  }
+  renderBrief(true);
 }
 
 function tickFlick(s, dt, fireEdge) {
@@ -308,7 +354,7 @@ function renderBrief(force) {
   const s = seg();
   if (!s) return;
   const noPad = inp.src !== 'pad';
-  const key = session.i + session.phase + noPad;
+  const key = session.i + session.phase + noPad + (s.data && s.data.part || '');
   if (key === briefKey && !force) return;
   briefKey = key;
   const P = session.phase;
@@ -316,14 +362,14 @@ function renderBrief(force) {
   let text = s.text;
   if (s.kind === 'drift' && noPad && P === 'intro') text = 'No controller found, so there is nothing to measure. Press a button on your controller to wake it, or skip this check.';
   if (P === 'count') text = 'Get ready.';
-  if (P === 'run' && s.kind === 'drift') text = 'Hands off the sticks.';
+  if (P === 'run' && s.kind === 'drift') text = STICK_PART_TEXT[s.data.part];
   $('#brief-text').textContent = text;
 
   const act = $('#brief-actions');
   act.textContent = '';
   if (P === 'intro') {
     const blocked = s.kind === 'drift' && noPad;
-    if (!blocked) act.append(button(s.kind === 'drift' ? 'Start drift check' : 'Start', 'primary', begin));
+    if (!blocked) act.append(button(s.kind === 'drift' ? 'Start stick check' : 'Start', 'primary', begin));
     if (s.kind === 'drift') act.append(button('Skip', '', () => { session.drift = null; advance(); }));
     if (!noPad && !blocked) act.append(hint('or press A / ✕'));
   } else if (P === 'rate') {
@@ -337,6 +383,7 @@ function renderBrief(force) {
     row.append(button('Skip', 'small', () => { seg().data = null; advance(); }));
     act.append(row);
   } else {
+    if (P === 'run' && s.kind === 'drift' && s.data.part !== 'rest') act.append(button('Skip this part', 'small', () => nextStickPart(s.data)));
     act.append(button('Stop', 'small', stop));
   }
 }
@@ -476,6 +523,7 @@ function renderResults() {
     ['Extra corrections', s.jitter.toFixed(1) + '/s']
   ];
   const deepHtml = result.deep ? deepBlock(result.deep, g, c) : '';
+  const hw = hardwareRecs(result.drift, g);
   let verifyHtml;
   if (v) verifyHtml = verifyBlock(v);
   else if (settingsChanged(c, r)) verifyHtml = `<div class="offer"><p>Not sure about these? Run a blind test of your old settings against the new ones. About 2 minutes.</p><button class="btn primary" id="verify" type="button">Verify these settings</button></div>`;
@@ -494,6 +542,9 @@ function renderResults() {
       ${row(g.sens.label, c.sens, r.sens, tag(r.sens, c.sens), r.sensWhy)}
       ${row(g.dz.label, g.dz.fmt(c.dz), g.dz.fmt(r.dz), r.dzMeasured ? tag(r.dz, c.dz) : '<span class="tag">Not measured</span>', r.dzWhy)}
       ${row(g.curve.label, g.curve[c.curve], g.curve[r.curve], curveTag, r.curveWhy)}
+      ${hw.map(h => row(h.st.label, h.st.fmt(h.cur), h.st.fmt(h.next),
+        (h.st.fmt(h.next) === h.st.fmt(h.cur) ? '<span class="tag">Keep</span>' : '<span class="tag up">Change</span>') + (h.st.known ? '' : '<span class="tag">If your game has it</span>'),
+        h.why)).join('')}
     </div>
     ${deepHtml}
     ${verifyHtml}
@@ -517,7 +568,8 @@ function renderResults() {
   $('#restart').addEventListener('click', () => { result = null; session = null; syncSetup(); show('setup'); });
   $('#copy').addEventListener('click', e => {
     const text = [`Dialed In, ${g.name} (${PLAYSTYLES[c.style].label})`,
-      `${g.sens.label}: ${r.sens}`, `${g.dz.label}: ${g.dz.fmt(r.dz)}`, `${g.curve.label}: ${g.curve[r.curve]}`].join('\n');
+      `${g.sens.label}: ${r.sens}`, `${g.dz.label}: ${g.dz.fmt(r.dz)}`, `${g.curve.label}: ${g.curve[r.curve]}`,
+      ...hw.map(h => `${h.st.label}: ${h.st.fmt(h.next)}`)].join('\n');
     const pre = $('#copytext');
     pre.textContent = text;
     const btn = e.currentTarget;
@@ -535,7 +587,9 @@ function syncSetup() {
   $('#sens-label').textContent = g.sens.label;
   s.min = g.sens.min; s.max = g.sens.max; s.step = g.sens.step;
   s.value = cfg.sens;
-  $('#sens-range').textContent = `${g.sens.min} to ${g.sens.max}. Default is ${g.sens.def}. Not sure? Leave the default.`;
+  $('#sens-range').textContent = g.sens.defKnown === false
+    ? `${g.sens.min} to ${g.sens.max}. Enter the value from your controller menu.`
+    : `${g.sens.min} to ${g.sens.max}. Default is ${g.sens.def}. Not sure? Leave the default.`;
   $('#game').value = cfg.game;
   const notes = [];
   if (g.camera === 'third') notes.push('Third-person camera.');
@@ -557,6 +611,7 @@ $('#go').addEventListener('click', () => {
   cfg.sens = clamp(Number.isFinite(v) ? Math.round(v) : g.sens.def, g.sens.min, g.sens.max);
   cfg.curve = g.curve.def;
   cfg.dz = g.dz.def;
+  cfg.outer = 1;
   result = null;
   syncSetup();
   if (cfg.mode === 'deep') start(deepSegments(), null, { order: shuffled(DEEP.initial), history: [], pending: null });
@@ -581,7 +636,8 @@ function poll() {
     const b = p.buttons;
     const pressed = i => !!b[i] && (b[i].pressed || b[i].value > 0.5);
     return { src: 'pad', name: p.id, lx: p.axes[0], ly: p.axes[1], rx: p.axes[2], ry: p.axes[3],
-      fire: pressed(7) || pressed(0) || pressed(5), dl: pressed(14), du: pressed(12), dr: pressed(15) };
+      fire: pressed(7) || pressed(0) || pressed(5), dl: pressed(14), du: pressed(12), dr: pressed(15),
+      lt: b[6] ? b[6].value : 0, rt: b[7] ? b[7].value : 0 };
   }
   let x = vpad.x, y = vpad.y;
   if (!vpad.drag) {
@@ -590,7 +646,7 @@ function poll() {
     const m = Math.hypot(x, y); if (m > 1) { x /= m; y /= m; }
     x *= 0.6; y *= 0.6;
   }
-  return { src: 'virtual', name: null, lx: 0, ly: 0, rx: x, ry: y, fire: vpad.fire || keys.fire, dl: false, du: false, dr: false };
+  return { src: 'virtual', name: null, lx: 0, ly: 0, rx: x, ry: y, fire: vpad.fire || keys.fire, dl: false, du: false, dr: false, lt: 0, rt: 0 };
 }
 
 const vs = $('#vstick'), knob = $('#vknob');
@@ -713,6 +769,9 @@ function drawArena() {
     ctx.fillStyle = tok('--arena-ink');
     ctx.font = `600 ${Math.round(H * 0.22)}px ${tok('--mono')}`;
     ctx.fillText(String(Math.ceil(session.countLeft)), cx, cy - H * 0.22);
+  } else if (s.kind === 'drift' && s.data.part !== 'rest') {
+    ctx.fillStyle = tok('--arena'); ctx.globalAlpha = 0.6; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
+    drawStickPart(ctx, s.data, W, H, d);
   } else if (s.kind === 'drift') {
     const D = s.data;
     ctx.fillStyle = tok('--arena'); ctx.globalAlpha = 0.6; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
@@ -725,6 +784,44 @@ function drawArena() {
     const bw = W * 0.4, bh = 6 * d, bx = cx - bw / 2, by = cy + H * 0.12;
     ctx.fillStyle = tok('--arena-major'); ctx.fillRect(bx, by, bw, bh);
     ctx.fillStyle = tok('--target'); ctx.fillRect(bx, by, bw * clamp(D.t / DRIFT_SECONDS, 0, 1), bh);
+  }
+}
+
+// Edge roll: lit wedges show the directions already pushed to the edge. Squeeze: trigger travel bars.
+function drawStickPart(ctx, D, W, H, d) {
+  const cy = H * 0.52, R = Math.min(H * 0.28, W * 0.16);
+  const centers = [W * 0.32, W * 0.68];
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if (D.part === 'roll') {
+    [[D.reachL, inp.lx, inp.ly, 'LEFT'], [D.reachR, inp.rx, inp.ry, 'RIGHT']].forEach(([reach, x, y, label], k) => {
+      const cx = centers[k];
+      reach.forEach((r, i) => {
+        const a0 = i / reach.length * Math.PI * 2, a1 = (i + 1) / reach.length * Math.PI * 2;
+        ctx.fillStyle = r >= 0.7 ? tok('--target') : tok('--arena-major');
+        ctx.globalAlpha = r >= 0.7 ? 0.85 : 0.6;
+        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, R, a0 + 0.02, a1 - 0.02); ctx.closePath(); ctx.fill();
+      });
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = tok('--arena');
+      ctx.beginPath(); ctx.arc(cx, cy, R * 0.55, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = tok('--arena-ink');
+      ctx.beginPath(); ctx.arc(cx + clamp(x, -1, 1) * R, cy + clamp(y, -1, 1) * R, 6 * d, 0, Math.PI * 2); ctx.fill();
+      ctx.font = `500 ${Math.round(H * 0.045)}px ${tok('--mono')}`;
+      ctx.fillText(`${label} ${pct(coverage(reach))}`, cx, cy + R + H * 0.08);
+    });
+    ctx.font = `600 ${Math.round(H * 0.06)}px ${tok('--display')}`;
+    ctx.fillText('Roll both sticks around the edge', W / 2, H * 0.12);
+  } else {
+    [[inp.lt, D.maxLt, 'LT / L2'], [inp.rt, D.maxRt, 'RT / R2']].forEach(([v, max, label], k) => {
+      const cx = centers[k], bw = W * 0.06, bh = H * 0.5, bx = cx - bw / 2, by = cy - bh / 2;
+      ctx.fillStyle = tok('--arena-major'); ctx.fillRect(bx, by, bw, bh);
+      ctx.fillStyle = tok('--target'); ctx.fillRect(bx, by + bh * (1 - v), bw, bh * v);
+      ctx.fillStyle = tok('--arena-ink'); ctx.fillRect(bx - 6 * d, by + bh * (1 - max) - d, bw + 12 * d, 2 * d);
+      ctx.font = `500 ${Math.round(H * 0.045)}px ${tok('--mono')}`;
+      ctx.fillText(`${label} ${max.toFixed(2)}`, cx, by + bh + H * 0.08);
+    });
+    ctx.font = `600 ${Math.round(H * 0.06)}px ${tok('--display')}`;
+    ctx.fillText('Squeeze both triggers, then let go', W / 2, H * 0.12);
   }
 }
 

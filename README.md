@@ -8,16 +8,33 @@ settings for their game, each with the measurements behind it.
 
 | Mode | Time | What it does |
 |---|---|---|
-| Quick | ~2 min | Drift check, flick test, tracking test, then suggested settings with reasons. |
+| Quick | ~2 min | Stick check, flick test, tracking test, then suggested settings with reasons. |
 | Verify | ~4 min | Quick, then a blind ABBA/BAAB test of old vs suggested settings. Reports how likely the new settings are better (bootstrap over targets and tracking seconds), next to the player's own feel ratings. |
-| Deep | ~5 min | Drift check, then 7–9 short blind rounds at different sensitivities. The first three bracket the current speed, round five repeats it as a control, and the rest go where the fitted curve says the best speed is. Reports the best setting, the range within noise of it, and whether sensitivity matters for this player at all. |
+| Deep | ~5 min | Stick check, then 7–9 short blind rounds at different sensitivities. The first three bracket the current speed, round five repeats it as a control, and the rest go where the fitted curve says the best speed is. Reports the best setting, the range within noise of it, and whether sensitivity matters for this player at all. |
 
 ## Games
 
 Call of Duty, Fortnite, Apex Legends, ARC Raiders, and a generic profile. Profiles live in
-`src/games.js`. Turn rates are modeled approximations. ARC Raiders menu names come from player
-guides (Dexerto, SCUF, The Controller People) and still need checking in the game. It models a
-third-person camera and Look Boost (extra turn speed at full stick).
+`src/games.js`. Turn rates are modeled approximations.
+
+ARC Raiders menu names come from the PS5 Wireless Controller screen. Its sensitivity range
+(1–500) is estimated from the slider position and still needs confirming. The game has no outer or
+trigger deadzone, so those rows don't appear for it. The range models a third-person camera and
+Look Boost (+55% turn speed at full stick, ramping up over 1.6 s).
+
+## Stick check
+
+The first step, about 15 seconds, in three parts:
+
+1. **Hands off:** drift on both sticks and both triggers at rest. This sets the look and movement
+   deadzones.
+2. **Roll the sticks around the edge:** the full-push reading in 16 directions. A stick that tops
+   out below 0.97 in any direction gets an outer deadzone (max input) just under its weakest
+   direction, so full turn speed is always reachable. Square gates are noted.
+3. **Squeeze the triggers:** resting value and full travel, which set the trigger deadzone.
+
+A game with no menu entry for one of these gets a generic row marked "If your game has it". A game
+known not to have the setting (`null` in its profile) gets no row.
 
 ## Scoring
 
@@ -66,6 +83,7 @@ Open `dist/index.html` in Chrome or Edge with a controller connected. No server 
 - `src/analysis.js`: throughput, summaries, recommendations (pure)
 - `src/verify.js`: blind test plan and bootstrap comparison (pure)
 - `src/deep.js`: Deep mode search, curve fit and read-out (pure)
+- `src/hardware.js`: stick check measurements and the settings they suggest (pure)
 - `src/main.js`: UI, input polling, drawing, session flow
 - `src/page.html`, `src/styles.css`: page shell
 - `scripts/build.mjs`: bundles everything into one HTML file
@@ -76,4 +94,8 @@ Open `dist/index.html` in Chrome or Edge with a controller connected. No server 
 2. ~~Verify mode~~
 3. ~~ARC Raiders profile with third-person camera~~
 4. ~~Deep mode, sensitivity only (adaptive search)~~
-5. Deep mode, multi-factor screening (sensitivity, deadzone, curve, ADS)
+5. ~~Stick check: movement, outer and trigger deadzones~~
+6. Vertical sensitivity
+7. ADS / zoom test
+8. Turn-around drill for look boost and ramp-up
+9. Deep mode, multi-factor screening

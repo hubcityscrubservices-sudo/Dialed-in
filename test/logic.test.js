@@ -21,8 +21,11 @@ test('steer: look boost speeds up turning only after holding full stick', () => 
   const v = makeView();
   const first = steer(v, { rx: 1, ry: 0 }, s, game, 0.05).vy;
   for (let i = 0; i < 20; i++) steer(v, { rx: 1, ry: 0 }, s, game, 0.05);
+  const mid = steer(v, { rx: 1, ry: 0 }, s, game, 0.05).vy; // still ramping at 1 s
+  for (let i = 0; i < 40; i++) steer(v, { rx: 1, ry: 0 }, s, game, 0.05);
   const later = steer(v, { rx: 1, ry: 0 }, s, game, 0.05).vy;
-  assert.ok(Math.abs(later / first - 1.5) < 1e-9);
+  assert.ok(mid > first && mid < later);
+  assert.ok(Math.abs(later / first - 1.55) < 1e-9);
   // Games without boost turn at a constant rate.
   const w = makeView();
   const a = steer(w, { rx: 1, ry: 0 }, { sens: 6, curve: 'mid', dz: 0.1 }, GAMES.cod, 0.05).vy;

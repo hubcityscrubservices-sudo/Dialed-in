@@ -10,23 +10,23 @@ export function makeView() {
   return { yaw: 0, pitch: 0, boostT: 0 };
 }
 
-// Radial deadzone, rescaled, then the response curve.
-export function shape(x, y, dz, exp) {
+// Radial deadzone, rescaled so full output arrives at `outer` push, then the response curve.
+export function shape(x, y, dz, exp, outer = 1) {
   const m = Math.hypot(x, y);
   if (m <= dz) return [0, 0, 0];
-  const s = Math.min(1, (m - dz) / (1 - dz));
+  const s = Math.min(1, (m - dz) / (outer - dz));
   const o = Math.pow(s, exp);
   return [x / m * o, y / m * o, o];
 }
 
-// Turns the view for one frame. `settings` is { sens, curve, dz }.
+// Turns the view for one frame. `settings` is { sens, curve, dz, outer? }.
 export function steer(view, input, settings, game, dt, minDz = 0) {
   const rate = game.sens.rate(settings.sens);
-  const [sx, sy, mag] = shape(input.rx, input.ry, Math.max(settings.dz, minDz), CURVE_EXP[settings.curve]);
+  const [sx, sy, mag] = shape(input.rx, input.ry, Math.max(settings.dz, minDz), CURVE_EXP[settings.curve], settings.outer ?? 1);
   let boost = 1;
   if (game.boost) {
     view.boostT = mag >= 0.95 ? view.boostT + dt : 0;
-    boost = 1 + (game.boost.mult - 1) * clamp((view.boostT - BOOST_DELAY) / BOOST_RAMP, 0, 1);
+    boost = 1 + (game.boost.mult - 1) * clamp((view.boostT - BOOST_DELAY) / (game.boost.ramp ?? BOOST_RAMP), 0, 1);
   }
   const vy = sx * rate * boost, vp = -sy * rate * PITCH_SCALE;
   view.yaw += vy * dt;
