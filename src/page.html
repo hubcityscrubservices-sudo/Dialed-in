@@ -20,6 +20,27 @@
 
   <div class="bench">
     <div class="main-col">
+      <section class="panel warm" id="p-warm">
+        <div class="warm-head">
+          <div style="display:grid;gap:4px">
+            <p class="eyebrow">Warm-up</p>
+            <h2>60-second challenge</h2>
+            <p class="lede">Flicks, tracking and turn-arounds, scored for speed and accuracy. It uses the game and sensitivity you set below. Today's daily challenge has the same targets for everyone.</p>
+          </div>
+          <dl class="warm-best" id="warm-best"></dl>
+        </div>
+        <div class="actions">
+          <button class="btn primary" id="ch-daily" type="button">Daily challenge</button>
+          <button class="btn" id="ch-practice" type="button">Practice</button>
+          <span class="code-entry">
+            <label for="ch-code" class="sr-only">Challenge code</label>
+            <input id="ch-code" type="text" inputmode="text" autocomplete="off" spellcheck="false" placeholder="Challenge code" maxlength="18">
+            <button class="btn" id="ch-code-go" type="button">Play code</button>
+          </span>
+        </div>
+        <small class="hint" id="ch-note"></small>
+      </section>
+
       <section class="panel" id="p-setup">
         <div style="display:grid;gap:6px">
           <h2>Where are you starting from?</h2>
@@ -84,6 +105,7 @@
       </section>
 
       <section class="panel" id="p-results" hidden></section>
+      <section class="panel" id="p-chend" hidden></section>
     </div>
 
     <aside class="side">

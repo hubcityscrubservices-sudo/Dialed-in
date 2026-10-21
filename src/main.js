@@ -6,6 +6,8 @@ import { DEEP, SCREEN, deepNext, deepAnalyze, shuffled, screenPlan, altCurve, sc
 import { emptyReach, recordReach, coverage, stickReport, outerFromReach, hardwareRecs } from './hardware.js';
 import { clamp, pct } from './util.js';
 import { buildExport } from './export.js';
+import { DT, TICKS, dailyCode, practiceCode, isCode, quantize, createChallenge, step as chStep, summary as chSummary,
+  newRecording, record, encodeReplay } from './challenge.js';
 
 const $ = s => document.querySelector(s);
 const QUICK = { flicks: 12, trackSeconds: 15 };
@@ -472,11 +474,17 @@ function show(name) {
   const changed = name !== screen;
   screen = name;
   $('#p-setup').hidden = name !== 'setup';
+  $('#p-warm').hidden = name !== 'setup';
   $('#p-test').hidden = name !== 'test';
   $('#p-results').hidden = name !== 'results';
-  renderRail();
-  if (name === 'test') renderBrief(true);
+  $('#p-chend').hidden = name !== 'chend';
+  // The step rail belongs to calibration; the warm-up challenge hides it.
+  $('#steps').hidden = !!chal;
+  if (!chal) renderRail();
+  if (name === 'setup') renderWarmBests();
+  if (name === 'test') { if (chal) renderChalBrief(true); else renderBrief(true); }
   if (name === 'results') renderResults();
+  if (name === 'chend') renderChalEnd();
   if (changed) window.scrollTo({ top: 0 });
 }
 
@@ -874,7 +882,8 @@ $('#game').addEventListener('change', e => {
 });
 document.querySelectorAll('input[name="style"]').forEach(r => r.addEventListener('change', e => { cfg.style = e.target.value; }));
 document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', e => { cfg.mode = e.target.value; syncSetup(); renderRail(); }));
-$('#go').addEventListener('click', () => {
+// Reads the setup form into cfg (current values, not suggestions).
+function readSetup() {
   const g = game();
   const v = Number($('#sens').value);
   cfg.sens = clamp(Number.isFinite(v) ? Math.round(v) : g.sens.def, g.sens.min, g.sens.max);
@@ -897,6 +906,10 @@ $('#go').addEventListener('click', () => {
   cfg.curve = g.curve.def;
   cfg.dz = g.dz.def;
   cfg.outer = 1;
+}
+
+$('#go').addEventListener('click', () => {
+  readSetup();
   result = null;
   syncSetup();
   if (cfg.mode === 'deep') start(deepSegments(), null, { order: shuffled(DEEP.initial), history: [], pending: null });
@@ -953,7 +966,7 @@ vf.addEventListener('pointerdown', e => { vpad.fire = true; e.preventDefault(); 
 ['pointerup', 'pointerleave', 'pointercancel'].forEach(t => vf.addEventListener(t, () => { vpad.fire = false; }));
 
 const KEYMAP = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down', KeyA: 'left', KeyD: 'right', KeyW: 'up', KeyS: 'down', Space: 'fire' };
-const inTest = () => screen === 'test' && session && (session.phase === 'count' || session.phase === 'run');
+const inTest = () => screen === 'test' && ((session && (session.phase === 'count' || session.phase === 'run')) || (chal && chal.phase !== 'intro'));
 window.addEventListener('keydown', e => {
   const k = KEYMAP[e.code];
   if (!k || !inTest()) return;
@@ -976,9 +989,22 @@ function fit(c) {
 function drawArena() {
   const c = $('#arena');
   if (screen !== 'test' || !fit(c)) return;
+  if (chal) return drawScene(c, chalScene());
   const s = seg(), P = session.phase;
+  drawScene(c, {
+    view, zoom: s.zoom || 1, phase: P, countLeft: session.countLeft,
+    flick: P === 'run' && s.kind === 'flick' ? s.data : null,
+    track: P === 'run' && s.kind === 'track' ? s.data : null,
+    figure: s.kind !== 'drift',
+    overlay: P === 'run' && s.kind === 'drift' ? (ctx, W, H, d) => drawDrift(ctx, s.data, W, H, d) : null
+  });
+}
+
+// One frame of the aim range. sc = { view, zoom, phase, countLeft, flick: { cur, flash }?, track?, figure, overlay? }.
+function drawScene(c, sc) {
+  const view = sc.view, P = sc.phase;
   const ctx = c.getContext('2d'), W = c.width, H = c.height, d = window.devicePixelRatio || 1;
-  const zoom = s.zoom || 1, fov = FOV / zoom;
+  const zoom = sc.zoom, fov = FOV / zoom;
   const ppd = W / fov, cx = W / 2, cy = H / 2;
   const step = zoom >= 3 ? 1 : zoom > 1 ? 2.5 : 5, major = step * 6;
   const toX = yaw => cx + (yaw - view.yaw) * ppd, toY = pitch => cy - (pitch - view.pitch) * ppd;
@@ -1036,8 +1062,8 @@ function drawArena() {
     ctx.beginPath(); ctx.arc(x, y, R * 0.45, 0, Math.PI * 2); ctx.stroke();
     ctx.restore();
   };
-  if (running && s.kind === 'flick') {
-    const F = s.data;
+  if (running && sc.flick) {
+    const F = sc.flick;
     drawTarget(F.cur, F.cur.r, false);
     if (F.flash && F.flash.t > 0) {
       ctx.strokeStyle = F.flash.good ? tok('--good') : tok('--arena-ink');
@@ -1047,10 +1073,10 @@ function drawArena() {
       ctx.globalAlpha = 1;
     }
   }
-  if (running && s.kind === 'track') drawTarget(s.data.tgt, s.data.r, s.data.tgt.on);
+  if (running && sc.track) drawTarget(sc.track.tgt, sc.track.r, sc.track.tgt.on);
 
   // Third-person games: the character sits left of the crosshair and blocks part of the view.
-  if (game().camera === 'third' && s.kind !== 'drift' && zoom === 1) {
+  if (game().camera === 'third' && sc.figure && zoom === 1) {
     const fx = cx - W * 0.17;
     ctx.fillStyle = tok('--arena-figure');
     ctx.strokeStyle = tok('--arena-major'); ctx.lineWidth = d;
@@ -1058,7 +1084,7 @@ function drawArena() {
     ctx.beginPath(); ctx.arc(fx + W * 0.01, H * 0.7, H * 0.085, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
   }
 
-  const onT = running && s.kind === 'track' && s.data.tgt.on;
+  const onT = running && sc.track && sc.track.tgt.on;
   ctx.strokeStyle = onT ? tok('--good') : tok('--arena-ink');
   ctx.lineWidth = 2 * d;
   const gap = 5 * d, len = 11 * d;
@@ -1073,23 +1099,27 @@ function drawArena() {
   } else if (P === 'count') {
     ctx.fillStyle = tok('--arena-ink');
     ctx.font = `600 ${Math.round(H * 0.22)}px ${tok('--mono')}`;
-    ctx.fillText(String(Math.ceil(session.countLeft)), cx, cy - H * 0.22);
-  } else if (s.kind === 'drift' && s.data.part !== 'rest') {
-    ctx.fillStyle = tok('--arena'); ctx.globalAlpha = 0.6; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
-    drawStickPart(ctx, s.data, W, H, d);
-  } else if (s.kind === 'drift') {
-    const D = s.data;
-    ctx.fillStyle = tok('--arena'); ctx.globalAlpha = 0.6; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
-    ctx.fillStyle = D.warn > 0 ? tok('--target') : tok('--arena-ink');
-    ctx.font = `600 ${Math.round(H * 0.07)}px ${tok('--display')}`;
-    ctx.fillText(D.warn > 0 ? 'Stick moved. Starting over.' : 'Hands off the sticks', cx, cy - H * 0.12);
-    ctx.fillStyle = tok('--arena-ink');
-    ctx.font = `500 ${Math.round(H * 0.05)}px ${tok('--mono')}`;
-    ctx.fillText(`right ${D.r.toFixed(3)}   left ${D.l.toFixed(3)}`, cx, cy + H * 0.02);
-    const bw = W * 0.4, bh = 6 * d, bx = cx - bw / 2, by = cy + H * 0.12;
-    ctx.fillStyle = tok('--arena-major'); ctx.fillRect(bx, by, bw, bh);
-    ctx.fillStyle = tok('--target'); ctx.fillRect(bx, by, bw * clamp(D.t / DRIFT_SECONDS, 0, 1), bh);
+    ctx.fillText(String(Math.ceil(sc.countLeft)), cx, cy - H * 0.22);
+  } else if (sc.overlay) {
+    sc.overlay(ctx, W, H, d);
   }
+}
+
+// Stick check overlay: hands-off readout, then the edge roll and trigger parts.
+function drawDrift(ctx, D, W, H, d) {
+  const cx = W / 2, cy = H / 2;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = tok('--arena'); ctx.globalAlpha = 0.6; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
+  if (D.part !== 'rest') { drawStickPart(ctx, D, W, H, d); return; }
+  ctx.fillStyle = D.warn > 0 ? tok('--target') : tok('--arena-ink');
+  ctx.font = `600 ${Math.round(H * 0.07)}px ${tok('--display')}`;
+  ctx.fillText(D.warn > 0 ? 'Stick moved. Starting over.' : 'Hands off the sticks', cx, cy - H * 0.12);
+  ctx.fillStyle = tok('--arena-ink');
+  ctx.font = `500 ${Math.round(H * 0.05)}px ${tok('--mono')}`;
+  ctx.fillText(`right ${D.r.toFixed(3)}   left ${D.l.toFixed(3)}`, cx, cy + H * 0.02);
+  const bw = W * 0.4, bh = 6 * d, bx = cx - bw / 2, by = cy + H * 0.12;
+  ctx.fillStyle = tok('--arena-major'); ctx.fillRect(bx, by, bw, bh);
+  ctx.fillStyle = tok('--target'); ctx.fillRect(bx, by, bw * clamp(D.t / DRIFT_SECONDS, 0, 1), bh);
 }
 
 // Edge roll: lit wedges show the directions already pushed to the edge. Squeeze: trigger travel bars.
@@ -1158,6 +1188,173 @@ function drawSticks() {
   one(W * 0.73, inp.rx, inp.ry, 'RIGHT · deadzone ' + dz.toFixed(2), inp.src === 'pad' ? dz : 0);
 }
 
+/* ---------- warm-up challenge ---------- */
+
+let chal = null; // { st, rec, code, kind, phase, countLeft, acc, flash, pop, src }
+const CH_KIND = { daily: 'Daily challenge', practice: 'Practice', code: 'Shared challenge' };
+
+function startChallenge(code, kind) {
+  readSetup();
+  syncSetup();
+  session = null;
+  chal = { st: createChallenge(code, cfg.game, settingsOf(cfg)), rec: newRecording(), code, kind, phase: 'intro',
+    countLeft: 0, acc: 0, flash: null, pop: null, src: inp.src, settings: settingsOf(cfg), game: cfg.game };
+  view.yaw = 0; view.pitch = 0;
+  show('test');
+}
+
+function chalTick(dt, edge) {
+  const c = chal;
+  if (c.phase === 'intro') { if (edge.fire) { c.phase = 'count'; c.countLeft = 3; renderChalBrief(true); } return; }
+  if (c.phase === 'count') {
+    c.countLeft -= dt;
+    if (c.countLeft <= 0) { c.phase = 'run'; renderChalBrief(true); }
+    return;
+  }
+  if (c.flash) c.flash.t -= dt;
+  if (c.pop) c.pop.t -= dt;
+  // Fixed ticks: the same rounded input the replay will use.
+  c.acc += dt;
+  while (c.acc >= DT && !c.st.done) {
+    const rx = quantize(inp.rx), ry = quantize(inp.ry), fire = !!inp.fire;
+    record(c.rec, rx, ry, fire);
+    chStep(c.st, rx, ry, fire);
+    c.acc -= DT;
+  }
+  for (const ev of c.st.events) {
+    if (ev.type === 'hit') { c.flash = { yaw: ev.yaw, pitch: ev.pitch, t: 0.3, good: true }; c.pop = { text: '+' + Math.round(ev.pts), t: 0.7 }; }
+    if (ev.type === 'miss') { c.flash = { yaw: ev.yaw, pitch: ev.pitch, t: 0.2, good: false }; c.pop = { text: '−25', t: 0.5 }; }
+  }
+  c.st.events.length = 0;
+  if (c.st.done) endChallenge();
+}
+
+function chalScene() {
+  const c = chal, it = c.st.item;
+  return {
+    view: c.st.view, zoom: 1, phase: c.phase === 'run' ? 'run' : c.phase, countLeft: c.countLeft, figure: true,
+    flick: it.kind !== 'track' ? { cur: it.T, flash: c.flash } : null,
+    track: it.kind === 'track' ? it.TR : null,
+    overlay: c.pop && c.pop.t > 0 ? (ctx, W, H) => {
+      ctx.globalAlpha = clamp(c.pop.t / 0.3, 0, 1);
+      ctx.fillStyle = c.pop.text.startsWith('+') ? tok('--good') : tok('--target');
+      ctx.font = `600 ${Math.round(H * 0.06)}px ${tok('--mono')}`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(c.pop.text, W / 2, H / 2 - H * 0.12 - (0.7 - c.pop.t) * H * 0.08);
+      ctx.globalAlpha = 1;
+    } : null
+  };
+}
+
+let chalBriefKey = '';
+function renderChalBrief(force) {
+  const c = chal, key = c.phase + inp.src;
+  if (key === chalBriefKey && !force) return;
+  chalBriefKey = key;
+  $('#brief-title').textContent = c.kind === 'daily' ? `Daily challenge · ${c.code.slice(2)}` : c.kind === 'practice' ? 'Practice challenge' : `Challenge ${c.code}`;
+  $('#brief-text').textContent = c.phase === 'intro'
+    ? '60 seconds. Hit each target fast for more points, and keep a streak going for a bonus. Missed shots cost points. Stay on the moving targets, no need to fire at those.'
+    : c.phase === 'count' ? 'Get ready.' : 'Go.';
+  const act = $('#brief-actions');
+  act.textContent = '';
+  if (c.phase === 'intro') {
+    act.append(button('Start', 'primary', () => { c.phase = 'count'; c.countLeft = 3; renderChalBrief(true); }));
+    act.append(button('Back', '', leaveChallenge));
+    if (inp.src === 'pad') act.append(hint('or press A / ✕'));
+  } else {
+    act.append(button('Stop', 'small', leaveChallenge));
+  }
+}
+
+function leaveChallenge() { chal = null; show('setup'); }
+
+/* personal bests, kept in this browser only */
+const BEST_KEY = 'dialed-in:bests';
+function loadBests() {
+  try { return JSON.parse(localStorage.getItem(BEST_KEY)) || {}; } catch (e) { return {}; }
+}
+function saveBest(code, kind, score) {
+  const b = loadBests();
+  const prev = kind === 'practice' ? b.practice : (b.codes || {})[code];
+  const isBest = prev == null || score > prev;
+  if (isBest) {
+    if (kind === 'practice') b.practice = score;
+    else { b.codes = b.codes || {}; b.codes[code] = score; }
+    try { localStorage.setItem(BEST_KEY, JSON.stringify(b)); } catch (e) { /* storage blocked: best just isn't kept */ }
+  }
+  return { isBest, prev };
+}
+function renderWarmBests() {
+  const b = loadBests(), today = dailyCode();
+  const rows = [['Today', (b.codes || {})[today]], ['Practice best', b.practice]].filter(r => r[1] != null);
+  const dl = $('#warm-best');
+  dl.textContent = '';
+  for (const [k, v] of rows) {
+    const dt = document.createElement('dt'); dt.textContent = k;
+    const dd = document.createElement('dd'); dd.textContent = v.toLocaleString('en-US');
+    dl.append(dt, dd);
+  }
+}
+
+function endChallenge() {
+  const c = chal;
+  const sum = chSummary(c.st);
+  c.result = { sum, best: saveBest(c.code, c.kind, sum.score), replay: encodeReplay(c.rec) };
+  show('chend');
+}
+
+const shareLink = code => /\.github\.io$/.test(location.hostname) ? `${location.origin}${location.pathname}#${code}` : null;
+
+function renderChalEnd() {
+  const c = chal, { sum, best } = c.result, g = GAMES[c.game];
+  const what = c.kind === 'daily' ? `the Dialed In daily challenge (${c.code.slice(2)})` : `Dialed In challenge ${c.code}`;
+  const link = shareLink(c.code);
+  const shareText = `I scored ${sum.score.toLocaleString('en-US')} on ${what} with ${pct(sum.accuracy)} accuracy. Code: ${c.code}${link ? ' ' + link : ''}`;
+  const stat = (k, v) => `<div><span>${k}</span><b>${v}</b></div>`;
+  $('#p-chend').innerHTML = `
+    <div style="display:grid;gap:6px">
+      <p class="eyebrow">${CH_KIND[c.kind]} · ${c.code} · ${gameTitle(g)}${c.src === 'pad' ? '' : ' · on-screen stick'}</p>
+      <div class="score-hero"><b>${sum.score.toLocaleString('en-US')}</b><span>points</span>${best.isBest && best.prev != null ? '<span class="pb">New personal best</span>' : ''}</div>
+      <p class="lede">${best.prev == null ? 'Your first score on this ' + (c.kind === 'practice' ? 'practice board.' : 'challenge.')
+        : best.isBest ? `Up from ${best.prev.toLocaleString('en-US')}.` : `Your best here is ${best.prev.toLocaleString('en-US')}.`}</p>
+    </div>
+    <div class="ch-stats">
+      ${stat('Accuracy', pct(sum.accuracy))}
+      ${stat('Hits', sum.hits)}
+      ${stat('Time per hit', sum.avgTime == null ? '–' : sum.avgTime.toFixed(2) + ' s')}
+      ${stat('Best streak', sum.bestStreak)}
+      ${stat('On moving targets', sum.tracking == null ? '–' : pct(sum.tracking))}
+    </div>
+    <div class="share">
+      <p>Share the code and anyone can play the exact same targets: <code>${c.code}</code></p>
+      <pre id="copytext" hidden></pre>
+    </div>
+    <div class="actions">
+      <button class="btn primary" id="ch-again" type="button">${c.kind === 'practice' ? 'New practice run' : 'Try again'}</button>
+      <button class="btn" id="ch-share" type="button">Copy result</button>
+      <button class="btn" id="ch-back" type="button">Back to setup</button>
+    </div>
+    <p class="fine">Scores are kept in this browser for now. Leaderboards are next, and every run is recorded so its score can be checked when they open.</p>`;
+  $('#ch-again').addEventListener('click', () => startChallenge(c.kind === 'practice' ? practiceCode() : c.code, c.kind));
+  $('#ch-share').addEventListener('click', e => copyText(shareText, e.currentTarget));
+  $('#ch-back').addEventListener('click', leaveChallenge);
+}
+
+function startCodeFromInput() {
+  const code = $('#ch-code').value.trim().toLowerCase();
+  if (!isCode(code)) { $('#ch-note').textContent = 'That code doesn\'t look right. Codes look like d-2026-10-21 or p-k3x9q2.'; return; }
+  startChallenge(code, code === dailyCode() ? 'daily' : 'code');
+}
+$('#ch-daily').addEventListener('click', () => startChallenge(dailyCode(), 'daily'));
+$('#ch-practice').addEventListener('click', () => startChallenge(practiceCode(), 'practice'));
+$('#ch-code-go').addEventListener('click', startCodeFromInput);
+$('#ch-code').addEventListener('keydown', e => { if (e.key === 'Enter') startCodeFromInput(); });
+{
+  // A shared link (#d-2026-10-21) fills in its code.
+  const h = location.hash.slice(1).toLowerCase();
+  if (isCode(h)) { $('#ch-code').value = h; $('#ch-note').textContent = `Shared challenge ${h} is ready. Press Play code.`; }
+}
+
 let lastStatus = '';
 function updateStatus() {
   const f = n => (n >= 0 ? ' ' : '') + n.toFixed(2);
@@ -1179,11 +1376,16 @@ function updateStatus() {
         ? 'Controller connected. The dashed ring shows the deadzone the range is using.'
         : 'Plug in or pair a PlayStation or Xbox controller, then press any button. Chrome and Edge work best.';
     $('#vpad-panel').hidden = inp.src === 'pad';
-    if (screen === 'test') renderBrief(true);
+    if (screen === 'test') { if (chal) renderChalBrief(true); else renderBrief(true); }
   }
   let l = '', r = '';
   const s = seg();
-  if (screen === 'test' && session.phase === 'run') {
+  if (chal && screen === 'test' && chal.phase === 'run') {
+    const st = chal.st;
+    l = `${Math.round(st.score).toLocaleString('en-US')} pts`;
+    r = `${Math.max(0, (TICKS - st.tick) * DT).toFixed(1)} s${st.streak > 1 ? ' · streak ' + st.streak : ''}`;
+  }
+  if (screen === 'test' && session && session.phase === 'run') {
     if (s.kind === 'flick') {
       l = `Target ${Math.min(s.data.list.length + 1, s.n)} / ${s.n}`;
       r = `${s.data.list.filter(x => x.hit).length} hits${s.counter ? ' · ' + s.counter : ''}`;
@@ -1203,7 +1405,8 @@ function frame(ts) {
   inp = poll();
   const edge = {};
   for (const k of ['fire', 'dl', 'du', 'dr']) { edge[k] = inp[k] && !prev[k]; prev[k] = inp[k]; }
-  if (screen === 'test' && session) tick(dt, edge);
+  if (screen === 'test' && chal) chalTick(dt, edge);
+  else if (screen === 'test' && session) tick(dt, edge);
   updateStatus();
   drawSticks();
   drawArena();

@@ -159,7 +159,7 @@ export function trackStep(TR, view, vy, dt, rng = Math.random) {
   const prevV = g.v;
   g.v += (g.goal - g.v) * Math.min(1, dt * 4);
   g.yaw += g.v * dt;
-  g.pitch = 3 * TR.scale * Math.sin(TR.t * 1.3);
+  g.pitch = (TR.pitch0 ?? 0) + 3 * TR.scale * Math.sin(TR.t * 1.3);
   const ey = view.yaw - g.yaw, ep = view.pitch - g.pitch, e = Math.hypot(ey, ep);
   g.on = e <= TR.r;
   if (TR.t <= TR.warm) return;

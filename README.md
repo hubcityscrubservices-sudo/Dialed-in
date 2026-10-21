@@ -4,6 +4,27 @@ Controller aim tuning in the browser. A player answers a few questions, runs sho
 a PlayStation or Xbox controller, and gets suggested sensitivity, deadzone and response-curve
 settings for their game, each with the measurements behind it.
 
+## Warm-up challenge
+
+60 seconds of flicks (about 2 in 5 above or below), 4-second tracking bursts and turn-arounds, at
+the player's own settings from the setup form. Scoring (`src/challenge.js`):
+
+- a hit scores `30 × ID × speed × streak`, where ID is the Fitts index of difficulty
+  (`log2(D/W + 1)`), speed runs from ×0.5 to ×2 against an expected time for that difficulty, and
+  each consecutive hit adds +10% up to +100%
+- time on a moving target scores 60 points per second
+- a missed shot costs 25 points and ends the streak; a target left for 3 s ends the streak
+
+Codes pick the targets: `d-YYYY-MM-DD` is the daily challenge (same for everyone that day, UTC),
+`p-xxxxxx` is a random practice run, and any code can be shared and typed in, or opened as a
+`#code` link once the site is on GitHub Pages. Personal bests are kept in the browser.
+
+The challenge runs in fixed 1/60 s ticks with stick input rounded to 1/1000 and all randomness from
+the code, and every run is recorded (about 15 KB). Replaying the recording reproduces the score
+exactly, and edited input or settings do not, so a server can check leaderboard entries.
+
+Simulated players over 10 daily codes: casual about 2,500, decent about 9,300, sharp about 15,100.
+
 ## Modes
 
 | Mode | Time | What it does |
@@ -141,6 +162,7 @@ Open `dist/index.html` in Chrome or Edge with a controller connected. No server 
 - `src/analysis.js`: throughput, summaries, recommendations (pure)
 - `src/verify.js`: blind test plan and bootstrap comparison (pure)
 - `src/deep.js`: Deep mode search, curve fit and read-out (pure)
+- `src/challenge.js`: warm-up challenge engine, scoring, seeds and replays (pure)
 - `src/export.js`: test data export
 - `src/hardware.js`: stick check measurements and the settings they suggest (pure)
 - `src/main.js`: UI, input polling, drawing, session flow
@@ -158,4 +180,6 @@ Open `dist/index.html` in Chrome or Edge with a controller connected. No server 
 7. ~~ADS / zoom test~~
 8. ~~Turn-around drill for look boost and ramp-up~~
 9. ~~Deep mode, multi-factor screening~~ (curve and vertical speed)
-10. Tune thresholds from real runs (Copy test data)
+10. ~~Warm-up challenge with seeded codes and replays~~
+11. Leaderboards on Supabase (replay-verified)
+12. Tune thresholds from real runs (Copy test data)
