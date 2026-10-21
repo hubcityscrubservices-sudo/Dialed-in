@@ -1,0 +1,108 @@
+<title>Dialed In</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/*CSS*/
+</style>
+
+<div class="shell">
+  <header class="top">
+    <div class="brand">
+      <h1>Dialed<span>In</span></h1>
+      <p>Controller aim tuning, measured</p>
+    </div>
+    <div class="pill" id="pill"><i></i><b id="pill-text">No controller. Press any button to connect.</b></div>
+  </header>
+
+  <ol class="steps" id="steps"></ol>
+
+  <div class="bench">
+    <div class="main-col">
+      <section class="panel" id="p-setup">
+        <div style="display:grid;gap:6px">
+          <h2>Where are you starting from?</h2>
+          <p class="lede">A few quick answers, then short tests in an aim range that copies how your game turns the camera.</p>
+        </div>
+        <div class="field">
+          <label for="game">Game</label>
+          <select id="game">
+            <option value="arc">ARC Raiders</option>
+            <option value="cod">Call of Duty</option>
+            <option value="fortnite">Fortnite</option>
+            <option value="apex">Apex Legends</option>
+            <option value="other">Another game</option>
+          </select>
+          <small id="game-note"></small>
+        </div>
+        <fieldset>
+          <legend>How you play</legend>
+          <div class="styles">
+            <label class="style-opt"><input type="radio" name="style" id="style-tracking" value="tracking"><b>Close range</b><span>Strafing fights, staying on target</span></label>
+            <label class="style-opt"><input type="radio" name="style" id="style-balanced" value="balanced" checked><b>Balanced</b><span>A bit of everything</span></label>
+            <label class="style-opt"><input type="radio" name="style" id="style-flick" value="flick"><b>Long range</b><span>Snapping to heads, sniping</span></label>
+          </div>
+        </fieldset>
+        <div class="field">
+          <label for="sens"><span id="sens-label">Horizontal stick sensitivity</span>, current value</label>
+          <input id="sens" type="number" inputmode="numeric" value="6" min="1" max="20" step="1">
+          <small id="sens-range"></small>
+        </div>
+        <fieldset>
+          <legend>How thorough</legend>
+          <div class="styles">
+            <label class="style-opt"><input type="radio" name="mode" id="mode-quick" value="quick"><b>Quick</b><span>Suggested settings with the reasons behind them</span><em>About 2 min</em></label>
+            <label class="style-opt"><input type="radio" name="mode" id="mode-verify" value="verify" checked><b>Verify</b><span>Suggestions, then a blind test of your old settings against the new ones</span><em>About 4 min</em></label>
+            <label class="style-opt off" title="Coming in the next build"><input type="radio" name="mode" id="mode-deep" value="deep" disabled><b>Deep</b><span>Changes settings between rounds to find which ones matter for you</span><em>Next build</em></label>
+          </div>
+        </fieldset>
+        <div class="actions">
+          <button class="btn primary" id="go" type="button">Start calibration</button>
+          <span class="hint" id="go-hint"></span>
+        </div>
+      </section>
+
+      <section id="p-test" hidden>
+        <div class="panel brief">
+          <div>
+            <h2 id="brief-title"></h2>
+            <p class="lede" id="brief-text"></p>
+          </div>
+          <div class="actions" id="brief-actions"></div>
+        </div>
+        <div class="arena-wrap">
+          <canvas id="arena" aria-label="Aim range"></canvas>
+          <div class="hud"><span id="hud-l"></span><span id="hud-r"></span></div>
+        </div>
+      </section>
+
+      <section class="panel" id="p-results" hidden></section>
+    </div>
+
+    <aside class="side">
+      <section class="panel">
+        <h2>Live input</h2>
+        <canvas id="sticks" aria-label="Stick positions"></canvas>
+        <dl class="readout">
+          <dt>Right stick</dt><dd id="ro-r">0.00, 0.00</dd>
+          <dt>Left stick</dt><dd id="ro-l">0.00, 0.00</dd>
+          <dt>Fire</dt><dd id="ro-f">released</dd>
+        </dl>
+        <p class="note" id="pad-note">Plug in or pair a PlayStation or Xbox controller, then press any button. Chrome and Edge work best.</p>
+      </section>
+      <section class="panel" id="vpad-panel">
+        <h2>On-screen stick</h2>
+        <div class="vpad">
+          <div class="vstick" id="vstick" role="application" aria-label="Drag to aim"><div class="vknob" id="vknob"></div></div>
+          <button class="vfire" id="vfire" type="button">FIRE</button>
+        </div>
+        <p class="note">No controller? Drag the stick to aim, or use the arrow keys. Fire with the button or Space. Good for trying the flow. Real results need a controller.</p>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script>
+/*JS*/
+</script>

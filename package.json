@@ -1,0 +1,15 @@
+{
+  "name": "dialed-in",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Controller aim tuning: short aim tests that recommend sensitivity, deadzone and curve settings per game.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test test/*.test.js",
+    "check": "npm test && npm run build"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.0"
+  }
+}
