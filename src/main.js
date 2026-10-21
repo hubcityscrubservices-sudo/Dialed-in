@@ -6,8 +6,10 @@ import { DEEP, SCREEN, deepNext, deepAnalyze, shuffled, screenPlan, altCurve, sc
 import { emptyReach, recordReach, coverage, stickReport, outerFromReach, hardwareRecs } from './hardware.js';
 import { clamp, pct } from './util.js';
 import { buildExport } from './export.js';
-import { DT, TICKS, dailyCode, practiceCode, isCode, quantize, createChallenge, step as chStep, summary as chSummary,
+import { DT, dailyCode, practiceCode, isCode, quantize, createChallenge, step as chStep, summary as chSummary,
   newRecording, record, encodeReplay } from './challenge.js';
+import { reportCard } from './report.js';
+import { DUEL, duelPlan, duelCompare } from './duel.js';
 
 const $ = s => document.querySelector(s);
 const QUICK = { flicks: 12, trackSeconds: 15 };
@@ -484,7 +486,7 @@ function show(name) {
   if (name === 'setup') renderWarmBests();
   if (name === 'test') { if (chal) renderChalBrief(true); else renderBrief(true); }
   if (name === 'results') renderResults();
-  if (name === 'chend') renderChalEnd();
+  if (name === 'chend') { if (chal && chal.duel) renderDuelEnd(); else renderChalEnd(); }
   if (changed) window.scrollTo({ top: 0 });
 }
 
@@ -736,6 +738,10 @@ function renderResults() {
   const deepHtml = result.deep ? deepBlock(result.deep, g, c) : '';
   const hw = hardwareRecs(result.drift, g);
   let verifyHtml;
+  const ds = duelSettings(c, r);
+  const duelHtml = result.duel && result.duel.cmp
+    ? `<div class="offer"><p>Settings duel: ${{ better: 'the new settings won', worse: 'your old settings won', close: 'too close to call' }[result.duel.cmp.verdict]} (${signed(result.duel.scoreDelta)} on the same targets).</p><button class="btn" id="duel" type="button">Duel again</button></div>`
+    : ds.differs ? `<div class="offer"><p>Settings duel: your old settings against these on identical challenge targets. ${DUEL.runs} runs of ${DUEL.seconds} seconds, about 2½ minutes.</p><button class="btn" id="duel" type="button">Start settings duel</button></div>` : '';
   if (v) verifyHtml = verifyBlock(v);
   else if (settingsChanged(c, r)) verifyHtml = `<div class="offer"><p>Not sure about these? Run a blind test of your old hip-fire settings against the new ones. About 2 minutes.</p><button class="btn primary" id="verify" type="button">Verify these settings</button></div>`;
   else verifyHtml = `<div class="offer"><p>Your current settings already fit, so there is nothing to verify.</p></div>`;
@@ -766,6 +772,7 @@ function renderResults() {
     </div>
     ${deepHtml}
     ${verifyHtml}
+    ${duelHtml}
     <div style="display:grid;gap:10px">
       <h3 style="font-size:16px">What the tests measured</h3>
       <div class="table-wrap"><table>
@@ -781,6 +788,8 @@ function renderResults() {
     <pre id="copytext" hidden></pre>
     <p class="fine">Prototype. Turn speeds come from a simplified model of each game, so treat these numbers as a close starting point rather than an exact match.${sourceNote} Flick throughput combines speed and accuracy into one score (higher is better). Copy test data puts every measurement from this run on your clipboard, to paste back for tuning.</p>`;
 
+  const du = $('#duel');
+  if (du) du.addEventListener('click', startDuel);
   const vb = $('#verify');
   if (vb) vb.addEventListener('click', () => start(verifySegments(c, r), result.drift));
   wireChart();
@@ -1193,12 +1202,13 @@ function drawSticks() {
 let chal = null; // { st, rec, code, kind, phase, countLeft, acc, flash, pop, src }
 const CH_KIND = { daily: 'Daily challenge', practice: 'Practice', code: 'Shared challenge' };
 
-function startChallenge(code, kind) {
-  readSetup();
-  syncSetup();
+// opts: { settings, seconds, duel } for duel runs; otherwise the run uses the setup form.
+function startChallenge(code, kind, opts = {}) {
+  if (!opts.settings) { readSetup(); syncSetup(); }
   session = null;
-  chal = { st: createChallenge(code, cfg.game, settingsOf(cfg)), rec: newRecording(), code, kind, phase: 'intro',
-    countLeft: 0, acc: 0, flash: null, pop: null, src: inp.src, settings: settingsOf(cfg), game: cfg.game };
+  const settings = opts.settings || settingsOf(cfg), game = opts.game || cfg.game;
+  chal = { st: createChallenge(code, game, settings, { seconds: opts.seconds }), rec: newRecording(), code, kind, phase: 'intro',
+    countLeft: 0, acc: 0, flash: null, pop: null, src: inp.src, settings, game, duel: opts.duel || null };
   view.yaw = 0; view.pitch = 0;
   show('test');
 }
@@ -1206,6 +1216,7 @@ function startChallenge(code, kind) {
 function chalTick(dt, edge) {
   const c = chal;
   if (c.phase === 'intro') { if (edge.fire) { c.phase = 'count'; c.countLeft = 3; renderChalBrief(true); } return; }
+  if (c.phase === 'rate') { const r = RATINGS.find(x => edge[x.key]); if (r) duelRate(r.v); return; }
   if (c.phase === 'count') {
     c.countLeft -= dt;
     if (c.countLeft <= 0) { c.phase = 'run'; renderChalBrief(true); }
@@ -1251,12 +1262,28 @@ function renderChalBrief(force) {
   const c = chal, key = c.phase + inp.src;
   if (key === chalBriefKey && !force) return;
   chalBriefKey = key;
-  $('#brief-title').textContent = c.kind === 'daily' ? `Daily challenge · ${c.code.slice(2)}` : c.kind === 'practice' ? 'Practice challenge' : `Challenge ${c.code}`;
-  $('#brief-text').textContent = c.phase === 'intro'
-    ? '60 seconds. Hit each target fast for more points, and keep a streak going for a bonus. Missed shots cost points. Stay on the moving targets, no need to fire at those.'
-    : c.phase === 'count' ? 'Get ready.' : 'Go.';
+  const di = c.duel ? c.duel.i : 0;
+  $('#brief-title').textContent = c.duel ? (c.phase === 'rate' ? `How did run ${di + 1} feel?` : `Settings duel · run ${di + 1} of ${DUEL.runs}`)
+    : c.kind === 'daily' ? `Daily challenge · ${c.code.slice(2)}` : c.kind === 'practice' ? 'Practice challenge' : `Challenge ${c.code}`;
+  $('#brief-text').textContent = c.phase === 'rate' ? 'Go with your gut. You can skip this.'
+    : c.phase !== 'intro' ? (c.phase === 'count' ? 'Get ready.' : 'Go.')
+    : !c.duel ? '60 seconds. Hit each target fast for more points, and keep a streak going for a bonus. Missed shots cost points. Stay on the moving targets, no need to fire at those.'
+    : di === 0 ? `${DUEL.runs} challenge runs of ${DUEL.seconds} seconds. Two use your old settings and two use the suggested ones, in a hidden order, and each pair plays the same targets.`
+    : `Run ${di + 1} of ${DUEL.runs}. Same drill. The settings may have changed.`;
   const act = $('#brief-actions');
   act.textContent = '';
+  if (c.phase === 'rate') {
+    const row = document.createElement('div');
+    row.className = 'rate';
+    for (const r of RATINGS) {
+      const b = button(r.label, '', () => duelRate(r.v));
+      if (inp.src === 'pad') { const small = document.createElement('small'); small.textContent = 'D-pad ' + r.glyph; b.append(small); }
+      row.append(b);
+    }
+    row.append(button('Skip', 'small', () => duelRate(null)));
+    act.append(row);
+    return;
+  }
   if (c.phase === 'intro') {
     act.append(button('Start', 'primary', () => { c.phase = 'count'; c.countLeft = 3; renderChalBrief(true); }));
     act.append(button('Back', '', leaveChallenge));
@@ -1266,7 +1293,65 @@ function renderChalBrief(force) {
   }
 }
 
-function leaveChallenge() { chal = null; show('setup'); }
+function leaveChallenge() { chal = null; show(result ? 'results' : 'setup'); }
+
+/* settings duel */
+
+// A = the player's current settings, B = the suggested ones, including the turn drill's boost advice.
+function duelSettings(c, r) {
+  const A = settingsOf(c);
+  const B = { ...settingsOf(r),
+    boost: r.turn && r.turn.boost != null ? r.turn.boost : c.boost,
+    boostRamp: r.turn && r.turn.ramp != null ? r.turn.ramp : c.boostRamp };
+  return { A, B, differs: JSON.stringify(A) !== JSON.stringify(B) };
+}
+
+function startDuel() {
+  const { A, B } = duelSettings(result.cfg, result.rec);
+  const duel = { plan: duelPlan(), i: 0, runs: [], A, B, game: result.cfg.game, style: result.cfg.style };
+  startDuelRun(duel);
+}
+function startDuelRun(duel) {
+  const run = duel.plan[duel.i];
+  startChallenge(run.code, 'duel', { settings: run.key === 'A' ? duel.A : duel.B, game: duel.game, seconds: DUEL.seconds, duel });
+}
+function duelRate(v) {
+  const duel = chal.duel;
+  duel.runs[duel.runs.length - 1].rating = v;
+  duel.i++;
+  if (duel.i < DUEL.runs) return startDuelRun(duel);
+  duel.result = duelCompare(duel.runs, PLAYSTYLES[duel.style]);
+  if (result) result.duel = duel.result;
+  show('chend');
+}
+
+function renderDuelEnd() {
+  const duel = chal.duel, { cmp, pairs, scoreDelta } = duel.result;
+  const feel = k => ratingSummary(duel.runs.filter(r => r.key === k && r.rating != null).map(r => r.rating));
+  const head = !cmp ? 'Not enough targets to compare'
+    : { better: 'The new settings won', worse: 'Your old settings won', close: 'Too close to call' }[cmp.verdict];
+  const body = !cmp ? 'Some runs ended with too few targets to score. Try the duel again.'
+    : cmp.verdict === 'close'
+      ? `On the same targets the new settings scored ${signed(scoreDelta)} overall. Four short runs can only pick out a clear difference, about 15% or more, so either works. Go with whichever felt better.`
+      : `On the same targets the new settings scored ${signed(scoreDelta)} overall, ${pct(cmp.verdict === 'better' ? cmp.overall.p : 1 - cmp.overall.p)} likely a real difference. ${cmp.verdict === 'better' ? 'Go with the new settings.' : 'Keep your old settings.'}`;
+  $('#p-chend').innerHTML = `
+    <div class="verdict ${cmp ? cmp.verdict : ''}">
+      <div style="display:grid;gap:4px"><p class="eyebrow">Settings duel · ${DUEL.runs} runs of ${DUEL.seconds} s</p><h3>${head}</h3><p>${body}</p></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Targets</th><th>Old settings</th><th>New settings</th></tr></thead>
+        <tbody>${pairs.map((p, i) => `<tr><td>Set ${i + 1} <span class="hint">${p.code}</span></td><td class="num">${p.a.toLocaleString('en-US')}</td><td class="num">${p.b.toLocaleString('en-US')}</td></tr>`).join('')}
+          <tr><td>How it felt</td><td>${feelLabel(feel('A'))}</td><td>${feelLabel(feel('B'))}</td></tr></tbody>
+      </table></div>
+    </div>
+    <div class="actions">
+      ${result ? '<button class="btn primary" id="duel-back" type="button">Back to your settings</button>' : ''}
+      <button class="btn" id="ch-back" type="button">Back to setup</button>
+    </div>
+    <p class="fine">The verdict uses the same rule as Verify: speed and accuracy on every target, resampled by run, with a winner only at 90% odds and a 15% difference.</p>`;
+  const db = $('#duel-back');
+  if (db) db.addEventListener('click', () => { chal = null; show('results'); });
+  $('#ch-back').addEventListener('click', () => { chal = null; result = null; show('setup'); });
+}
 
 /* personal bests, kept in this browser only */
 const BEST_KEY = 'dialed-in:bests';
@@ -1299,6 +1384,13 @@ function renderWarmBests() {
 function endChallenge() {
   const c = chal;
   const sum = chSummary(c.st);
+  if (c.duel) {
+    const run = c.duel.plan[c.duel.i];
+    c.duel.runs.push({ ...run, score: sum.score, log: c.st.log, rating: null });
+    c.phase = 'rate';
+    renderChalBrief(true);
+    return;
+  }
   c.result = { sum, best: saveBest(c.code, c.kind, sum.score), replay: encodeReplay(c.rec) };
   show('chend');
 }
@@ -1325,6 +1417,7 @@ function renderChalEnd() {
       ${stat('Best streak', sum.bestStreak)}
       ${stat('On moving targets', sum.tracking == null ? '–' : pct(sum.tracking))}
     </div>
+    ${reportHtml(reportCard(c.st.log, { game: c.game, style: cfg.style }))}
     <div class="share">
       <p>Share the code and anyone can play the exact same targets: <code>${c.code}</code></p>
       <pre id="copytext" hidden></pre>
@@ -1338,6 +1431,27 @@ function renderChalEnd() {
   $('#ch-again').addEventListener('click', () => startChallenge(c.kind === 'practice' ? practiceCode() : c.code, c.kind));
   $('#ch-share').addEventListener('click', e => copyText(shareText, e.currentTarget));
   $('#ch-back').addEventListener('click', leaveChallenge);
+}
+
+function reportHtml({ rows, hints }) {
+  const rate = v => v == null ? '–' : pct(v);
+  const pace = v => v == null ? '–' : v <= 1 ? 'On pace' : `${pct(v - 1)} slow`;
+  const row = (label, r, extra) => r.n ? `<tr><td>${label}</td><td class="num">${r.n}</td><td class="num">${Math.round(r.pts).toLocaleString('en-US')}</td><td class="num">${extra}</td></tr>` : '';
+  return `<div style="display:grid;gap:10px">
+    <h3 style="font-size:16px">Report card</h3>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Targets</th><th>Count</th><th>Points</th><th>Hit rate · pace</th></tr></thead>
+      <tbody>
+        ${row('Sideways flicks', rows.side, `${rate(rows.side.hitRate)} · ${pace(rows.side.pace)}`)}
+        ${row('Up-and-down flicks', rows.vert, `${rate(rows.vert.hitRate)} · ${pace(rows.vert.pace)}`)}
+        ${row('Turn-arounds', rows.turn, `${rate(rows.turn.hitRate)} · ${pace(rows.turn.pace)}`)}
+        ${row('Moving targets', rows.track, `${rate(rows.track.on)} on target`)}
+      </tbody>
+    </table></div>
+    ${hints.length
+      ? `<ul class="hints">${hints.map(h => `<li>${h.text}</li>`).join('')}</ul><p class="fine">One run is noisy. If a hint shows up run after run, a full calibration will confirm it.</p>`
+      : '<p class="fine">No settings hints from this run. Only big gaps show up after a single run.</p>'}
+  </div>`;
 }
 
 function startCodeFromInput() {
@@ -1383,7 +1497,7 @@ function updateStatus() {
   if (chal && screen === 'test' && chal.phase === 'run') {
     const st = chal.st;
     l = `${Math.round(st.score).toLocaleString('en-US')} pts`;
-    r = `${Math.max(0, (TICKS - st.tick) * DT).toFixed(1)} s${st.streak > 1 ? ' · streak ' + st.streak : ''}`;
+    r = `${Math.max(0, (st.ticks - st.tick) * DT).toFixed(1)} s${st.streak > 1 ? ' · streak ' + st.streak : ''}${chal.duel ? ' · run ' + (chal.duel.i + 1) + ' of ' + DUEL.runs : ''}`;
   }
   if (screen === 'test' && session && session.phase === 'run') {
     if (s.kind === 'flick') {

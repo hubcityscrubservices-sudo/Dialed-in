@@ -35,9 +35,12 @@ export const quantize = v => clamp(Math.round(v * 1000), -1000, 1000);
 
 /* ---------- engine ---------- */
 
-export function createChallenge(code, gameId, settings) {
+// opts.seconds shortens the run (the settings duel uses 30 s runs). st.log keeps every finished
+// target with its points, for the report card.
+export function createChallenge(code, gameId, settings, opts = {}) {
   const st = {
     code, gameId, settings: { ...settings }, rng: mulberry32(hashSeed(code)),
+    ticks: Math.round((opts.seconds || CH.seconds) * CH.hz), log: [],
     tick: 0, view: makeView(), item: null, items: 0, prevFire: false, done: false,
     score: 0, streak: 0, bestStreak: 0, hits: 0, shots: 0, timeouts: 0, hitTime: 0,
     trackOn: 0, trackT: 0, events: []
@@ -52,14 +55,14 @@ function nextItem(st) {
   st.items++;
   const r = st.rng();
   const kind = st.items <= 2 ? 'flick' : r < 0.12 ? 'track' : r < 0.24 ? 'turn' : 'flick';
-  if (kind === 'flick') st.item = { kind, T: newFlickTarget(st.view, st.rng, st.rng() < 0.4) };
-  else if (kind === 'turn') st.item = { kind, T: newTurnTarget(st.view, st.rng, st.rng() < 0.5 ? 1 : -1) };
+  if (kind === 'flick') st.item = { kind, pts: 0, T: newFlickTarget(st.view, st.rng, st.rng() < 0.4) };
+  else if (kind === 'turn') st.item = { kind, pts: 0, T: newTurnTarget(st.view, st.rng, st.rng() < 0.5 ? 1 : -1) };
   else {
     const TR = makeTrack(0);
     TR.tgt.yaw = st.view.yaw + (st.rng() < 0.5 ? -6 : 6);
     TR.pitch0 = clamp(st.view.pitch, -20, 20);
     TR.tgt.pitch = TR.pitch0;
-    st.item = { kind, TR };
+    st.item = { kind, pts: 0, TR };
   }
 }
 
@@ -83,31 +86,37 @@ export function step(st, rx, ry, fire) {
   if (it.kind === 'track') {
     trackStep(it.TR, st.view, s.vy, DT, st.rng);
     st.trackT += DT;
-    if (it.TR.tgt.on) { st.trackOn += DT; st.score += CH.trackPerSecond * DT; }
-    if (it.TR.t >= CH.trackSeconds - 1e-9) { st.events.push({ type: 'trackEnd' }); nextItem(st); }
+    if (it.TR.tgt.on) { st.trackOn += DT; st.score += CH.trackPerSecond * DT; it.pts += CH.trackPerSecond * DT; }
+    if (it.TR.t >= CH.trackSeconds - 1e-9) { st.log.push(it); st.events.push({ type: 'trackEnd' }); nextItem(st); }
   } else {
     const T = it.T;
     if (it.kind === 'turn') turnStep(T, st.view, s.mag, DT);
     const out = flickStep(T, st.view, s.mag, fireEdge, DT);
     if (out === 'miss') {
       st.shots++; st.streak = 0;
-      st.score = Math.max(0, st.score - CH.missPenalty);
+      // The score never goes below zero; the target is charged only what was actually taken off.
+      const lost = Math.min(CH.missPenalty, st.score);
+      st.score -= lost;
+      it.pts -= lost;
       st.events.push({ type: 'miss', yaw: st.view.yaw, pitch: st.view.pitch });
     } else if (out === 'hit') {
       st.shots++; st.hits++; st.streak++; st.bestStreak = Math.max(st.bestStreak, st.streak);
       st.hitTime += T.t;
       const pts = hitPoints(T, st.streak);
       st.score += pts;
+      it.pts += pts;
+      st.log.push(it);
       st.events.push({ type: 'hit', pts, yaw: T.yaw, pitch: T.pitch });
       nextItem(st);
     } else if (T.t >= CH.flickTimeout - 1e-9 || out === 'timeout') {
       st.timeouts++; st.streak = 0;
+      st.log.push(it);
       st.events.push({ type: 'timeout' });
       nextItem(st);
     }
   }
   st.tick++;
-  if (st.tick >= TICKS) st.done = true;
+  if (st.tick >= st.ticks) st.done = true;
 }
 
 export function summary(st) {
@@ -151,8 +160,8 @@ export function decodeReplay(r) {
 }
 
 // Re-runs a recorded challenge from scratch: what a server does before accepting a score.
-export function replay(code, gameId, settings, rec) {
-  const st = createChallenge(code, gameId, settings);
+export function replay(code, gameId, settings, rec, opts = {}) {
+  const st = createChallenge(code, gameId, settings, opts);
   for (let i = 0; i < rec.n && !st.done; i++) step(st, rec.rx[i], rec.ry[i], (rec.fire[i >> 3] >> (i & 7)) & 1 ? true : false);
   return summary(st);
 }

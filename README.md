@@ -25,6 +25,21 @@ exactly, and edited input or settings do not, so a server can check leaderboard 
 
 Simulated players over 10 daily codes: casual about 2,500, decent about 9,300, sharp about 15,100.
 
+## Report card and settings duel
+
+After every challenge run, the end screen splits the score by kind of target (sideways flicks,
+up-and-down flicks, turn-arounds, moving targets) with hit rate and pace against the expected time
+for each target's difficulty (`src/report.js`). Hints appear only for big gaps with enough targets:
+up-and-down targets 30% slower or 20 points less accurate than sideways ones (vertical sensitivity),
+the turn drill's rules on turn-arounds (look boost), trailing or leading moving targets more than 25%
+of the time, and the speed rule across flicks (sensitivity).
+
+The settings duel (`src/duel.js`) plays the challenge four times for 30 seconds: old settings against
+suggested ones, including the turn drill's boost advice, in a hidden ABBA or BAAB order. Runs 1–2
+share one code and runs 3–4 another, so each setting plays both target sets. The verdict uses the
+same blind-test rule as Verify; the results also show both scores on each target set and how each
+side felt. It starts from the calibration results page.
+
 ## Modes
 
 | Mode | Time | What it does |
@@ -163,6 +178,8 @@ Open `dist/index.html` in Chrome or Edge with a controller connected. No server 
 - `src/verify.js`: blind test plan and bootstrap comparison (pure)
 - `src/deep.js`: Deep mode search, curve fit and read-out (pure)
 - `src/challenge.js`: warm-up challenge engine, scoring, seeds and replays (pure)
+- `src/report.js`: challenge report card (pure)
+- `src/duel.js`: settings duel plan and comparison (pure)
 - `src/export.js`: test data export
 - `src/hardware.js`: stick check measurements and the settings they suggest (pure)
 - `src/main.js`: UI, input polling, drawing, session flow
@@ -181,5 +198,6 @@ Open `dist/index.html` in Chrome or Edge with a controller connected. No server 
 8. ~~Turn-around drill for look boost and ramp-up~~
 9. ~~Deep mode, multi-factor screening~~ (curve and vertical speed)
 10. ~~Warm-up challenge with seeded codes and replays~~
-11. Leaderboards on Supabase (replay-verified)
-12. Tune thresholds from real runs (Copy test data)
+11. ~~Report card and settings duel~~
+12. Leaderboards on Supabase (replay-verified)
+13. Tune thresholds from real runs (Copy test data)
