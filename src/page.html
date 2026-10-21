@@ -111,7 +111,8 @@
           <div class="field" id="dpi-field" hidden>
             <label for="dpi">Mouse DPI</label>
             <input id="dpi" type="number" inputmode="numeric" value="800" min="100" max="32000" step="1">
-            <small>From your mouse software. The mouse check measures it as well.</small>
+            <small id="dpi-help">From your mouse software. Not sure? Measure it with three swipes across a bank card, about 20 seconds.</small>
+            <button class="btn small" id="dpi-measure" type="button" style="justify-self:start">Measure my DPI</button>
           </div>
           <div class="field" id="cm0-field" hidden>
             <label for="cm0">cm per full turn, at that sensitivity</label>

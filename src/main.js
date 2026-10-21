@@ -68,7 +68,8 @@ const SWIPE_TEXT = {
   slow: 'Line the left edge of your mouse up with the left end of the card. Hold the left button, slide slowly until the mouse edge reaches the right end, then let go.',
   fast: 'Same again, but quick: one fast slide across the card, then let go.'
 };
-const checkStep = () => isMouse() ? MOUSE_CHECK : STICK_CHECK;
+// The mouse check is skipped when the DPI was already measured from setup this visit.
+const checkSteps = () => isMouse() ? (mouseCheck && mouseCheck.cpcm ? [] : [MOUSE_CHECK]) : [STICK_CHECK];
 // Words for the current device in test briefs.
 const aimWith = () => isMouse() ? 'with the mouse and click to fire' : 'with the right stick and fire with RT / R2';
 
@@ -80,7 +81,7 @@ const checkedOuter = () => outerFor(session.drift);
 function quickSegments() {
   const s = settingsOf(cfg);
   return [
-    checkStep(),
+    ...checkSteps(),
     { kind: 'flick', rail: 'flick', tag: 'quick', n: QUICK.flicks, warm: 0, settings: s, intro: true, title: 'Flick test',
       text: `Twelve targets appear one at a time, some above or below you. Snap to each ${aimWith()}. Go at the speed you would in a real fight.` },
     { kind: 'track', rail: 'track', tag: 'quick', dur: QUICK.trackSeconds, warm: 0, settings: s, intro: true, title: 'Tracking test',
@@ -153,7 +154,7 @@ function verifySegments(A, B) {
 
 function deepSegments() {
   return [
-    checkStep(),
+    ...checkSteps(),
     { kind: 'deepNext' }
   ];
 }
@@ -332,6 +333,7 @@ function enter() {
   if (s.kind === 'verdict') return verdict();
   if (s.kind === 'deepNext') return deepStep();
   if (s.kind === 'deepDone') return deepDone();
+  if (s.kind === 'dpiDone') return dpiDone();
   resetView();
   s.data = null;
   if (s.kind === 'rate') { session.phase = 'rate'; mouse.unlock(); } // the rating buttons need the cursor
@@ -497,6 +499,33 @@ function tickMouseCheck(s) {
   if (D.swipes.length >= SWIPES.length) finishMouseCheck(D);
   else renderBrief();
 }
+// "Measure my DPI" in setup: just the card swipes, then back to the form with the result filled in.
+$('#dpi-measure').addEventListener('click', () => {
+  readSetup();
+  start([{ ...MOUSE_CHECK, title: 'Measure your DPI', text: 'Three swipes across a bank card, about 20 seconds. Have a card (or anything 8.56 cm long) on your mouse pad, then press Start.' }, { kind: 'dpiDone' }], null);
+});
+function dpiDone() {
+  const m = session.mouse;
+  session = null;
+  let note;
+  if (!m || !m.cpcm) note = 'Not measured, the swipes were skipped. Enter the DPI from your mouse software, or try again.';
+  else {
+    const r = resolveDpi(cfg.dpi, m.cpcm, window.devicePixelRatio || 1);
+    const seen = Math.round(r.dpiSeen);
+    if (r.verdict === 'match') note = `Measured about ${seen}, which matches ${cfg.dpi}. Calibration will use this measurement and skip the mouse check.`;
+    else if (r.verdict === 'scaled') note = `Measured about ${seen}: your browser shrinks movement by the display scale, and ${cfg.dpi} accounts for that. Calibration will skip the mouse check.`;
+    else {
+      // Mice step DPI in 50s or 100s; card swipes are good to a few percent, so round to the nearest 50.
+      cfg.dpi = Math.max(100, Math.round(seen / 50) * 50);
+      note = `Measured about ${seen}, so this is now ${cfg.dpi}. If your mouse software says otherwise, check which DPI stage is active, or measure again.`;
+    }
+  }
+  show('setup');
+  syncSetup();
+  $('#dpi-help').textContent = note;
+  $('#dpi').scrollIntoView({ block: 'center' });
+}
+
 function finishMouseCheck(D) {
   const sw = D.swipes.length >= SWIPES.length ? analyzeSwipes(D.swipes, mouse.raw) : null;
   mouseCheck = { cpcm: sw && sw.cpcm, accel: sw && sw.accel, spread: sw && sw.spread, raw: mouse.raw, hz: pollingHz(D.gaps) };
@@ -549,7 +578,9 @@ function show(name) {
 
 function railKeys() {
   const deep = !!((session && session.deep) || (result && result.deep) || (!session && !result && cfg.mode === 'deep'));
-  const keys = deep ? ['setup', 'drift', 'deep', 'screen', 'turn', 'ads'] : ['setup', 'drift', 'flick', 'track', 'turn', 'ads'];
+  let keys = deep ? ['setup', 'drift', 'deep', 'screen', 'turn', 'ads'] : ['setup', 'drift', 'flick', 'track', 'turn', 'ads'];
+  // Mouse sessions have no screening, turn drill or ADS rounds, and skip the check once DPI is measured.
+  if (isMouse()) keys = keys.filter(k => !['screen', 'turn', 'ads'].includes(k) && (k !== 'drift' || !(mouseCheck && mouseCheck.cpcm) || (session && session.segs.some(x => x.kind === 'mcheck'))));
   const verifying = (cfg.mode === 'verify' && !deep) || (result && result.verify) || (session && session.segs.some(s => s.rail === 'verify'));
   if (verifying) keys.push('verify');
   keys.push('results');
@@ -567,7 +598,7 @@ function renderRail() {
     if (i === idx) li.className = 'now';
     const n = document.createElement('span');
     n.className = 'n'; n.textContent = String(i + 1).padStart(2, '0');
-    li.append(n, RAIL[k]);
+    li.append(n, k === 'drift' && isMouse() ? 'Mouse' : RAIL[k]);
     ol.append(li);
   });
 }
@@ -975,6 +1006,7 @@ function syncSetup() {
   $('#mode-deep').parentElement.querySelector('span').textContent = mouseGame
     ? 'Hidden rounds at different sensitivities find your best speed, and how much it matters for you'
     : 'Hidden rounds find your best speed, then test curve and vertical speed blind to see which settings matter for you';
+  $('#dpi-measure').textContent = mouseCheck && mouseCheck.cpcm ? 'Measure again' : 'Measure my DPI';
   const dev = document.querySelector(`input[name="device"][value="${cfg.device}"]`);
   if (dev) dev.checked = true;
   const s = $('#sens');

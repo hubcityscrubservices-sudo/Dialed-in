@@ -155,7 +155,7 @@ p { margin: 0; }
 
 /* ---------- forms ---------- */
 #p-setup { display: grid; gap: 22px; }
-.field { display: grid; gap: 6px; min-width: 0; }
+.field { align-content: start; display: grid; gap: 6px; min-width: 0; }
 .field-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px; }
 .field > label, legend { font: 700 15px var(--display); text-transform: uppercase; letter-spacing: .08em; color: var(--ink); }
 .field small { color: var(--muted); font-size: 13px; }

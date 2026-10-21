@@ -71,7 +71,8 @@ of rates). The turn drill, ADS rounds and curve/vertical screening are controlle
   Overwatch 2 and Call of Duty (0.0066) use the published figures. ARC Raiders, Fortnite and "another game"
   take your cm per full turn at your current sensitivity (measure once in the game with a ruler, or take it
   from a sensitivity calculator) and scale from there.
-- **Mouse check.** Three swipes across a bank card (8.56 cm): the real DPI as the browser sees it (a wrong DPI
+- **Mouse check.** "Measure my DPI" under the DPI field runs it on its own and fills the field in; otherwise it
+  runs as the first calibration step. Three swipes across a bank card (8.56 cm): the real DPI as the browser sees it (a wrong DPI
   in setup, or the browser's display-scale shrink, is caught and corrected), pointer acceleration when raw
   input isn't available (a fast swipe travels further than slow ones), and the report rate from coalesced
   pointer events.
