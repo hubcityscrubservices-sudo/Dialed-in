@@ -60,6 +60,22 @@
         </div>
       </section>
 
+      <section class="plate board" id="p-leader" hidden>
+        <div class="leader-head">
+          <div style="display:grid;gap:4px">
+            <p class="eyebrow">Leaderboard</p>
+            <h2 id="leader-title">Today's daily range</h2>
+          </div>
+          <div class="board-tabs" role="tablist" aria-label="Which board">
+            <button type="button" role="tab" data-board="all" aria-selected="true">All inputs</button>
+            <button type="button" role="tab" data-board="pad" aria-selected="false">Controller</button>
+            <button type="button" role="tab" data-board="mouse" aria-selected="false">Mouse</button>
+          </div>
+        </div>
+        <div class="table-wrap board-table"><p class="fine">Loading the board…</p></div>
+        <p class="fine">Daily scores only. Play the daily range above and press Submit score on the results screen to get on it. Practice runs get a fresh code each time, so their boards are only shared by passing the code along.</p>
+      </section>
+
       <section class="plate" id="p-setup">
         <div style="display:grid;gap:6px">
           <p class="eyebrow">Basecamp · calibration</p>

@@ -569,7 +569,8 @@ function show(name) {
   // The step rail belongs to calibration; the warm-up challenge hides it.
   $('#steps').hidden = !!chal;
   if (!chal) renderRail();
-  if (name === 'setup') { renderWarmBests(); loadWarmTop(); }
+  if (name === 'setup') { renderWarmBests(); loadWarmTop(); showLeader(); }
+  else $('#p-leader').hidden = true;
   if (name === 'test') { if (chal) renderChalBrief(true); else renderBrief(true); }
   if (name === 'results') renderResults();
   if (name === 'chend') { if (chal && chal.duel) renderDuelEnd(); else renderChalEnd(); }
@@ -1776,7 +1777,7 @@ function renderChalEnd() {
         <button class="btn primary" id="board-submit" type="button">Submit score</button>
       </div>
       <p class="hint" id="board-status" role="status"></p>
-      <div class="table-wrap" id="board-table"><p class="fine">Loading the board…</p></div>
+      <div class="table-wrap board-table"><p class="fine">Loading the board…</p></div>
     </div>` : '<p class="fine">Scores are kept in this browser for now. Every run is recorded so its score can be checked once leaderboards open.</p>'}`;
   $('#ch-again').addEventListener('click', () => startChallenge(c.kind === 'practice' ? practiceCode() : c.code, c.kind));
   if (boardsOn()) wireBoard(c, sum);
@@ -1833,14 +1834,14 @@ function reportHtml({ rows, hints }) {
 const BOARD_BLOCKED = 'Couldn\'t reach the leaderboard. The claude.ai preview blocks outside connections, so use the website version for leaderboards.';
 
 const INPUT_LABEL = { pad: 'Controller', mouse: 'Mouse', virtual: 'On-screen stick' };
-let boardReq = 0;
-// input: one input type, or 'all' (the combined board, with an Input column).
-async function loadBoard(code, input) {
-  const box = $('#board-table'), req = ++boardReq;
-  document.querySelectorAll('.board-tabs [data-board]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.board === input)));
+// input: one input type, or 'all' (the combined board, with an Input column). root holds the
+// board's tabs and its .board-table: the end screen's board or the setup screen's leaderboard.
+async function loadBoard(code, input, root) {
+  const box = root.querySelector('.board-table'), req = root.boardReq = (root.boardReq || 0) + 1;
+  root.querySelectorAll('.board-tabs [data-board]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.board === input)));
   try {
     const rows = await fetchBoard(code, input);
-    if (!$('#board-table') || req !== boardReq) return;
+    if (!root.isConnected || req !== root.boardReq) return;
     const all = input === 'all';
     box.innerHTML = rows.length
       ? `<table><thead><tr><th>#</th><th>Name</th>${all ? '<th>Input</th>' : ''}<th>Score</th><th>Accuracy</th><th>Streak</th><th>Game</th></tr></thead><tbody>${rows.map((r, i) =>
@@ -1855,8 +1856,9 @@ function wireBoard(c, sum) {
   const nameEl = $('#board-name');
   nameEl.value = savedName();
   let shown = c.src;
-  loadBoard(c.code, shown);
-  document.querySelectorAll('.board-tabs [data-board]').forEach(b => b.addEventListener('click', () => { shown = b.dataset.board; loadBoard(c.code, shown); }));
+  const root = $('#board');
+  loadBoard(c.code, shown, root);
+  root.querySelectorAll('.board-tabs [data-board]').forEach(b => b.addEventListener('click', () => { shown = b.dataset.board; loadBoard(c.code, shown, root); }));
   $('#board-submit').addEventListener('click', async e => {
     const btn = e.currentTarget, status = $('#board-status');
     const name = nameEl.value.trim().replace(/\s+/g, ' ');
@@ -1872,13 +1874,24 @@ function wireBoard(c, sum) {
         ? `Verified and saved. You're ${where}.`
         : `Verified. Your best here is still ${res.best.toLocaleString('en-US')}: ${where}.`;
       btn.textContent = 'Submitted';
-      loadBoard(c.code, shown);
+      loadBoard(c.code, shown, root);
     } catch (err) {
       status.textContent = BOARD_BLOCKED;
       btn.disabled = false;
     }
   });
 }
+
+// The setup screen's leaderboard: today's daily range, on the tab last picked.
+let leaderTab = 'all';
+function showLeader() {
+  const root = $('#p-leader');
+  root.hidden = !boardsOn();
+  if (root.hidden) return;
+  $('#leader-title').textContent = `Today's daily range · ${dailyCode().slice(2)}`;
+  loadBoard(dailyCode(), leaderTab, root);
+}
+$('#p-leader').querySelectorAll('.board-tabs [data-board]').forEach(b => b.addEventListener('click', () => { leaderTab = b.dataset.board; showLeader(); }));
 
 // Today's top three on the warm-up panel.
 async function loadWarmTop() {
