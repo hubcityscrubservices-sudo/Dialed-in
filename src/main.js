@@ -10,6 +10,7 @@ import { DT, dailyCode, practiceCode, isCode, quantize, createChallenge, step as
   newRecording, record, encodeReplay } from './challenge.js';
 import { reportCard } from './report.js';
 import { DUEL, duelPlan, duelCompare } from './duel.js';
+import { boardsOn, submitScore, fetchBoard, playerId, savedName, saveName } from './leaderboard.js';
 
 const $ = s => document.querySelector(s);
 const QUICK = { flicks: 12, trackSeconds: 15 };
@@ -483,7 +484,7 @@ function show(name) {
   // The step rail belongs to calibration; the warm-up challenge hides it.
   $('#steps').hidden = !!chal;
   if (!chal) renderRail();
-  if (name === 'setup') renderWarmBests();
+  if (name === 'setup') { renderWarmBests(); loadWarmTop(); }
   if (name === 'test') { if (chal) renderChalBrief(true); else renderBrief(true); }
   if (name === 'results') renderResults();
   if (name === 'chend') { if (chal && chal.duel) renderDuelEnd(); else renderChalEnd(); }
@@ -1427,8 +1428,19 @@ function renderChalEnd() {
       <button class="btn" id="ch-share" type="button">Copy result</button>
       <button class="btn" id="ch-back" type="button">Back to setup</button>
     </div>
-    <p class="fine">Scores are kept in this browser for now. Leaderboards are next, and every run is recorded so its score can be checked when they open.</p>`;
+    ${boardsOn() ? `<div class="board" id="board">
+      <div style="display:grid;gap:4px"><h3 style="font-size:16px">Leaderboard · ${c.code}</h3>
+        <p class="fine">${c.src === 'pad' ? 'Controller' : 'On-screen stick'} board. Your run is replayed on the server before it counts.</p></div>
+      <div class="actions">
+        <label for="board-name" class="sr-only">Name on the leaderboard</label>
+        <input id="board-name" type="text" maxlength="20" autocomplete="nickname" placeholder="Your name" value="">
+        <button class="btn primary" id="board-submit" type="button">Submit score</button>
+      </div>
+      <p class="hint" id="board-status" role="status"></p>
+      <div class="table-wrap" id="board-table"><p class="fine">Loading the board…</p></div>
+    </div>` : '<p class="fine">Scores are kept in this browser for now. Every run is recorded so its score can be checked once leaderboards open.</p>'}`;
   $('#ch-again').addEventListener('click', () => startChallenge(c.kind === 'practice' ? practiceCode() : c.code, c.kind));
+  if (boardsOn()) wireBoard(c, sum);
   $('#ch-share').addEventListener('click', e => copyText(shareText, e.currentTarget));
   $('#ch-back').addEventListener('click', leaveChallenge);
 }
@@ -1453,6 +1465,60 @@ function reportHtml({ rows, hints }) {
       : '<p class="fine">No settings hints from this run. Only big gaps show up after a single run.</p>'}
   </div>`;
 }
+
+const BOARD_BLOCKED = 'Couldn\'t reach the leaderboard. The claude.ai preview blocks outside connections, so use the website version for leaderboards.';
+
+async function loadBoard(code, input) {
+  const box = $('#board-table');
+  try {
+    const rows = await fetchBoard(code, input);
+    if (!$('#board-table')) return;
+    box.innerHTML = rows.length
+      ? `<table><thead><tr><th>#</th><th>Name</th><th>Score</th><th>Accuracy</th><th>Streak</th><th>Game</th></tr></thead><tbody>${rows.map((r, i) =>
+        `<tr><td class="num">${i + 1}</td><td>${esc(r.name)}</td><td class="num">${r.score.toLocaleString('en-US')}</td><td class="num">${r.accuracy == null ? '–' : pct(r.accuracy)}</td><td class="num">${r.best_streak ?? '–'}</td><td>${esc(GAMES[r.game] ? gameTitle(GAMES[r.game]) : r.game)}</td></tr>`).join('')}</tbody></table>`
+      : '<p class="fine">No scores yet. Be the first.</p>';
+  } catch (e) {
+    box.innerHTML = `<p class="fine">${BOARD_BLOCKED}</p>`;
+  }
+}
+
+function wireBoard(c, sum) {
+  const nameEl = $('#board-name');
+  nameEl.value = savedName();
+  loadBoard(c.code, c.src);
+  $('#board-submit').addEventListener('click', async e => {
+    const btn = e.currentTarget, status = $('#board-status');
+    const name = nameEl.value.trim().replace(/\s+/g, ' ');
+    if (!/^[A-Za-z0-9 _.\-]{2,20}$/.test(name)) { status.textContent = 'Names are 2 to 20 letters, numbers, spaces, dots, dashes or underscores.'; return; }
+    saveName(name);
+    btn.disabled = true; status.textContent = 'Checking your run…';
+    try {
+      const res = await submitScore({ code: c.code, game: c.game, input: c.src, playerId: playerId(), name,
+        settings: c.settings, score: sum.score, replay: c.result.replay });
+      if (!res.ok) { status.textContent = res.error || 'The score was not saved.'; btn.disabled = false; return; }
+      status.textContent = res.saved
+        ? `Verified and saved. You're #${res.rank} of ${res.total}.`
+        : `Verified. Your best here is still ${res.best.toLocaleString('en-US')}, #${res.rank} of ${res.total}.`;
+      btn.textContent = 'Submitted';
+      loadBoard(c.code, c.src);
+    } catch (err) {
+      status.textContent = BOARD_BLOCKED;
+      btn.disabled = false;
+    }
+  });
+}
+
+// Today's top three on the warm-up panel.
+async function loadWarmTop() {
+  const el = $('#warm-top');
+  if (!boardsOn() || !el) return;
+  try {
+    const rows = await fetchBoard(dailyCode(), 'pad', 3);
+    el.textContent = rows.length ? `Today's top: ${rows.map((r, i) => `${i + 1}. ${r.name} ${r.score.toLocaleString('en-US')}`).join('   ')}` : 'No scores on today\'s board yet.';
+  } catch (e) { el.textContent = ''; }
+}
+
+const esc = t => String(t).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 
 function startCodeFromInput() {
   const code = $('#ch-code').value.trim().toLowerCase();
@@ -1526,6 +1592,9 @@ function frame(ts) {
   drawArena();
   requestAnimationFrame(frame);
 }
+
+// Read-only hook for automated browser tests (page opened with ?debug); not used by the app.
+if (new URLSearchParams(location.search).has('debug')) window.dialedInDebug = { chal: () => chal };
 
 syncSetup();
 show('setup');

@@ -154,6 +154,35 @@ rule, 80% odds with no minimum, called a winner in about 45% of no-difference ru
 target and tracking second, ratings, settings used, results) as JSON, for tuning thresholds
 against real play. Built by `src/export.js`.
 
+## Leaderboards
+
+- `supabase/migrations/20261021000000_scores.sql`: one `scores` row per player, code and input type
+  (controller or on-screen stick), holding their best verified run. Row-level security lets anyone
+  read the board columns; recordings, settings and player ids are not readable, and there are no
+  write policies.
+- `supabase/functions/submit-score`: checks the code (no future dailies), name, settings (within the
+  game's menu) and that the run is a full 60 seconds, replays the recording with the same engine the
+  browser used, and stores the replayed score only if it matches the claimed one. Keeps each
+  player's best and returns their rank.
+- `supabase/functions/_shared/engine/` is a copy of the engine made by `npm run sync:engine` (part of
+  `npm run build`); a test fails if it drifts from `src/`.
+- `src/config.js` holds the project URL and public key; empty means leaderboards are off. The
+  claude.ai preview blocks outside connections, so boards only work on the website build.
+
+Replays stop edited scores, not aim bots that play a real run; stored recordings let the top of a
+board be reviewed.
+
+### Deploy (once, from a clone of this repo)
+
+```sh
+supabase login
+supabase link --project-ref <project-ref>        # the id in the project URL
+supabase db push                                 # creates the scores table
+supabase functions deploy submit-score --no-verify-jwt
+```
+
+Then put the project URL and public (anon or publishable) key in `src/config.js` and push.
+
 ## Hosting
 
 `.github/workflows/pages.yml` tests, builds and publishes `dist/index.html` to GitHub Pages on
@@ -180,6 +209,8 @@ Open `dist/index.html` in Chrome or Edge with a controller connected. No server 
 - `src/challenge.js`: warm-up challenge engine, scoring, seeds and replays (pure)
 - `src/report.js`: challenge report card (pure)
 - `src/duel.js`: settings duel plan and comparison (pure)
+- `src/leaderboard.js`, `src/config.js`: leaderboard client and project settings
+- `supabase/`: scores table, submit-score function, shared submission logic
 - `src/export.js`: test data export
 - `src/hardware.js`: stick check measurements and the settings they suggest (pure)
 - `src/main.js`: UI, input polling, drawing, session flow
@@ -199,5 +230,5 @@ Open `dist/index.html` in Chrome or Edge with a controller connected. No server 
 9. ~~Deep mode, multi-factor screening~~ (curve and vertical speed)
 10. ~~Warm-up challenge with seeded codes and replays~~
 11. ~~Report card and settings duel~~
-12. Leaderboards on Supabase (replay-verified)
+12. ~~Leaderboards on Supabase (replay-verified)~~ (needs deploy + keys)
 13. Tune thresholds from real runs (Copy test data)

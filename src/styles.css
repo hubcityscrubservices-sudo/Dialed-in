@@ -182,6 +182,11 @@ pre#copytext { font: 13px/1.5 var(--mono); background: var(--bg); border: 1px so
 .hints { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 14px; }
 .hints li::marker { color: var(--accent); }
 
+.board { display: grid; gap: 12px; }
+.board input { font: 500 16px var(--body); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; min-height: 52px; width: 22ch; max-width: 100%; }
+.board input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.btn:disabled { opacity: .6; cursor: default; }
+
 /* rating */
 .rate { display: flex; gap: 8px; flex-wrap: wrap; }
 .rate .btn { min-width: 96px; }

@@ -1,0 +1,6 @@
+# Minimal Supabase project config for the leaderboard.
+project_id = "dialed-in"
+
+[functions.submit-score]
+# Browsers call this with the public key, not a signed-in session.
+verify_jwt = false

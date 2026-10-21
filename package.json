@@ -5,9 +5,10 @@
   "description": "Controller aim tuning: short aim tests that recommend sensitivity, deadzone and curve settings per game.",
   "type": "module",
   "scripts": {
-    "build": "node scripts/build.mjs",
+    "build": "node scripts/sync-engine.mjs && node scripts/build.mjs",
     "test": "node --test test/*.test.js",
-    "check": "npm test && npm run build"
+    "check": "npm test && npm run build",
+    "sync:engine": "node scripts/sync-engine.mjs"
   },
   "devDependencies": {
     "esbuild": "0.25.0"
