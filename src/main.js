@@ -1617,12 +1617,20 @@ window.addEventListener('blur', () => { Object.keys(keys).forEach(k => { keys[k]
 
 let css = null;
 const tok = n => css.getPropertyValue(n).trim();
+// Canvas pixels per CSS pixel: the screen's pixel ratio, capped so a canvas never holds more than
+// MAX_CANVAS_PX pixels. A big range on a high-resolution display otherwise redraws ~4 million pixels a
+// frame, which can push a graphics driver into resetting the whole browser window (a white flash).
+const MAX_CANVAS_PX = 2.2e6;
 function fit(c) {
-  const r = c.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+  const r = c.getBoundingClientRect();
+  let d = window.devicePixelRatio || 1;
+  if (r.width * r.height * d * d > MAX_CANVAS_PX) d = Math.sqrt(MAX_CANVAS_PX / (r.width * r.height));
   const w = Math.round(r.width * d), h = Math.round(r.height * d);
   if (w && h && (c.width !== w || c.height !== h)) { c.width = w; c.height = h; }
+  c.dataset.px = String(r.width ? w / r.width : 1);
   return w > 0 && h > 0;
 }
+const pxRatio = c => Number(c.dataset.px) || window.devicePixelRatio || 1;
 
 function drawArena() {
   const c = $('#arena');
@@ -1654,7 +1662,7 @@ const reducedMotion = () => !!(window.matchMedia && window.matchMedia('(prefers-
 // figure, overlay?, hud? }.
 function drawScene(c, sc) {
   const view = sc.view, P = sc.phase, now = performance.now(), calm = reducedMotion();
-  const ctx = c.getContext('2d'), W = c.width, H = c.height, d = window.devicePixelRatio || 1;
+  const ctx = c.getContext('2d'), W = c.width, H = c.height, d = pxRatio(c);
   const zoom = sc.zoom;
   const cam = makeCamera(view, W, H, sc.hfov, zoom);
   cam.d = d;
@@ -1884,7 +1892,7 @@ function drawStickPart(ctx, D, W, H, d) {
 function drawSticks() {
   const c = $('#sticks');
   if (!fit(c)) return;
-  const ctx = c.getContext('2d'), W = c.width, H = c.height, d = window.devicePixelRatio || 1;
+  const ctx = c.getContext('2d'), W = c.width, H = c.height, d = pxRatio(c);
   ctx.clearRect(0, 0, W, H);
   const R = Math.min(H * 0.38, W * 0.2);
   const one = (cx, x, y, label, dzRing) => {
