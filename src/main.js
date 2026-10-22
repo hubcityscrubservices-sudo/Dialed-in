@@ -14,7 +14,7 @@ import { makeWorld, paintSky, paintTerrain, paintCompass, paintDrone, paintOffsc
   noteFlash, paintFx, paintCrosshair, paintFigure, paintLens, paintCountdown } from './scenery.js';
 import { DUEL, duelPlan, duelCompare } from './duel.js';
 import { createMouse, CARD_CM, SWIPES, MIN_SWIPE, analyzeSwipes, resolveDpi, pollingHz, calibrationK, cm360 } from './mouse.js';
-import { boardsOn, submitScore, fetchBoard, fetchAllTime, playerId, savedName, saveName } from './leaderboard.js';
+import { boardsOn, submitScore, fetchBoard, fetchAllTime, addTurnSample, fetchTurnSamples, playerId, savedName, saveName } from './leaderboard.js';
 
 const $ = s => document.querySelector(s);
 const QUICK = { flicks: 12, trackSeconds: 15 };
@@ -1046,6 +1046,7 @@ function syncSetup() {
     old.replaceWith(dzEl);
     $('#dz-help').textContent = opts ? 'As set in your game.' : `0 to 30, as set in your game. Default is ${Math.round(g.dz.def * 100)}.`;
     $('#spin').value = cfg.spin || '';
+    loadPool(cfg.game);
     spinHelp();
   }
   const dev = document.querySelector(`input[name="device"][value="${cfg.device}"]`);
@@ -1152,7 +1153,7 @@ function readSetup() {
     cfg.dz = opts ? (Number.isFinite(dz) ? dz : g.dz.def) : clamp(Number.isFinite(dz) ? dz / 100 : g.dz.def, 0, 0.3);
     const spin = Number($('#spin').value);
     cfg.spin = Number.isFinite(spin) && spin > 0 ? spin : null;
-    cfg.kTurn = spinK(g, cfg.sens, cfg.spin);
+    cfg.kTurn = cfg.spin ? spinK(g, cfg.sens, cfg.spin) : (pooled[cfg.game] && pooled[cfg.game].k) || 1;
   }
   cfg.outer = 1;
 }
@@ -1165,6 +1166,31 @@ function spinK(g, sens, secs) {
   if (!secs) return 1;
   return +clamp(spinRate(secs) / g.sens.rate(sens), 0.25, 4).toFixed(4);
 }
+// Everyone's timings pooled per game: once POOL_MIN players have timed a game, the median of their
+// measured-to-estimated ratios replaces the built-in estimate for players who haven't timed it.
+const POOL_MIN = 3;
+const pooled = {}, poolAsked = new Set();
+function loadPool(id) {
+  const g = GAMES[id];
+  if (!boardsOn() || g.device === 'mouse' || poolAsked.has(id)) return;
+  poolAsked.add(id);
+  fetchTurnSamples(id).then(rows => {
+    const ks = rows.map(r => spinRate(r.seconds) / g.sens.rate(r.sens)).filter(k => k >= 0.25 && k <= 4).sort((a, b) => a - b);
+    if (ks.length < POOL_MIN) return;
+    const n = ks.length, mid = n % 2 ? ks[(n - 1) / 2] : (ks[n / 2 - 1] + ks[n / 2]) / 2;
+    pooled[id] = { k: +mid.toFixed(4), n };
+    if (cfg.game === id) { if (!cfg.spin) cfg.kTurn = pooled[id].k; spinHelp(); }
+  }).catch(() => { poolAsked.delete(id); });
+}
+// Sends this player's timing to the pool once per game, sensitivity and value.
+let poolSent = '';
+function sharePoolSample() {
+  const key = `${cfg.game}|${cfg.sens}|${cfg.spin}`;
+  if (!cfg.spin || !boardsOn() || game().device === 'mouse' || key === poolSent) return;
+  poolSent = key;
+  addTurnSample(cfg.game, cfg.sens, cfg.spin).catch(() => { poolSent = ''; });
+}
+
 // Games whose deadzone menu is a list rather than a number.
 const DZ_OPTIONS = { apex: [['None', 0.04], ['Small', 0.10], ['Large', 0.16]] };
 function spinHelp() {
@@ -1174,11 +1200,17 @@ function spinHelp() {
     ? `Set ${g.boost.setting.label} to 0 for now, so the turn speed stays steady.`
     : 'Turn off any turning boost or look acceleration for now, so the turn speed stays steady.';
   const secs = Number($('#spin').value), sens = Number($('#sens').value) || cfg.sens;
-  if (!(secs > 0)) { el.textContent = how; return; }
+  const pool = pooled[cfg.game];
+  if (!(secs > 0)) {
+    el.textContent = pool
+      ? `${pool.n} players have timed ${g.name}, so the range already turns at their measured speed: about ${Math.round(g.sens.rate(sens) * pool.k)}°/s at sensitivity ${sens}. Time it yourself to use your own.`
+      : how;
+    return;
+  }
   const k = spinRate(secs) / g.sens.rate(sens);
   el.textContent = k < 0.25 || k > 4
     ? `That's ${Math.round(spinRate(secs))}°/s, far from what sensitivity ${sens} should give. Check the count of spins and the sensitivity above.`
-    : `Your game turns about ${Math.round(spinRate(secs))}°/s at full stick. The built-in estimate was ${Math.round(g.sens.rate(sens))}°/s, so the range will use yours.`;
+    : `Your game turns about ${Math.round(spinRate(secs))}°/s at full stick. The ${pool ? `pooled estimate from ${pool.n} players` : 'built-in estimate'} was ${Math.round(g.sens.rate(sens) * (pool ? pool.k : 1))}°/s, so the range will use yours. Your timing is shared anonymously to improve the estimate for others.`;
 }
 $('#spin').addEventListener('input', spinHelp);
 $('#spin-how').addEventListener('click', e => {
@@ -1191,6 +1223,7 @@ $('#sens').addEventListener('input', spinHelp);
 
 $('#go').addEventListener('click', () => {
   readSetup();
+  sharePoolSample();
   result = null;
   syncSetup();
   if (cfg.mode === 'deep') start(deepSegments(), null, { order: shuffled(DEEP.initial), history: [], pending: null });
@@ -1582,7 +1615,7 @@ const CH_KIND = { daily: 'Daily challenge', practice: 'Practice', code: 'Shared 
 
 // opts: { settings, seconds, duel } for duel runs; otherwise the run uses the setup form.
 function startChallenge(code, kind, opts = {}) {
-  if (!opts.settings) { readSetup(); syncSetup(); }
+  if (!opts.settings) { readSetup(); syncSetup(); sharePoolSample(); }
   session = null;
   calibrate();
   let settings = opts.settings || settingsOf(cfg);

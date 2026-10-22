@@ -38,6 +38,21 @@ export async function fetchAllTime(input, limit = 10) {
   return res.json();
 }
 
+// Pooled turn-speed timings (seconds for 5 full spins at full stick, at a sensitivity).
+export async function addTurnSample(game, sens, seconds) {
+  const res = await fetch(`${SUPABASE.url}/rest/v1/rpc/add_turn_sample`, {
+    method: 'POST', headers: headers(true), body: JSON.stringify({ p_player: playerId(), p_game: game, p_sens: sens, p_seconds: seconds })
+  });
+  if (!res.ok) throw new Error(`Turn sample failed with ${res.status}`);
+}
+export async function fetchTurnSamples(game) {
+  const res = await fetch(`${SUPABASE.url}/rest/v1/rpc/turn_samples_for`, {
+    method: 'POST', headers: headers(true), body: JSON.stringify({ p_game: game })
+  });
+  if (!res.ok) throw new Error(`Turn samples failed with ${res.status}`);
+  return res.json();
+}
+
 // A random id kept in this browser so a player's runs replace their own best, not someone else's.
 const ID_KEY = 'dialed-in:player', NAME_KEY = 'dialed-in:name';
 let sessionId = null;

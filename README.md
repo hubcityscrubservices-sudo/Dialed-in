@@ -87,6 +87,10 @@ of rates). The turn drill, ADS rounds and curve/vertical screening are controlle
 - **Turn speed check** (optional): with turning boost off, time 5 full spins at full stick in your game.
   The range then turns at your measured speed rather than the built-in estimate (`kTurn`, a multiple of
   the profile's rate, carried in challenge settings and range-checked by the server).
+- **Pooled timings.** Each timing is shared anonymously (`supabase/migrations/20261024000000_turn_samples.sql`:
+  game, sensitivity, seconds; one row per player and game, written and read only through two
+  functions). Once 3 players have timed a game, the median of their measured-to-estimated ratios
+  replaces the built-in estimate for everyone who hasn't timed it themselves.
 - The challenge draws the camera between its 60 Hz steps, so turns don't stutter on displays that
   aren't exactly 60 Hz, and a quick tap of fire between steps still counts. Drawing only; replays are unchanged.
 - The third-person character is drawn see-through so it can't hide a target.
@@ -227,7 +231,7 @@ board be reviewed.
 ```sh
 supabase login
 supabase link --project-ref <project-ref>        # the id in the project URL
-supabase db push                                 # scores table, mouse runs, all-time board
+supabase db push                                 # scores, mouse runs, all-time board, turn timings
 supabase functions deploy submit-score --no-verify-jwt
 ```
 
