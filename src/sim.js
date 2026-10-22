@@ -5,6 +5,8 @@ export const CURVE_EXP = { linear: 1.0, mid: 1.8, expo: 2.5 };
 // Engine 2 softens the exponential slot: at 2.5, half a push gave only 15% of full speed, so small
 // corrections needed big pushes. No game publishes its exponent; 2.0 gives 22% at half a push.
 const CURVE_EXP2 = { ...CURVE_EXP, expo: 2.0 };
+// Limits on the curve feel check's reshaping (see shape).
+export const CURVE_K = { min: 0.6, max: 1.6 };
 export const PITCH_SCALE = 0.8; // vertical turn speed relative to horizontal
 export const FLICK_TIMEOUT = 4;
 const BOOST_DELAY = 0.15, BOOST_RAMP = 0.4;
@@ -14,12 +16,14 @@ export function makeView() {
 }
 
 // Radial deadzone, rescaled so full output arrives at `outer` push, then the response curve
-// (an exponent, or a function from 0..1 to 0..1).
-export function shape(x, y, dz, curve, outer = 1) {
+// (an exponent, or a function from 0..1 to 0..1). k reshapes the curve the player matched to their
+// game in the curve feel check: above 1 softer near center, below 1 quicker; full push stays full speed.
+export function shape(x, y, dz, curve, outer = 1, k = 1) {
   const m = Math.hypot(x, y);
   if (m <= dz) return [0, 0, 0];
   const s = Math.min(1, (m - dz) / (outer - dz));
-  const o = typeof curve === 'function' ? curve(s) : Math.pow(s, curve);
+  let o = typeof curve === 'function' ? curve(s) : Math.pow(s, curve);
+  if (k !== 1) o = Math.pow(o, k);
   return [x / m * o, y / m * o, o];
 }
 
@@ -46,7 +50,7 @@ export function steer(view, input, settings, game, dt, minDz = 0, aim = null) {
   const rate = game.sens.rate(settings.sens) * kt;
   const curve = (game.curve.fn && game.curve.fn[settings.curve]) || (e2 ? CURVE_EXP2 : CURVE_EXP)[settings.curve];
   const dz = Math.max(settings.dz, minDz), outer = settings.outer ?? 1;
-  const [sx, sy, mag] = shape(input.rx, input.ry, dz, curve, outer);
+  const [sx, sy, mag] = shape(input.rx, input.ry, dz, curve, outer, settings.curveK ?? 1);
   // How far the stick is pushed past the deadzone, before the curve: what the player's thumb did.
   const push = Math.min(1, Math.max(0, (Math.hypot(input.rx, input.ry) - dz) / (outer - dz)));
   let boost = 1, vboost = 1;

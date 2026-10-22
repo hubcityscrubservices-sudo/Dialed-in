@@ -214,6 +214,17 @@ known not to have the setting (`null` in its profile) gets no row.
 - Overshoot, stopping short, trailing/leading and extra corrections drive the direction of each
   suggestion (`src/analysis.js`).
 
+## Curve feel check
+
+No studio publishes its response curve math, so each curve in the range is a modeled guess. The
+optional curve feel check (setup, Fine-tune) plays three hidden versions of the player's own curve,
+6 flicks each in random order: softer near center (output^1.25), as modeled, and quicker
+(output^0.8), each relative to any earlier match. The player picks the one that felt like their game
+(or none) and can replay any of them first. The pick (`curveK`, 0.6–1.6) is saved per game and
+reshapes the curve everywhere the range plays, the daily challenge included (the leaderboard
+server accepts it in that range). Full push stays full speed. Like the turn speed check, it changes
+how faithful the range is, not what it recommends.
+
 ## Reaction time in the analysis
 
 A person reacts about 0.2 s late, so after every direction change even a perfect-speed player

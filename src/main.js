@@ -1,6 +1,6 @@
 import { GAMES, PLAYSTYLES, gameTitle, extraSetting, adsSpecs, fmtAds, codFromOld } from './games.js';
 import { makeCamera, hfov169 } from './camera.js';
-import { makeView, steer, newFlickTarget, flickStep, makeTrack, trackStep, newTurnTarget, turnStep, trackAim, TRACK_V2 } from './sim.js';
+import { makeView, steer, newFlickTarget, flickStep, makeTrack, trackStep, newTurnTarget, turnStep, trackAim, TRACK_V2, CURVE_K } from './sim.js';
 import { summarize, recommend, recommendVertical, recommendAds, turnStats, recommendTurn, driftDeadzone, settingsChanged } from './analysis.js';
 import { verifyPlan, verifyCompare, ratingSummary, sideOf } from './verify.js';
 import { DEEP, SCREEN, MORE, FEEL, deepNext, deepAnalyze, feelPoint, shuffled, morePlan, screenPlan, altCurve, screenAnalyze } from './deep.js';
@@ -34,7 +34,7 @@ const verticalSlot = i => i % 5 === 1 || i % 5 === 3;
 const VERIFY = { flicks: 7, warmFlicks: 1, trackSeconds: 9, warmSeconds: 1.5 };
 const DEEP_ROUND = { flicks: 8, warmFlicks: 1, trackSeconds: 8, warmSeconds: 1.5 };
 const DRIFT_SECONDS = 4, ROLL_SECONDS = 10, SQUEEZE_SECONDS = 8;
-const RAIL = { setup: 'Setup', drift: 'Sticks', flick: 'Flicks', track: 'Tracking', deep: 'Search', screen: 'Screen', turn: 'Turns', ads: 'ADS', verify: 'Verify', results: 'Results' };
+const RAIL = { curve: 'Curve feel', setup: 'Setup', drift: 'Sticks', flick: 'Flicks', track: 'Tracking', deep: 'Search', screen: 'Screen', turn: 'Turns', ads: 'ADS', verify: 'Verify', results: 'Results' };
 const ADS = { flicks: 8, seconds: 8, scopedFlicks: 6, scopedSeconds: 6 };
 const TURNS = 6;
 // How a round's speed felt, -2 (way too slow) to +2 (way too fast). Deep mode finds where the ratings
@@ -72,7 +72,8 @@ const seg = () => session && session.segs[session.i];
 // measured turn-speed factor (left out at 1).
 const turnK = () => {
   if (game().device === 'mouse') return { eng: 2 };
-  return { eng: 2, ...(cfg.aa ? { aa: cfg.aa } : {}), ...(cfg.kTurn && cfg.kTurn !== 1 ? { kTurn: cfg.kTurn } : {}) };
+  return { eng: 2, ...(cfg.aa ? { aa: cfg.aa } : {}), ...(cfg.kTurn && cfg.kTurn !== 1 ? { kTurn: cfg.kTurn } : {}),
+    ...(cfg.curveK && cfg.curveK !== 1 ? { curveK: cfg.curveK } : {}) };
 };
 const settingsOf = c => ({ sens: c.sens, vsens: c.vsens, vmult: c.vmult ?? 1, curve: c.curve, dz: c.dz, outer: c.outer ?? 1, boost: c.boost, boostRamp: c.boostRamp, boostDelay: c.boostDelay, ...turnK() });
 
@@ -259,6 +260,47 @@ function deepStep() {
   advance();
 }
 
+// Curve feel check: three hidden versions of the player's curve (softer, as now, quicker), a short
+// flick round with each in random order, then the player picks the one that felt like their game.
+// The pick reshapes the curve everywhere the range plays (sim.js shape, settings.curveK).
+const CURVE_STEPS = [1.25, 1, 0.8], CURVE_FLICKS = 6;
+const curveName = k => ['A', 'B', 'C'][k];
+function curveSeg(k) {
+  const v = session ? session.curveCheck.variants[k] : null;
+  return { kind: 'flick', rail: 'curve', n: CURVE_FLICKS, warm: 0, intro: true, counter: `Version ${curveName(k)}`, title: `Version ${curveName(k)}`,
+    text: `${CURVE_FLICKS} targets. Notice how small pushes and stopping on target feel, compared with your game.`, settings: v };
+}
+function curvePickSeg() {
+  return { kind: 'curvePick', rail: 'curve', counter: 'Pick one', title: 'Which one felt like your game?',
+    text: 'Go by how small pushes and stopping on target felt, not by how well you did. Play any of them again if you\'re not sure.' };
+}
+function startCurveCheck() {
+  readSetup();
+  const base = cfg.curveK || 1;
+  const order = shuffled([0, 1, 2]);
+  const variants = order.map(i => ({ ...settingsOf(cfg), curveK: +clamp(base * CURVE_STEPS[i], CURVE_K.min, CURVE_K.max).toFixed(2) }));
+  result = null;
+  session = { segs: [], i: 0, phase: 'intro', countLeft: 0, drift: null, deep: null, mouse: mouseCheck, curveCheck: { variants } };
+  session.segs = [0, 1, 2].map(k => curveSeg(k));
+  session.segs[0].text = `You'll play three versions of your ${GAMES[cfg.game].curve[cfg.curve]} curve, ${CURVE_FLICKS} targets each, in a hidden order. ` + session.segs[0].text;
+  session.segs.push(curvePickSeg());
+  calibrate();
+  enter();
+}
+function curveReplay(k) {
+  session.segs.splice(session.i + 1, 0, curveSeg(k), curvePickSeg());
+  advance();
+}
+function curvePicked(k) {
+  if (k != null) cfg.curveK = session.curveCheck.variants[k].curveK === 1 ? null : session.curveCheck.variants[k].curveK;
+  cfg.curveChecked = true;
+  saveSetup();
+  session = null;
+  mouse.unlock();
+  syncSetup();
+  show('setup');
+}
+
 // Picks a finished Deep search back up for MORE extra rounds, keeping every round and check so far.
 function deepMore() {
   const D = result.deepState;
@@ -428,7 +470,7 @@ function enter() {
   if (s.kind === 'dpiDone') return dpiDone();
   resetView();
   s.data = null;
-  if (s.kind === 'rate') { session.phase = 'rate'; mouse.unlock(); } // the rating buttons need the cursor
+  if (s.kind === 'rate' || s.kind === 'curvePick') { session.phase = s.kind === 'rate' ? 'rate' : 'pick'; mouse.unlock(); } // the buttons need the cursor
   else if (s.intro || s.kind === 'drift') session.phase = 'intro';
   else { session.phase = 'count'; session.countLeft = 2; }
   show('test');
@@ -528,6 +570,12 @@ function tick(dt, edge) {
   if (P === 'rate') {
     const r = RATINGS.find(x => edge[x.key]);
     if (r) rate(r.v);
+    return;
+  }
+  if (P === 'pick') {
+    const k = ['dl', 'du', 'dr'].findIndex(x => edge[x]);
+    if (k >= 0) curvePicked(k);
+    else if (edge.lb) curvePicked(null);
     return;
   }
   if (P === 'count') {
@@ -672,6 +720,7 @@ function show(name) {
 }
 
 function railKeys() {
+  if (session && session.curveCheck) return ['setup', 'curve'];
   const deep = !!((session && session.deep) || (result && result.deep) || (!session && !result && cfg.mode === 'deep'));
   let keys = deep ? ['setup', 'drift', 'deep', 'screen', 'turn', 'ads'] : ['setup', 'drift', 'flick', 'track', 'turn', 'ads'];
   // Mouse sessions have no screening, turn drill or ADS rounds, and skip the check once DPI is measured.
@@ -729,6 +778,21 @@ function renderBrief(force) {
     if (s.kind === 'mcheck') act.append(button('Skip, use the DPI I entered', '', () => advance()));
     if (isMouse() && !blocked) act.append(hint(mouse.locked ? 'Click to start. Esc lets the mouse go.' : 'The range captures your mouse. Esc lets it go.'));
     else if (!noPad && !blocked) act.append(hint('or press A / ✕'));
+  } else if (P === 'pick') {
+    const row = document.createElement('div');
+    row.className = 'rate';
+    ['A', 'B', 'C'].forEach((n, k) => {
+      const b = button(`${n} felt like my game`, '', () => curvePicked(k));
+      if (!noPad) { const small = document.createElement('small'); small.textContent = ['D-pad ←', 'D-pad ↑', 'D-pad →'][k]; b.append(small); }
+      row.append(b);
+    });
+    const none = button('None of them', 'small', () => curvePicked(null));
+    if (!noPad) { const small = document.createElement('small'); small.textContent = 'L1'; none.append(small); }
+    row.append(none);
+    const again = document.createElement('div');
+    again.className = 'rate';
+    ['A', 'B', 'C'].forEach((n, k) => again.append(button(`Play ${n} again`, 'small', () => curveReplay(k))));
+    act.append(row, again);
   } else if (P === 'rate') {
     const row = document.createElement('div');
     row.className = 'rate';
@@ -1130,6 +1194,7 @@ function setGame(id, useSaved = true) {
   cfg.curve = g.curve.def; cfg.dz = g.dz.def;
   cfg.spin = null; cfg.kTurn = 1; // a spin timing belongs to one game
   cfg.aa = 1;
+  cfg.curveK = null; cfg.curveChecked = false; // a curve match belongs to one game
   if (useSaved) applySaved(g, (loadSaved().games || {})[id]);
 }
 
@@ -1144,7 +1209,7 @@ function saveSetup() {
   s.last = { device: cfg.device, game: cfg.game, style: cfg.style, mode: cfg.mode, dpi: cfg.dpi, cm0: cfg.cm0 };
   s.games = s.games || {};
   s.games[cfg.game] = { sens: cfg.sens, vsens: cfg.vsens, fov: cfg.fov, curve: cfg.curve, dz: cfg.dz, aa: cfg.aa,
-    spin: cfg.spin, ads: cfg.ads, boost: cfg.boost, boostRamp: cfg.boostRamp, boostDelay: cfg.boostDelay, ...(cfg.game === 'cod' ? { scale: 2 } : {}) };
+    spin: cfg.spin, ads: cfg.ads, boost: cfg.boost, boostRamp: cfg.boostRamp, boostDelay: cfg.boostDelay, curveK: cfg.curveK, curveChecked: !!cfg.curveChecked, ...(cfg.game === 'cod' ? { scale: 2 } : {}) };
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(s)); } catch (e) { /* storage blocked: settings just aren't remembered */ }
 }
 // Saved values are only taken when they still fit the game's menu, so an old save can't break setup.
@@ -1165,6 +1230,8 @@ function applySaved(g, v) {
   if (bs && inRange(v.boost, bs)) cfg.boost = v.boost;
   if (bs && inRange(v.boostRamp, g.boost.rampSetting)) cfg.boostRamp = v.boostRamp;
   if (bs && g.boost.delaySetting && inRange(v.boostDelay, g.boost.delaySetting)) cfg.boostDelay = v.boostDelay;
+  if (g.device !== 'mouse' && inRange(v.curveK, CURVE_K)) cfg.curveK = v.curveK;
+  cfg.curveChecked = !!v.curveChecked;
 }
 function restoreSetup() {
   const last = loadSaved().last;
@@ -1193,7 +1260,11 @@ function syncSetup() {
     : 'Hidden rounds find your best speed, then test curve and vertical speed blind to see which settings matter for you';
   $('#dpi-measure').textContent = mouseCheck && mouseCheck.cpcm ? 'Measure again' : 'Measure my DPI';
   // Controller menu settings the range plays with: curve, deadzone, and the optional measured turn speed.
-  for (const id of ['#curve-field', '#aa-field', '#dz-field', '#spin-field']) $(id).hidden = mouseGame;
+  for (const id of ['#curve-field', '#aa-field', '#dz-field', '#spin-field', '#curvefeel-field']) $(id).hidden = mouseGame;
+  const ck = cfg.curveK || 1;
+  $('#curvefeel-status').textContent = ck === 1 ? (cfg.curveChecked ? 'Matched: the standard model' : 'Not checked')
+    : `Matched: ${ck > 1 ? 'softer' : 'quicker'} near center than the standard model (×${ck.toFixed(2)})`;
+  $('#curvefeel-reset').hidden = ck === 1;
   // Aim assist as the game's menu has it: on/off (ARC Raiders, Apex) or a strength.
   const aaSel = $('#aa'), opts = aaOptions(g);
   aaSel.textContent = '';
@@ -1415,6 +1486,8 @@ function spinHelp() {
     : `Your game turns about ${Math.round(spinRate(secs))}°/s at full stick. The ${pool ? `pooled estimate from ${pool.n} players` : 'built-in estimate'} was ${Math.round(g.sens.rate(sens) * (pool ? pool.k : 1))}°/s, so the range will use yours. Your timing is shared anonymously to improve the estimate for others.`;
 }
 $('#spin').addEventListener('input', spinHelp);
+$('#curvefeel-go').addEventListener('click', startCurveCheck);
+$('#curvefeel-reset').addEventListener('click', () => { cfg.curveK = null; cfg.curveChecked = false; saveSetup(); syncSetup(); });
 $('#spin-how').addEventListener('click', e => {
   const guide = $('#spin-guide'), open = guide.hidden;
   guide.hidden = !open;

@@ -180,3 +180,11 @@ test('cleanSettings accepts a turning ramp-up delay only for games that have one
   assert.equal(cleanSettings('arc', { sens: 80, vsens: 60, curve: 'expo', dz: 0.05, boost: 55, boostRamp: 1.6, boostDelay: 0.2 }), null);
   assert.equal(cleanSettings('fortnite-adv', { sens: 45, vsens: 40, curve: 'mid', dz: 0.1, boost: 20, boostRamp: 0.2 }).boost, 20);
 });
+
+test('cleanSettings accepts a matched curve shape within limits, controllers only', async () => {
+  const { cleanSettings } = await import('../supabase/functions/_shared/submit.js');
+  const s = { sens: 80, vsens: 60, curve: 'expo', dz: 0.05, boost: 55, boostRamp: 1.6 };
+  assert.equal(cleanSettings('arc', { ...s, curveK: 1.25 }).curveK, 1.25);
+  assert.equal(cleanSettings('arc', { ...s, curveK: 3 }), null);
+  assert.equal(cleanSettings('m-cs2', { sens: 1.25, dpc: 0.0275, curve: 'linear', dz: 0, curveK: 1.2 }), null);
+});

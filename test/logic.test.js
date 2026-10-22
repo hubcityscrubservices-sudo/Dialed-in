@@ -456,3 +456,12 @@ test('Call of Duty MW3 / MWII keeps the 1-20 scale and turns like the converted 
   assert.equal(gameTitle(mw), 'Call of Duty (MW3 / MWII)');
   assert.equal(gameTitle(bo), 'Call of Duty (Black Ops 6/7, Warzone)');
 });
+
+test('curve feel: k reshapes the curve, softer above 1 and quicker below, full push unchanged', () => {
+  const [, , mid] = shape(0.5, 0, 0, 2);
+  const [, , soft] = shape(0.5, 0, 0, 2, 1, 1.25);
+  const [, , quick] = shape(0.5, 0, 0, 2, 1, 0.8);
+  assert.ok(soft < mid && mid < quick);
+  assert.equal(shape(1, 0, 0, 2, 1, 1.25)[2], 1);
+  assert.deepEqual(shape(0.5, 0, 0, 2, 1, 1), shape(0.5, 0, 0, 2)); // k = 1 is exactly the old curve
+});

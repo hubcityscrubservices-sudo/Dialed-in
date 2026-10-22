@@ -2,6 +2,7 @@
 // The run is replayed from its recorded input; only the score the replay produces is stored.
 import { GAMES } from './engine/games.js';
 import { CH, isCode, decodeReplay, replay } from './engine/challenge.js';
+import { CURVE_K } from './engine/sim.js';
 
 export const LIMITS = { bodyBytes: 64 * 1024, ticks: CH.seconds * CH.hz };
 const NAME = /^[A-Za-z0-9 _.\-]{2,20}$/;
@@ -43,6 +44,8 @@ export function cleanSettings(game, s) {
   out.dz = s.dz;
   // A controller player's measured turn speed, as a multiple of the profile's estimate.
   if (s.kTurn != null) { if (g.device === 'mouse' || !num(s.kTurn, 0.25, 4)) return null; out.kTurn = s.kTurn; }
+  // The curve shape the player matched to their game (curve feel check).
+  if (s.curveK != null) { if (g.device === 'mouse' || !num(s.curveK, CURVE_K.min, CURVE_K.max)) return null; out.curveK = s.curveK; }
   if (s.outer != null) { if (!num(s.outer, 0.75, 1)) return null; out.outer = s.outer; }
   const bs = g.boost && g.boost.setting;
   if (s.boost != null) { if (!bs || !num(s.boost, bs.min, bs.max)) return null; out.boost = s.boost; }
