@@ -7,23 +7,16 @@ import { clamp } from './util.js';
 // on a 4:3 frame (Source-engine style), 'v' vertical. The range draws at the converted FOV.
 // `source` says how far the menu names and scales have been checked.
 // Call of Duty (Black Ops 6 onward, and Warzone) shows stick sensitivity as 0.10-4.00 instead of the
-// old 1-20. Published conversions: old 3 = 1.00, 6 = 1.65, 8 = 1.90, 9 = 2.00, 15 = 3.00, 20 = 4.00.
-// Turn speed is modeled on the old scale, so a new value is mapped back to old units between those
-// points. Below 1.00 no conversion is published; turn speed is taken as proportional (an estimate).
-const COD_SCALE = [[1, 3], [1.65, 6], [1.9, 8], [2, 9], [3, 15], [4, 20]];
-export function codOldUnits(v) {
-  if (v <= 1) return 3 * v;
-  for (let i = 1; i < COD_SCALE.length; i++) {
-    const [n0, o0] = COD_SCALE[i - 1], [n1, o1] = COD_SCALE[i];
-    if (v <= n1) return o0 + (o1 - o0) * (v - n0) / (n1 - n0);
-  }
-  return 20;
-}
+// old 1-20. The new number reads as a speed multiplier, so turn speed is taken as proportional to it,
+// scaled so 1.65 (the old default 6) turns at the speed the old model gave 6: 288 deg/s.
+// The old scale was uneven; community charts convert it as below (4 and 11-14, 16-19 interpolated).
+const COD_K = 288 / 1.65;
+const COD_OLD = [[1, 0.6], [2, 0.8], [3, 1], [5, 1.4], [6, 1.65], [7, 1.8], [8, 1.9], [9, 2.05], [10, 2.1], [15, 3], [20, 4]];
 // Old 1-20 value to the new scale, for settings saved before the switch.
 export function codFromOld(old) {
-  if (old <= 3) return +(old / 3).toFixed(2);
-  for (let i = 1; i < COD_SCALE.length; i++) {
-    const [n0, o0] = COD_SCALE[i - 1], [n1, o1] = COD_SCALE[i];
+  if (old <= 1) return 0.6;
+  for (let i = 1; i < COD_OLD.length; i++) {
+    const [o0, n0] = COD_OLD[i - 1], [o1, n1] = COD_OLD[i];
     if (old <= o1) return +(n0 + (n1 - n0) * (old - o0) / (o1 - o0)).toFixed(2);
   }
   return 4;
@@ -33,8 +26,8 @@ export const GAMES = {
   cod: {
     name: 'Call of Duty', camera: 'first', source: 'model',
     fov: { label: 'Field of view', min: 60, max: 120, step: 1, def: 80, type: 'h169' },
-    sens: { label: 'Horizontal stick sensitivity', min: 0.1, max: 4, step: 0.01, def: 1.65, rate: s => codOldUnits(s) * 48 },
-    vsens: { label: 'Vertical stick sensitivity', min: 0.1, max: 4, step: 0.01, def: 1.65, rate: s => codOldUnits(s) * 38.4 },
+    sens: { label: 'Horizontal stick sensitivity', min: 0.1, max: 4, step: 0.01, def: 1.65, rate: s => s * COD_K },
+    vsens: { label: 'Vertical stick sensitivity', min: 0.1, max: 4, step: 0.01, def: 1.65, rate: s => s * COD_K * 0.8 },
     dz: { label: 'Right stick min (deadzone)', def: 0.10, fmt: d => String(Math.round(d * 100)) },
     moveDz: { label: 'Left stick min (deadzone)', fmt: d => String(Math.round(d * 100)) },
     outer: { label: 'Right stick max', fmt: d => String(Math.round(d * 100)) },

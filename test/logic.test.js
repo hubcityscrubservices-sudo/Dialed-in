@@ -390,14 +390,12 @@ test('kTurn scales both axes of the stick turn rate', async () => {
   assert.ok(Math.abs(b.pitch / a.pitch - 1.5) < 1e-9);
 });
 
-import { codOldUnits, codFromOld } from '../src/games.js';
+import { codFromOld } from '../src/games.js';
 
-test('Call of Duty 0.10-4.00 scale turns like the published old-scale values', () => {
-  for (const [n, o] of [[1, 3], [1.65, 6], [1.9, 8], [2, 9], [3, 15], [4, 20]]) {
-    assert.ok(Math.abs(codOldUnits(n) - o) < 1e-9);
-    assert.equal(codFromOld(o), n);
-  }
-  assert.equal(GAMES.cod.sens.rate(1.65), 6 * 48); // same turn speed as the old default of 6
-  assert.ok(GAMES.cod.sens.rate(0.5) < GAMES.cod.sens.rate(1)); // below 1.00 still slower
-  assert.equal(codFromOld(12), 2.5);
+test('Call of Duty 0.10-4.00 scale: proportional turn speed, old values converted by the published chart', () => {
+  assert.ok(Math.abs(GAMES.cod.sens.rate(1.65) - 288) < 1e-9); // same speed as the old default of 6
+  assert.ok(Math.abs(GAMES.cod.sens.rate(3.3) - 576) < 1e-9);
+  for (const [o, n] of [[1, 0.6], [3, 1], [6, 1.65], [9, 2.05], [15, 3], [20, 4]]) assert.equal(codFromOld(o), n);
+  assert.equal(codFromOld(4), 1.2);
+  assert.equal(codFromOld(12), 2.46);
 });

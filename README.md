@@ -53,10 +53,10 @@ side felt. It starts from the calibration results page.
 Call of Duty, Fortnite, Apex Legends, ARC Raiders, and a generic profile. Profiles live in
 `src/games.js`. Turn rates are modeled approximations.
 
-Call of Duty uses the 0.10–4.00 stick scale from Black Ops 6 and Warzone (Season 1 Reloaded).
-Turn speed maps back to the old 1–20 scale through the published conversions (3 = 1.00, 6 = 1.65,
-8 = 1.90, 9 = 2.00, 15 = 3.00, 20 = 4.00); below 1.00 it is taken as proportional, an estimate.
-Settings saved on the old scale are converted when loaded.
+Call of Duty uses the 0.10–4.00 stick scale from Black Ops 6 and Warzone (Season 1 Reloaded). The
+new number reads as a speed multiplier, so turn speed is proportional to it, scaled so 1.65 turns
+like the old default of 6. Settings saved on the old 1–20 scale are converted with the community
+chart (1 = 0.60, 3 = 1.00, 6 = 1.65, 9 = 2.05, 15 = 3.00, 20 = 4.00).
 
 ARC Raiders menu names, the sensitivity range (1–400) and the three response curves (Linear,
 Sinusoidal, Exponential) come from the PS5 Wireless Controller screen. The game has no outer or
