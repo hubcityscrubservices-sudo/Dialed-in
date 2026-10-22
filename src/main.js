@@ -121,6 +121,7 @@ function quickSegments() {
       text: `Keep the crosshair on the strafing target for ${styleRange().track} seconds. No need to fire.` },
     ...turnSegments(),
     ...adsSegments(),
+    ...(isMouse() ? [] : [recoilSeg()]),
     { kind: 'analyze' }
   ];
 }
@@ -245,7 +246,7 @@ function deepStep() {
     const best = D.res && D.res.verdict !== 'flat' ? D.res.best.sens : cfg.sens;
     // Curve and vertical speed screening is about stick shaping; a mouse skips it.
     session.segs.push(...(isMouse() ? [] : screenSegments(D, best)), ...(D.full ? turnSegments(FULL.turns) : turnSegments()), ...adsSegments(D.full ? FULL.adsScale : 1),
-      ...(D.full && !isMouse() ? [recoilSeg()] : []), { kind: 'deepDone' });
+      ...(isMouse() ? [] : [recoilSeg()]), { kind: 'deepDone' });
     return advance();
   }
   const k = D.history.length - D.base + 1;
@@ -619,7 +620,7 @@ function analyze() {
   rec.turn = turnRec(c);
   // Verify compares the other settings; look boost stays at the player's values on both sides.
   rec.boost = c.boost; rec.boostRamp = c.boostRamp; rec.boostDelay = c.boostDelay;
-  result = { cfg: c, stats, rec, drift: session.drift, mouse: session.mouse, verify: null, segs: session.segs, pad: inp.name };
+  result = { cfg: c, stats, rec, drift: session.drift, mouse: session.mouse, verify: null, segs: session.segs, pad: inp.name, recoil: session.recoil || null };
   if (c.mode === 'verify' && settingsChanged(c, rec)) {
     session.segs.push(...verifySegments(c, rec));
     return advance();
@@ -829,8 +830,7 @@ function railKeys() {
   if (session && session.recoilCheck) return ['setup', 'recoil'];
   const deep = !!((session && session.deep) || (result && result.deep) || (!session && !result && deepMode(cfg.mode)));
   let keys = deep ? ['setup', 'drift', 'deep', 'screen', 'turn', 'ads'] : ['setup', 'drift', 'flick', 'track', 'turn', 'ads'];
-  const full = (session && session.deep && session.deep.full) || (result && result.deep && result.deep.full) || (!session && !result && cfg.mode === 'full');
-  if (full && !isMouse()) keys.push('recoil');
+  if (!isMouse()) keys.push('recoil');
   // Mouse sessions have no screening, turn drill or ADS rounds, and skip the check once DPI is measured.
   if (isMouse()) keys = keys.filter(k => !['screen', 'turn', 'ads'].includes(k) && (k !== 'drift' || !(mouseCheck && mouseCheck.cpcm) || (session && session.segs.some(x => x.kind === 'mcheck'))));
   const verifying = (cfg.mode === 'verify' && !deep) || (result && result.verify) || (session && session.segs.some(s => s.rail === 'verify'));
