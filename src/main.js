@@ -1015,6 +1015,12 @@ function syncSetup() {
   $('#dpi-measure').textContent = mouseCheck && mouseCheck.cpcm ? 'Measure again' : 'Measure my DPI';
   // Controller menu settings the range plays with: curve, deadzone, and the optional measured turn speed.
   for (const id of ['#curve-field', '#dz-field', '#spin-field']) $(id).hidden = mouseGame;
+  // Fine-tune holds whatever optional settings this game has; with none (a mouse game with a fixed
+  // field of view) it isn't shown at all.
+  const tune = [!mouseGame && 'turn speed check', !mouseGame && 'deadzone', !g.fov.fixed && 'field of view',
+    (g.ads || []).length && 'aim-down-sights', g.boost && g.boost.setting && 'look boost'].filter(Boolean);
+  $('#advanced').hidden = !tune.length;
+  $('#advanced-sub').textContent = `Optional: ${tune.join(', ')}. Leave it closed and the range uses your game's defaults.`;
   if (!mouseGame) {
     $('#curve-label').textContent = g.curve.label;
     const cs = $('#curve'), seen = new Set();
@@ -1100,7 +1106,11 @@ document.querySelectorAll('input[name="device"]').forEach(r => r.addEventListene
 }));
 document.querySelectorAll('input[name="style"]').forEach(r => r.addEventListener('change', e => { cfg.style = e.target.value; }));
 // readSetup first, so values typed into the form survive the redraw.
-document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', e => { readSetup(); cfg.mode = e.target.value; syncSetup(); renderRail(); }));
+document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', e => {
+  readSetup(); cfg.mode = e.target.value; syncSetup(); renderRail();
+  // Deep is the thorough route, so it opens the optional settings too.
+  if (cfg.mode === 'deep') $('#advanced').open = true;
+}));
 // Reads the setup form into cfg (current values, not suggestions).
 function readSetup() {
   const g = game();
@@ -1159,8 +1169,10 @@ function spinK(g, sens, secs) {
 const DZ_OPTIONS = { apex: [['None', 0.04], ['Small', 0.10], ['Large', 0.16]] };
 function spinHelp() {
   const g = game(), el = $('#spin-help');
-  const boost = g.boost && g.boost.setting ? `set ${g.boost.setting.label} to 0, ` : 'turn off any turning boost, ';
-  const how = `In your game, ${boost}push the right stick fully sideways and time 5 full spins on your phone. Then the range turns exactly as fast as your game.`;
+  const how = 'How long 5 full spins take in your game at full stick, timed on your phone. Optional: it makes the range turn exactly as fast as your game.';
+  $('#spin-step-boost').textContent = g.boost && g.boost.setting
+    ? `Set ${g.boost.setting.label} to 0 for now, so the turn speed stays steady.`
+    : 'Turn off any turning boost or look acceleration for now, so the turn speed stays steady.';
   const secs = Number($('#spin').value), sens = Number($('#sens').value) || cfg.sens;
   if (!(secs > 0)) { el.textContent = how; return; }
   const k = spinRate(secs) / g.sens.rate(sens);
@@ -1169,6 +1181,12 @@ function spinHelp() {
     : `Your game turns about ${Math.round(spinRate(secs))}°/s at full stick. The built-in estimate was ${Math.round(g.sens.rate(sens))}°/s, so the range will use yours.`;
 }
 $('#spin').addEventListener('input', spinHelp);
+$('#spin-how').addEventListener('click', e => {
+  const guide = $('#spin-guide'), open = guide.hidden;
+  guide.hidden = !open;
+  e.currentTarget.setAttribute('aria-expanded', String(open));
+  e.currentTarget.textContent = open ? 'Hide the steps' : 'How do I measure this?';
+});
 $('#sens').addEventListener('input', spinHelp);
 
 $('#go').addEventListener('click', () => {

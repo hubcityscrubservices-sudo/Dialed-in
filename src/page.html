@@ -133,16 +133,6 @@
             <select id="curve"></select>
             <small>The curve set in your game's controller menu.</small>
           </div>
-          <div class="field" id="dz-field">
-            <label for="dz"><span id="dz-label">Deadzone</span></label>
-            <input id="dz" type="number" inputmode="numeric" value="5" min="0" max="30" step="1">
-            <small id="dz-help"></small>
-          </div>
-          <div class="field" id="spin-field">
-            <label for="spin">Turn speed check (optional)</label>
-            <input id="spin" type="number" inputmode="decimal" placeholder="Seconds for 5 spins" min="1" max="60" step="0.01">
-            <small id="spin-help"></small>
-          </div>
           <div class="field" id="dpi-field" hidden>
             <label for="dpi">Mouse DPI</label>
             <input id="dpi" type="number" inputmode="numeric" value="800" min="100" max="32000" step="1">
@@ -154,13 +144,59 @@
             <input id="cm0" type="number" inputmode="decimal" value="30" min="5" max="200" step="0.1">
             <small id="cm0-help"></small>
           </div>
+        </div>
+        <details class="advanced" id="advanced">
+          <summary><b>Fine-tune</b><span id="advanced-sub">Optional: turn speed check, deadzone, field of view, aim-down-sights and boost settings. Leave it closed and the range uses your game's defaults.</span></summary>
+          <div class="field-row">
+          <div class="field" id="spin-field">
+            <label for="spin">Turn speed check <span class="unit">(seconds for 5 spins)</span></label>
+            <input id="spin" type="number" inputmode="decimal" placeholder="Seconds" min="1" max="60" step="0.01">
+            <small id="spin-help"></small>
+            <button class="btn small" id="spin-how" type="button" aria-expanded="false" aria-controls="spin-guide" style="justify-self:start">How do I measure this?</button>
+          </div>
+          <div class="field" id="dz-field">
+            <label for="dz"><span id="dz-label">Deadzone</span></label>
+            <input id="dz" type="number" inputmode="numeric" value="5" min="0" max="30" step="1">
+            <small id="dz-help"></small>
+          </div>
           <div class="field" id="fov-field">
             <label for="fov"><span id="fov-label">Field of view</span></label>
             <input id="fov" type="number" inputmode="numeric" value="80" min="50" max="130" step="1">
             <small id="fov-range"></small>
           </div>
+          </div>
+        <div class="spin-guide" id="spin-guide" hidden>
+          <svg viewBox="0 0 520 150" role="img" aria-label="Right stick pushed all the way to the side, five full spins, timed on a phone stopwatch">
+            <g transform="translate(70 75)">
+              <circle r="46" fill="rgba(244,241,232,0.06)" stroke="#93A7AC" stroke-width="2"/>
+              <circle cx="30" r="18" fill="#FF5E3A"/>
+              <path d="M-26 0H6" stroke="#FFB547" stroke-width="3"/><path d="M6 -7L16 0L6 7z" fill="#FFB547"/>
+              <text y="70" text-anchor="middle" class="sf-s">right stick, all the way</text>
+            </g>
+            <g transform="translate(250 75)">
+              <path d="M38 -22A44 44 0 1 1 22 -38" fill="none" stroke="#FFB547" stroke-width="3"/>
+              <path d="M14 -46L26 -36L12 -30z" fill="#FFB547"/>
+              <text y="12" text-anchor="middle" class="sf-big">×5</text>
+              <text y="70" text-anchor="middle" class="sf-s">count 5 full spins</text>
+            </g>
+            <g transform="translate(430 75)">
+              <rect x="-30" y="-46" width="60" height="92" rx="10" fill="rgba(244,241,232,0.06)" stroke="#93A7AC" stroke-width="2"/>
+              <circle cy="-4" r="20" fill="none" stroke="#EDF1EA" stroke-width="2"/><path d="M0 -4V-18M0 -4L10 2" stroke="#EDF1EA" stroke-width="2"/>
+              <text y="34" text-anchor="middle" class="sf-k">7.20 s</text>
+              <text y="70" text-anchor="middle" class="sf-s">phone stopwatch</text>
+            </g>
+          </svg>
+          <ol>
+            <li>In your game, find an open spot and pick a landmark (a tree, a building edge).</li>
+            <li id="spin-step-boost">Turn off any turning boost for now.</li>
+            <li>Push the right stick <b>all the way</b> to the side and keep it there. Start the stopwatch as the landmark passes the crosshair.</li>
+            <li>Count the landmark going by. When it passes for the <b>5th</b> time, stop the stopwatch.</li>
+            <li>Type the seconds here, with your sensitivity filled in above. Then put your boost back.</li>
+          </ol>
+          <p class="fine">Optional. Skip it and the range uses a built-in estimate of your game's turn speed. Do it and the range turns exactly as fast as your game. Five spins keeps a late tap on the stopwatch to a tiny error.</p>
         </div>
-        <div id="ads-fields" class="field-stack"></div>
+          <div id="ads-fields" class="field-stack"></div>
+        </details>
         <fieldset>
           <legend>Choose your route</legend>
           <div class="styles routes">

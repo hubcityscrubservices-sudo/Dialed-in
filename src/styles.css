@@ -386,3 +386,21 @@ pre#copytext { font: 12px/1.5 var(--mono); background: rgba(8, 16, 23, 0.6); bor
 .period-tabs button { font: 600 12px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
   background: transparent; border: 0; padding: 10px 14px; min-height: 40px; cursor: pointer; }
 .period-tabs button[aria-selected="true"] { color: var(--bg, #0B141B); background: var(--sun); }
+
+/* Fine-tune: optional settings folded away */
+.advanced { border: 1px solid rgba(147, 167, 172, 0.3); padding: 0; }
+.advanced > summary { list-style: none; cursor: pointer; display: grid; gap: 4px; padding: 14px 16px 14px 40px; position: relative; min-height: 56px; }
+.advanced > summary::-webkit-details-marker { display: none; }
+.advanced > summary::before { content: ''; position: absolute; left: 16px; top: 19px; width: 8px; height: 8px; border-right: 2px solid var(--sun); border-bottom: 2px solid var(--sun); transform: rotate(-45deg); transition: transform .15s; }
+.advanced[open] > summary::before { transform: rotate(45deg); }
+.advanced > summary b { font: 700 15px var(--display); text-transform: uppercase; letter-spacing: .08em; color: var(--ink); }
+.advanced > summary span { color: var(--muted); font-size: 13.5px; line-height: 1.4; }
+.advanced[open] { padding-bottom: 16px; }
+.advanced > .field-row, .advanced > .field-stack, .advanced > .spin-guide { margin: 4px 16px 0; }
+.spin-guide { display: grid; gap: 8px; padding: 14px; border: 1px solid rgba(255, 181, 71, 0.35); background: rgba(255, 181, 71, 0.05); }
+.spin-guide svg { width: 100%; max-width: 460px; height: auto; }
+.spin-guide ol { margin: 0; padding-left: 20px; display: grid; gap: 4px; color: var(--ink); font-size: 14px; line-height: 1.45; }
+.spin-guide .sf-s { font: 500 13px var(--body); fill: var(--muted); }
+.spin-guide .sf-k { font: 600 13px var(--mono); fill: var(--ink); }
+.spin-guide .sf-big { font: 800 30px var(--display); fill: var(--ink); }
+.field > label .unit { font: 500 12px var(--body); text-transform: none; letter-spacing: 0; color: var(--muted); }
