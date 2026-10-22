@@ -711,7 +711,7 @@ function show(name) {
   // The step rail belongs to calibration; the warm-up challenge hides it.
   $('#steps').hidden = !!chal;
   if (!chal) renderRail();
-  if (name === 'setup') { renderWarmBests(); loadWarmTop(); showLeader(); }
+  if (name === 'setup') { renderWarmBests(); showLeader(); }
   else $('#p-leader').hidden = true;
   if (name === 'test') { if (chal) renderChalBrief(true); else renderBrief(true); }
   if (name === 'results') renderResults();
@@ -2438,17 +2438,6 @@ function showLeader() {
 }
 $('#p-leader').querySelectorAll('.board-tabs [data-board]').forEach(b => b.addEventListener('click', () => { leaderTab = b.dataset.board; showLeader(); }));
 $('#p-leader').querySelectorAll('[data-period]').forEach(b => b.addEventListener('click', () => { leaderPeriod = b.dataset.period; showLeader(); }));
-
-// Today's top three on the warm-up panel.
-async function loadWarmTop() {
-  const el = $('#warm-top');
-  if (!boardsOn() || !el) return;
-  try {
-    const rows = await fetchBoard(dailyCode(), 'all', 3);
-    const tag = { pad: 'controller', mouse: 'mouse', virtual: 'on-screen' };
-    el.textContent = rows.length ? `Today's top: ${rows.map((r, i) => `${i + 1}. ${r.name} ${r.score.toLocaleString('en-US')} (${tag[r.input] || r.input})`).join('   ')}` : 'No scores on today\'s board yet.';
-  } catch (e) { el.textContent = ''; }
-}
 
 const esc = t => String(t).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 
