@@ -46,7 +46,14 @@ const RATINGS = [
   { v: 1, label: 'A bit fast', key: 'dr', glyph: 'D-pad →' },
   { v: 2, label: 'Way too fast', key: 'rb', glyph: 'R1' }
 ];
-const MODE_HINT = { quick: 'About 3 minutes', verify: 'About 5 minutes', deep: 'About 8 minutes' };
+const MODE_HINT = { quick: 'About 3 minutes', verify: 'About 5 minutes', deep: 'About 8 minutes', full: 'About 15-18 minutes' };
+// Full dial-in: Deep with about 20 rounds' worth of data in one sitting. Simulated players came out the
+// same with more rounds or longer ones at equal time, so it does a bit of both: 16-18 search rounds of
+// 10 targets and 10 s of tracking, the curve and vertical checks twice over (8 rounds), longer turn and
+// ADS drills, and a short break every 6 rounds. FULL_OPEN is the one switch to gate it later.
+const FULL = { min: 16, max: 18, round: { flicks: 11, warmFlicks: 1, trackSeconds: 10, warmSeconds: 1.5 }, screenReps: 2, breakEvery: 6, turns: 10, adsScale: 1.5 };
+const FULL_OPEN = true;
+const deepMode = m => m === 'deep' || (m === 'full' && FULL_OPEN);
 
 const adsDefaults = g => Object.fromEntries(adsSpecs(g).map(sp => [sp.key, sp.def]));
 const boostDefaults = g => g.boost && g.boost.setting
@@ -118,12 +125,12 @@ function quickSegments() {
 }
 
 // A mouse has no look boost, so the drill is controller-only.
-const turnSegments = () => isMouse() ? [] : [turnSegment()];
+const turnSegments = (n = TURNS) => isMouse() ? [] : [turnSegment(n)];
 // Big turns at full stick, alternating sides, to tune look boost and its ramp-up.
-function turnSegment() {
-  return { kind: 'flick', turn: true, rail: 'turn', tag: 'turn', n: TURNS, warm: 0, settings: settingsOf(cfg), intro: true,
+function turnSegment(n = TURNS) {
+  return { kind: 'flick', turn: true, rail: 'turn', tag: 'turn', n, warm: 0, settings: settingsOf(cfg), intro: true,
     title: 'Turn-around drill',
-    text: `${TURNS} targets appear far to your side or behind you. Swing round fast, stop on each and fire. The arrow shows which way to turn.` };
+    text: `${n} targets appear far to your side or behind you. Swing round fast, stop on each and fire. The arrow shows which way to turn.` };
 }
 
 function turnRec(c) {
@@ -133,13 +140,13 @@ function turnRec(c) {
 
 // Zoomed rounds at the current hip-fire settings times each ADS multiplier: a 1.5x sight, then a 4x scope
 // when the game has a separate scoped setting. Targets shrink and slow by the zoom factor.
-function adsSegments() {
+function adsSegments(scale = 1) {
   const base = settingsOf(cfg);
   return adsSpecs(game()).flatMap(spec => {
     const scoped = spec.zoom >= 3;
     const settings = { ...base, adsMult: cfg.ads[spec.key], zoomed: true };
     const title = scoped ? 'Scoped test' : 'ADS test';
-    const n = scoped ? ADS.scopedFlicks : ADS.flicks, dur = scoped ? ADS.scopedSeconds : ADS.seconds;
+    const n = Math.round((scoped ? ADS.scopedFlicks : ADS.flicks) * scale), dur = Math.round((scoped ? ADS.scopedSeconds : ADS.seconds) * scale);
     const what = scoped ? `Through a ${spec.zoom}× scope` : `Aiming down sights at ${spec.zoom}×`;
     return [
       { kind: 'flick', rail: 'ads', tag: 'ads', ads: spec.key, zoom: spec.zoom, n, warm: 0, settings, intro: true, title,
@@ -211,10 +218,10 @@ function priorRounds(e) {
   const ids = [...new Set(e.rounds.map(r => r.sitting))];
   return e.rounds.filter(r => g.rate(r.sens) > 0).map(r => ({ ...r, x: Math.log2(g.rate(r.sens) / base), block: ids.indexOf(r.sitting) }));
 }
-function newDeep(pool) {
+function newDeep(pool, full = false) {
   const prior = pool ? priorRounds(pool) : [];
   const block = prior.length ? Math.max(...prior.map(h => h.block)) + 1 : 0;
-  return { order: shuffled(DEEP.initial), history: prior, base: prior.length, prior: prior.length, block, sitting: Date.now(), pending: null };
+  return { order: shuffled(DEEP.initial), history: prior, base: prior.length, prior: prior.length, block, sitting: Date.now(), pending: null, full };
 }
 
 // Queues the next search round, or the read-out when the search is done.
@@ -227,7 +234,8 @@ function deepStep() {
     D.history.push({ x: r.x, sens: r.sens, flicks: fl.data.list.slice(fl.warm), chunks: tr.data.chunks, track: tr.data, rating: ra.data, feel: ra.data, block: D.block, sitting: D.sitting });
     D.pending = null;
   }
-  const opts = D.more ? { base: D.base, min: MORE, max: MORE, control: -1 } : { base: D.base };
+  const opts = D.more ? { base: D.base, min: MORE, max: MORE, control: -1 } : D.full ? { base: D.base, min: FULL.min, max: FULL.max } : { base: D.base };
+  const R = D.full ? FULL.round : DEEP_ROUND, minR = D.full ? FULL.min : DEEP.minRounds, maxR = D.full ? FULL.max : DEEP.maxRounds;
   const next = deepNext(D.history, PLAYSTYLES[cfg.style], game(), cfg.sens, D.order, opts);
   if (!next) {
     D.res = deepAnalyze(D.history, PLAYSTYLES[cfg.style], game(), cfg.sens);
@@ -235,7 +243,7 @@ function deepStep() {
     if (D.more) { session.segs.push({ kind: 'deepDone' }); return advance(); }
     const best = D.res && D.res.verdict !== 'flat' ? D.res.best.sens : cfg.sens;
     // Curve and vertical speed screening is about stick shaping; a mouse skips it.
-    session.segs.push(...(isMouse() ? [] : screenSegments(D, best)), ...turnSegments(), ...adsSegments(), { kind: 'deepDone' });
+    session.segs.push(...(isMouse() ? [] : screenSegments(D, best)), ...(D.full ? turnSegments(FULL.turns) : turnSegments()), ...adsSegments(D.full ? FULL.adsScale : 1), { kind: 'deepDone' });
     return advance();
   }
   const k = D.history.length - D.base + 1;
@@ -243,17 +251,20 @@ function deepStep() {
   const settings = { sens: next.sens, ...verticalFor(next.sens), curve: cfg.curve, dz: checkedDz(), outer: checkedOuter(), ...turnK() };
   // The search always plays DEEP.minRounds; it adds up to two more only when the best speed is still unclear.
   const title = D.more ? `Extra round ${k} of ${MORE}`
-    : k <= DEEP.minRounds ? `Round ${k} of ${DEEP.minRounds}` : `Extra round ${k - DEEP.minRounds} of up to ${DEEP.maxRounds - DEEP.minRounds}`;
+    : k <= minR ? `Round ${k} of ${minR}` : `Extra round ${k - minR} of up to ${maxR - minR}`;
   const pooled = D.prior ? ` Your ${D.prior} rounds from before count too.` : '';
   D.pending = round;
+  // Full dial-in: a short, skippable break every few rounds, since tiredness in a long session skews results.
+  if (D.full && !D.more && k > 1 && (k - 1) % FULL.breakEvery === 0) session.segs.push({ kind: 'break', rail: 'deep', intro: true, counter: 'Break', title: 'Short break',
+    text: `${k - 1} rounds done. Put the controller down, stretch your hands for 20 seconds or so, then carry on. Your results allow for warm-up and tiredness either way.` });
   session.segs.push(
-    { kind: 'flick', rail: 'deep', round, counter: title, n: DEEP_ROUND.flicks, warm: DEEP_ROUND.warmFlicks, settings, intro: true, title,
+    { kind: 'flick', rail: 'deep', round, counter: title, n: R.flicks, warm: R.warmFlicks, settings, intro: true, title,
       text: D.more && k === 1
         ? `${MORE} more rounds at and around your best guess so far, at hidden sensitivities. Then everything is refitted with all ${D.base + MORE} rounds.`
         : k === 1
-        ? `The search runs ${DEEP.minRounds} short rounds, plus up to ${DEEP.maxRounds - DEEP.minRounds} extra if your best speed is still unclear. Each is ${DEEP_ROUND.flicks} targets, then ${DEEP_ROUND.trackSeconds} seconds of tracking, at a hidden sensitivity. Each round's speed is picked from how you did in the earlier ones.${pooled}`
-        : `${DEEP_ROUND.flicks} targets, then tracking. The sensitivity has probably changed. Play the way you normally would.` },
-    { kind: 'track', rail: 'deep', round, counter: title, dur: DEEP_ROUND.trackSeconds, warm: DEEP_ROUND.warmSeconds, settings, title, text: 'Stay on the moving target.' },
+        ? `The search runs ${minR} ${D.full ? '' : 'short '}rounds, plus up to ${maxR - minR} extra if your best speed is still unclear.${D.full ? ` There's a short break every ${FULL.breakEvery} rounds.` : ''} Each is ${R.flicks} targets, then ${R.trackSeconds} seconds of tracking, at a hidden sensitivity. Each round's speed is picked from how you did in the earlier ones.${pooled}`
+        : `${R.flicks} targets, then tracking. The sensitivity has probably changed. Play the way you normally would.` },
+    { kind: 'track', rail: 'deep', round, counter: title, dur: R.trackSeconds, warm: R.warmSeconds, settings, title, text: 'Stay on the moving target.' },
     { kind: 'rate', rail: 'deep', round, counter: title, title: `How did the speed of round ${D.history.length + 1} feel?`, text: 'Go with your gut. Where your answers turn from slow to fast is the speed that feels right to you, and it counts alongside your scores.' },
     { kind: 'deepNext' }
   );
@@ -324,13 +335,14 @@ function screenSegments(D, best) {
   const vBase = verticalFor(best);
   const vAt = f => g.vsens ? { vsens: nearestVsens(g.vsens.rate(vBase.vsens) * f) } : { vmult: vBase.vmult * f };
   D.screen = { best, curves: [cfg.curve, alt || cfg.curve], verts: [vAt(SCREEN.vLow), vAt(SCREEN.vHigh)], vBase };
-  return screenPlan().flatMap((p, k) => {
+  const plan = D.full ? Array.from({ length: FULL.screenReps }, () => screenPlan()).flat() : screenPlan();
+  return plan.flatMap((p, k) => {
     const settings = { sens: best, ...D.screen.verts[p.vert], curve: D.screen.curves[p.curve], dz: checkedDz(), outer: checkedOuter(), boost: cfg.boost, boostRamp: cfg.boostRamp, boostDelay: cfg.boostDelay, ...turnK() };
-    const title = `Check ${k + 1} of 4`;
+    const title = `Check ${k + 1} of ${plan.length}`;
     return [
       { kind: 'flick', rail: 'screen', screen: p, counter: title, n: DEEP_ROUND.flicks, warm: DEEP_ROUND.warmFlicks, settings, intro: true, title,
         text: k === 0
-          ? `Four more rounds at your best speed. The response curve and vertical speed change between them, hidden, to see whether either one matters for you.`
+          ? `${plan.length === 4 ? 'Four' : plan.length} more rounds at your best speed. The response curve and vertical speed change between them, hidden, to see whether either one matters for you.`
           : `Same drill. ${DEEP_ROUND.flicks} targets, then tracking.` },
       { kind: 'track', rail: 'screen', screen: p, counter: title, dur: DEEP_ROUND.trackSeconds, warm: DEEP_ROUND.warmSeconds, settings, title, text: 'Stay on the moving target.' }
     ];
@@ -418,7 +430,7 @@ function deepDone() {
   rec.turn = turnRec(c);
   rec.boost = c.boost; rec.boostRamp = c.boostRamp; rec.boostDelay = c.boostDelay;
   result = { cfg: c, stats, rec, drift: session.drift, mouse: session.mouse, verify: null, segs: session.segs, pad: inp.name,
-    deep: { res, feel: D.feel, rounds: D.history.map(h => ({ sens: h.sens, rating: h.feel ?? null })), screen: rec.screen, prior: D.prior, sittings: new Set(D.history.map(h => h.sitting)).size }, deepState: D };
+    deep: { res, feel: D.feel, rounds: D.history.map(h => ({ sens: h.sens, rating: h.feel ?? null })), screen: rec.screen, prior: D.prior, full: !!D.full, sittings: new Set(D.history.map(h => h.sitting)).size }, deepState: D };
   saveDeep(D, c);
   session = null;
   show('results');
@@ -480,6 +492,7 @@ function resetView() { view.yaw = 0; view.pitch = 0; view.boostT = 0; }
 
 function begin() {
   const s = seg();
+  if (s.kind === 'break') return advance();
   if (s.kind === 'drift' && inp.src !== 'pad') return;
   if (isMouse()) mouse.lock();
   session.phase = 'count';
@@ -726,7 +739,7 @@ function show(name) {
 
 function railKeys() {
   if (session && session.curveCheck) return ['setup', 'curve'];
-  const deep = !!((session && session.deep) || (result && result.deep) || (!session && !result && cfg.mode === 'deep'));
+  const deep = !!((session && session.deep) || (result && result.deep) || (!session && !result && deepMode(cfg.mode)));
   let keys = deep ? ['setup', 'drift', 'deep', 'screen', 'turn', 'ads'] : ['setup', 'drift', 'flick', 'track', 'turn', 'ads'];
   // Mouse sessions have no screening, turn drill or ADS rounds, and skip the check once DPI is measured.
   if (isMouse()) keys = keys.filter(k => !['screen', 'turn', 'ads'].includes(k) && (k !== 'drift' || !(mouseCheck && mouseCheck.cpcm) || (session && session.segs.some(x => x.kind === 'mcheck'))));
@@ -778,7 +791,7 @@ function renderBrief(force) {
   act.textContent = '';
   if (P === 'intro') {
     const blocked = s.kind === 'drift' && noPad;
-    if (!blocked) act.append(button(s.kind === 'drift' ? 'Start stick check' : s.kind === 'mcheck' ? 'Start mouse check' : 'Start', 'primary', begin));
+    if (!blocked) act.append(button(s.kind === 'drift' ? 'Start stick check' : s.kind === 'mcheck' ? 'Start mouse check' : s.kind === 'break' ? 'Continue' : 'Start', 'primary', begin));
     if (s.kind === 'drift') act.append(button('Skip', '', () => { session.drift = null; advance(); }));
     if (s.kind === 'mcheck') act.append(button('Skip, use the DPI I entered', '', () => advance()));
     if (isMouse() && !blocked) act.append(hint(mouse.locked ? 'Click to start. Esc lets the mouse go.' : 'The range captures your mouse. Esc lets it go.'));
@@ -865,7 +878,7 @@ function deepBlock(d, g, c) {
   const goal = deepGoal(res.points.length, d.sittings || 1);
   const rows = res.points.map((p, i) => `<tr><td class="num">${p.round}</td><td class="num">${p.sens}${p.sens === c.sens ? ' (current)' : ''}</td><td class="num">${Math.round(p.y / res.top * 100)}%</td><td>${feelLabel(d.rounds[i].rating)}</td></tr>`).join('');
   return `<div class="verdict ${res.verdict === 'matters' ? 'better' : ''}">
-    <div style="display:grid;gap:4px"><p class="eyebrow">Deep search · ${res.points.length} rounds${d.prior ? ` (${d.prior} from earlier sittings)` : ''}</p><h3>${head}</h3>
+    <div style="display:grid;gap:4px"><p class="eyebrow">${d.full ? 'Full dial-in' : 'Deep search'} · ${res.points.length} rounds${d.prior ? ` (${d.prior} from earlier sittings)` : ''}</p><h3>${head}</h3>
       <p>Each dot is one round's score at that sensitivity. The line is the fitted trend, and the shaded band is the range that scores within the noise of your best.</p></div>
     ${goal}
     ${deepChart(res, c, g, d)}
@@ -1265,7 +1278,7 @@ function restoreSetup() {
   cfg.device = GAMES[last.game].device === 'mouse' ? 'mouse' : 'pad';
   setGame(last.game);
   if (PLAYSTYLES[last.style]) cfg.style = last.style;
-  if (['quick', 'verify', 'deep'].includes(last.mode)) cfg.mode = last.mode;
+  if (['quick', 'verify', 'deep'].includes(last.mode) || (last.mode === 'full' && FULL_OPEN)) cfg.mode = last.mode;
   if (last.dpi >= 100 && last.dpi <= 32000) cfg.dpi = last.dpi;
   if (last.cm0 >= 5 && last.cm0 <= 200) cfg.cm0 = last.cm0;
 }
@@ -1378,13 +1391,14 @@ function syncSetup() {
   if (!g.ads) notes.push('ADS is tested at a zoom-matched speed and suggested as a relative change.');
   if (g.source === 'guides') notes.push('Menu names come from player guides and still need checking against the game.');
   $('#game-note').textContent = notes.join(' ');
+  if (cfg.mode === 'full') $('#route-more').open = true;
   for (const name of ['style', 'mode']) {
     const radio = document.querySelector(`input[name="${name}"][value="${cfg[name]}"]`);
     if (radio) radio.checked = true;
   }
   $('#go-hint').textContent = MODE_HINT[cfg.mode];
   // Deep can add to the rounds saved from an earlier sitting with this game.
-  const pool = cfg.mode === 'deep' ? loadDeepSaved() : null;
+  const pool = deepMode(cfg.mode) ? loadDeepSaved() : null;
   $('#deep-pool').hidden = !pool;
   if (pool) {
     const n = pool.rounds.length, sit = new Set(pool.rounds.map(r => r.sitting)).size;
@@ -1405,7 +1419,7 @@ document.querySelectorAll('input[name="style"]').forEach(r => r.addEventListener
 document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', e => {
   readSetup(); cfg.mode = e.target.value; syncSetup(); renderRail();
   // Deep is the thorough route, so it opens the optional settings too.
-  if (cfg.mode === 'deep') $('#advanced').open = true;
+  if (deepMode(cfg.mode)) $('#advanced').open = true;
 }));
 // Reads the setup form into cfg (current values, not suggestions).
 function readSetup() {
@@ -1527,7 +1541,7 @@ $('#go').addEventListener('click', () => {
   sharePoolSample();
   result = null;
   syncSetup();
-  if (cfg.mode === 'deep') start(deepSegments(), null, newDeep($('#deep-add').checked && !$('#deep-pool').hidden ? loadDeepSaved() : null));
+  if (deepMode(cfg.mode)) start(deepSegments(), null, newDeep($('#deep-add').checked && !$('#deep-pool').hidden ? loadDeepSaved() : null, cfg.mode === 'full'));
   else start(quickSegments(), null);
 });
 

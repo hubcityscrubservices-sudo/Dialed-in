@@ -458,3 +458,11 @@ body.testing .arena-wrap { width: min(100%, calc((100vh - 275px) * 16 / 9)); min
 #p-test:fullscreen { background: var(--bg); padding: 12px 18px; align-content: center; overflow: auto; }
 #p-test:fullscreen .arena-wrap { width: min(100%, calc((100vh - 150px) * 16 / 9)); margin-inline: auto; }
 .view-opts { display: flex; justify-content: flex-end; align-items: center; gap: 16px; flex-wrap: wrap; }
+.route-more { margin-top: 10px; }
+.route-more summary { cursor: pointer; color: var(--sun); font: 600 13px var(--mono); letter-spacing: .04em; padding: 10px 0; min-height: 44px; display: flex; align-items: center; }
+.route-more[open] summary { margin-bottom: 8px; }
+.route-more .style-opt { max-width: 520px; }
+.route-more summary { list-style: none; gap: 8px; }
+.route-more summary::-webkit-details-marker { display: none; }
+.route-more summary::before { content: '▸'; }
+.route-more[open] summary::before { content: '▾'; }

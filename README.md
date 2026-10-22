@@ -49,6 +49,7 @@ side felt. It starts from the calibration results page.
 | Quick | ~3 min | Stick check, flick test (12 targets, some above or below), tracking test, turn-around drill, zoomed ADS rounds, then suggested settings with reasons. |
 | Verify | ~5 min | Quick, then a blind ABBA/BAAB test of old vs suggested settings. Reports how likely the new settings are better (bootstrap over targets and tracking seconds), next to the player's own feel ratings. |
 | Deep | ~8 min | Stick check, then 7–9 short blind rounds at different sensitivities. The first three bracket the current speed, round five repeats it as a control, and the rest go where the fitted curve says the best speed is. Reports the best setting, the range within noise of it, and whether sensitivity matters for this player at all. |
+| Full dial-in | ~15–18 min | Behind "Want the full dial-in?" under the routes. Deep about twice over in one sitting: 16–18 search rounds of 10 targets and 10 s tracking, the curve and vertical checks run twice (8 rounds), 10 turn-arounds and 1.5× ADS drills, and a skippable break every 6 rounds. Simulated players came out the same with more rounds or longer ones at equal time, so it does a bit of both. `FULL_OPEN` in main.js is the switch to gate it later. |
 
 ## Games
 
