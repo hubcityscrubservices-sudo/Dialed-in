@@ -95,6 +95,13 @@ of rates). The turn drill, ADS rounds and curve/vertical screening are controlle
   aren't exactly 60 Hz, and a quick tap of fire between steps still counts. Drawing only; replays are unchanged.
 - The third-person character is drawn see-through so it can't hide a target.
 
+## Saved settings
+
+The setup form is saved in the browser (localStorage key `dialed-in:setup`) as it changes: one set of
+values per game (sensitivity, curve, deadzone, field of view, aim assist, spin timing, ADS and boost)
+plus the last device, game, play style, route, DPI and cm/360. Saved values are re-checked against the
+game's menu ranges when loaded. "Reset to defaults" forgets the current game's values.
+
 ## Play styles
 
 The play style (Close range / Balanced / Long range) weights flicks against tracking when the

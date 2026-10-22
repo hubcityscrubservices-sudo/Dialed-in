@@ -541,6 +541,7 @@ function dpiDone() {
   }
   show('setup');
   syncSetup();
+  saveSetup();
   $('#dpi-help').textContent = note;
   $('#dpi').scrollIntoView({ block: 'center' });
 }
@@ -1003,7 +1004,8 @@ function fillGames() {
     sel.append(o);
   }
 }
-function setGame(id) {
+// Picks a game: its defaults, then whatever this browser saved for it last time (unless useSaved is false).
+function setGame(id, useSaved = true) {
   cfg.game = id;
   const g = game();
   cfg.sens = g.sens.def;
@@ -1013,6 +1015,49 @@ function setGame(id) {
   Object.assign(cfg, boostDefaults(g));
   cfg.curve = g.curve.def; cfg.dz = g.dz.def;
   cfg.spin = null; cfg.kTurn = 1; // a spin timing belongs to one game
+  cfg.aa = 1;
+  if (useSaved) applySaved(g, (loadSaved().games || {})[id]);
+}
+
+/* saved settings: kept in this browser only, one set per game plus the last device, game and choices */
+
+const SAVE_KEY = 'dialed-in:setup';
+function loadSaved() {
+  try { return JSON.parse(localStorage.getItem(SAVE_KEY)) || {}; } catch (e) { return {}; }
+}
+function saveSetup() {
+  const s = loadSaved();
+  s.last = { device: cfg.device, game: cfg.game, style: cfg.style, mode: cfg.mode, dpi: cfg.dpi, cm0: cfg.cm0 };
+  s.games = s.games || {};
+  s.games[cfg.game] = { sens: cfg.sens, vsens: cfg.vsens, fov: cfg.fov, curve: cfg.curve, dz: cfg.dz, aa: cfg.aa,
+    spin: cfg.spin, ads: cfg.ads, boost: cfg.boost, boostRamp: cfg.boostRamp };
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(s)); } catch (e) { /* storage blocked: settings just aren't remembered */ }
+}
+// Saved values are only taken when they still fit the game's menu, so an old save can't break setup.
+function applySaved(g, v) {
+  if (!v) return;
+  const inRange = (x, sp) => typeof x === 'number' && sp && x >= sp.min && x <= sp.max;
+  if (inRange(v.sens, g.sens)) cfg.sens = v.sens;
+  if (g.vsens && inRange(v.vsens, g.vsens)) cfg.vsens = v.vsens;
+  if (!g.fov.fixed && inRange(v.fov, g.fov)) cfg.fov = v.fov;
+  if (['linear', 'mid', 'expo'].includes(v.curve)) cfg.curve = v.curve;
+  if (typeof v.dz === 'number' && v.dz >= 0 && v.dz <= 0.3) cfg.dz = v.dz;
+  if ([0, 0.6, 1, 1.4].includes(v.aa)) cfg.aa = v.aa;
+  if (typeof v.spin === 'number' && v.spin >= 1 && v.spin <= 60) { cfg.spin = v.spin; cfg.kTurn = spinK(g, cfg.sens, cfg.spin); }
+  for (const sp of adsSpecs(g)) if (v.ads && inRange(v.ads[sp.key], sp)) cfg.ads[sp.key] = v.ads[sp.key];
+  const bs = g.boost && g.boost.setting;
+  if (bs && inRange(v.boost, bs)) cfg.boost = v.boost;
+  if (bs && inRange(v.boostRamp, g.boost.rampSetting)) cfg.boostRamp = v.boostRamp;
+}
+function restoreSetup() {
+  const last = loadSaved().last;
+  if (!last || !GAMES[last.game]) return;
+  cfg.device = GAMES[last.game].device === 'mouse' ? 'mouse' : 'pad';
+  setGame(last.game);
+  if (PLAYSTYLES[last.style]) cfg.style = last.style;
+  if (['quick', 'verify', 'deep'].includes(last.mode)) cfg.mode = last.mode;
+  if (last.dpi >= 100 && last.dpi <= 32000) cfg.dpi = last.dpi;
+  if (last.cm0 >= 5 && last.cm0 <= 200) cfg.cm0 = last.cm0;
 }
 
 function syncSetup() {
@@ -2219,6 +2264,17 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) chec
 // Read-only hook for automated browser tests (page opened with ?debug); not used by the app.
 if (new URLSearchParams(location.search).has('debug')) window.dialedInDebug = { chal: () => chal, session: () => session, view: () => view, game: () => game() };
 
+restoreSetup();
 syncSetup();
 show('setup');
+// Any edit to the setup form is saved as it happens.
+$('#p-setup').addEventListener('change', () => { readSetup(); saveSetup(); });
+$('#setup-reset').addEventListener('click', () => {
+  const s = loadSaved();
+  if (s.games) delete s.games[cfg.game];
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(s)); } catch (e) { /* nothing saved anyway */ }
+  setGame(cfg.game, false);
+  syncSetup();
+  saveSetup();
+});
 requestAnimationFrame(frame);

@@ -417,3 +417,7 @@ pre#copytext { font: 12px/1.5 var(--mono); background: rgba(8, 16, 23, 0.6); bor
 .chal-guide .cg-k { font: 600 12px var(--mono); fill: var(--ink); letter-spacing: .06em; }
 .chal-guide .cg-s { font: 500 12px var(--body); fill: var(--muted); }
 .chal-guide ul { margin: 0; padding: 4px 14px 14px 32px; display: grid; gap: 4px; color: var(--ink); font-size: 14px; line-height: 1.45; }
+
+/* Saved settings */
+.current-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.saved-note { margin-top: -6px; }

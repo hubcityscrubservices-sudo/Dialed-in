@@ -122,7 +122,11 @@
           </div>
           <small class="hint">Sets the tests to match: closer fights mean bigger, faster-moving targets and more tracking; long range means smaller targets and more flicks. The challenge is the same mix for everyone.</small>
         </fieldset>
-        <p class="eyebrow current">Your current settings, as they are in the game's menu</p>
+        <div class="current-row">
+          <p class="eyebrow current">Your current settings, as they are in the game's menu</p>
+          <button class="btn small" id="setup-reset" type="button" title="Forget the values saved for this game">Reset to defaults</button>
+        </div>
+        <p class="fine saved-note">Saved in this browser, so they're filled in next time.</p>
         <div class="field-row">
           <div class="field">
             <label for="sens"><span id="sens-label">Horizontal stick sensitivity</span></label>
