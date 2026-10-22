@@ -404,3 +404,4 @@ pre#copytext { font: 12px/1.5 var(--mono); background: rgba(8, 16, 23, 0.6); bor
 .spin-guide .sf-k { font: 600 13px var(--mono); fill: var(--ink); }
 .spin-guide .sf-big { font: 800 30px var(--display); fill: var(--ink); }
 .field > label .unit { font: 500 12px var(--body); text-transform: none; letter-spacing: 0; color: var(--muted); }
+.board-table .board-more { margin-top: 10px; }

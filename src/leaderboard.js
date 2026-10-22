@@ -17,7 +17,7 @@ export async function submitScore(payload) {
 }
 
 // input: 'pad' | 'virtual' | 'mouse', or 'all' for the combined board.
-export async function fetchBoard(code, input, limit = 10) {
+export async function fetchBoard(code, input, limit = 25) {
   const q = new URLSearchParams({
     select: 'name,score,accuracy,best_streak,game,input,created_at',
     code: `eq.${code}`, order: 'score.desc,created_at.asc', limit: String(limit)
@@ -30,7 +30,7 @@ export async function fetchBoard(code, input, limit = 10) {
 
 // All-time board: each player's best daily score ever (database function all_time_board).
 // input: one input type, or 'all'.
-export async function fetchAllTime(input, limit = 10) {
+export async function fetchAllTime(input, limit = 25) {
   const res = await fetch(`${SUPABASE.url}/rest/v1/rpc/all_time_board`, {
     method: 'POST', headers: headers(true), body: JSON.stringify({ p_input: input === 'all' ? null : input, p_limit: limit })
   });

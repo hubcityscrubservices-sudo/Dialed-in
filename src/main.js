@@ -1968,18 +1968,25 @@ const INPUT_LABEL = { pad: 'Controller', mouse: 'Mouse', virtual: 'On-screen sti
 // board's tabs and its .board-table: the end screen's board or the setup screen's leaderboard.
 // code ALL_TIME reads the all-time board (best daily score per player), with a Day column.
 const ALL_TIME = 'all-time';
-async function loadBoard(code, input, root) {
+// Boards show BOARD_PAGE rows; Show more adds another page, up to BOARD_MAX.
+const BOARD_PAGE = 25, BOARD_MAX = 200;
+async function loadBoard(code, input, root, limit = BOARD_PAGE) {
   const box = root.querySelector('.board-table'), req = root.boardReq = (root.boardReq || 0) + 1;
   root.querySelectorAll('.board-tabs [data-board]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.board === input)));
   try {
     const ever = code === ALL_TIME;
-    const rows = ever ? await fetchAllTime(input) : await fetchBoard(code, input);
+    const rows = ever ? await fetchAllTime(input, limit) : await fetchBoard(code, input, limit);
     if (!root.isConnected || req !== root.boardReq) return;
     const all = input === 'all';
     box.innerHTML = rows.length
       ? `<table><thead><tr><th>#</th><th>Name</th>${all ? '<th>Input</th>' : ''}<th>Score</th><th>Accuracy</th><th>Streak</th><th>Game</th>${ever ? '<th>Day</th>' : ''}</tr></thead><tbody>${rows.map((r, i) =>
         `<tr><td class="num">${i + 1}</td><td>${esc(r.name)}</td>${all ? `<td><span class="input-tag ${esc(r.input)}">${esc(INPUT_LABEL[r.input] || r.input)}</span></td>` : ''}<td class="num">${r.score.toLocaleString('en-US')}</td><td class="num">${r.accuracy == null ? '–' : pct(r.accuracy)}</td><td class="num">${r.best_streak ?? '–'}</td><td>${esc(GAMES[r.game] ? gameTitle(GAMES[r.game]) : r.game)}</td>${ever ? `<td class="num">${esc(String(r.code).slice(2))}</td>` : ''}</tr>`).join('')}</tbody></table>`
       : `<p class="fine">No ${all ? '' : INPUT_LABEL[input].toLowerCase() + ' '}scores yet. Be the first.</p>`;
+    // A full page means there may be more.
+    if (rows.length >= limit && limit < BOARD_MAX) {
+      const more = button('Show more', 'small board-more', () => { more.disabled = true; more.textContent = 'Loading…'; loadBoard(code, input, root, limit + BOARD_PAGE); });
+      box.append(more);
+    }
   } catch (e) {
     box.innerHTML = `<p class="fine">${BOARD_BLOCKED}</p>`;
   }
