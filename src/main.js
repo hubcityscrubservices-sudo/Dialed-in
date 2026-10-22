@@ -1129,9 +1129,19 @@ function renderResults() {
   });
 }
 
-// The tip link: shown after results, never during a test.
+// Donations: a button after results (never during a test) and in the footer opens Ko-fi's own
+// donation panel in a dialog, so nobody leaves the page. The panel loads only when opened.
 const TIP_URL = 'https://ko-fi.com/dialedinaim';
-const tipHtml = text => `<p class="tip"><span>${text}</span> <a href="${TIP_URL}" target="_blank" rel="noopener">☕ Ko-fi</a></p>`;
+const TIP_EMBED = TIP_URL + '/?hidefeed=true&widget=true&embed=true&preview=true';
+const tipHtml = text => `<div class="tip"><span>${text}</span><button class="btn small tip-open" type="button">☕ Donate</button></div>`;
+function openTip() {
+  const dlg = $('#tip-dialog'), frame = $('#tip-frame');
+  if (!frame.src) frame.src = TIP_EMBED;
+  if (dlg.showModal) dlg.showModal(); else window.open(TIP_URL, '_blank', 'noopener');
+}
+document.addEventListener('click', e => { if (e.target.closest('.tip-open')) openTip(); });
+$('#tip-close').addEventListener('click', () => $('#tip-dialog').close());
+$('#tip-dialog').addEventListener('click', e => { if (e.target === e.currentTarget) e.currentTarget.close(); });
 
 // Copies to the clipboard, or shows the text to select by hand when the browser refuses.
 function copyText(text, btn) {

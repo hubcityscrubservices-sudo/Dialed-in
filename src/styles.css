@@ -434,6 +434,10 @@ pre#copytext { font: 12px/1.5 var(--mono); background: rgba(8, 16, 23, 0.6); bor
 .board-ever.record { color: var(--sun); font-weight: 700; font-size: 16px; }
 
 .tip { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; color: var(--muted); font-size: 14px; }
-.tip a, .site-foot a { color: var(--sun); font-weight: 600; text-decoration: none; border-bottom: 1px solid currentColor; padding: 6px 0; }
-.tip a:hover, .site-foot a:hover { color: var(--ink); }
 .site-foot { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 16px; padding: 28px 16px 36px; color: var(--muted); font-size: 13px; }
+.tip-dialog { width: min(440px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 16px; border: 1px solid var(--line); background: var(--plate); color: var(--ink); display: none; gap: 10px; }
+.tip-dialog[open] { display: grid; }
+.tip-dialog::backdrop { background: rgba(5, 10, 16, 0.7); }
+.tip-dialog-head { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
+.tip-dialog iframe { width: 100%; height: min(640px, calc(100vh - 180px)); border: 0; border-radius: 6px; background: #f9f9f9; }
+.tip-dialog a { color: var(--sun); }

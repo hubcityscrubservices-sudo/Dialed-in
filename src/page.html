@@ -345,8 +345,16 @@
   </div>
   <footer class="site-foot">
     <span>Dialed In is free and made by one person.</span>
-    <a href="https://ko-fi.com/dialedinaim" target="_blank" rel="noopener">☕ Support it on Ko-fi</a>
+    <button class="btn small tip-open" type="button">☕ Donate</button>
   </footer>
+  <dialog class="tip-dialog" id="tip-dialog" aria-label="Support Dialed In">
+    <div class="tip-dialog-head">
+      <div><p class="eyebrow">Support Dialed In</p><p class="fine">Any amount helps keep the daily range running. Payment is handled by Ko-fi.</p></div>
+      <button class="btn small" id="tip-close" type="button" aria-label="Close">Close</button>
+    </div>
+    <iframe id="tip-frame" title="Donate to Dialed In on Ko-fi" loading="lazy"></iframe>
+    <p class="fine">Not loading? <a href="https://ko-fi.com/dialedinaim" target="_blank" rel="noopener">Open Ko-fi in a new tab</a>.</p>
+  </dialog>
 </div>
 
 <script>
