@@ -132,12 +132,12 @@ test('version 2 rules replay exactly as when they shipped', () => {
 });
 
 test('version 3: moving targets score only while firing on them, and firing off target costs nothing', () => {
-  // Hold-fire tracking is in every version from 3: dailies and Standard practice (4), Warm-up (3), Hard (5).
-  assert.equal(createChallenge('d-2026-10-23', 'arc', settings).v, 4);
-  assert.equal(createChallenge('d-2026-10-22', 'arc', settings).v, 4); // brought forward to the 22nd
-  assert.equal(createChallenge('p-k3x9q2', 'arc', settings).v, 4);
-  assert.equal(createChallenge('w-k3x9q2', 'arc', settings).v, 3);
-  assert.equal(createChallenge('h-k3x9q2', 'arc', settings).v, 5);
+  // Hold-fire tracking is in every version from 3. With precision scoring: dailies and Standard (6), Warm-up (8), Hard (7).
+  assert.equal(createChallenge('d-2026-10-23', 'arc', settings).v, 6);
+  assert.equal(createChallenge('d-2026-10-22', 'arc', settings).v, 6); // brought forward to the 22nd
+  assert.equal(createChallenge('p-k3x9q2', 'arc', settings).v, 6);
+  assert.equal(createChallenge('w-k3x9q2', 'arc', settings).v, 8);
+  assert.equal(createChallenge('h-k3x9q2', 'arc', settings).v, 7);
   // Follow every moving target perfectly, once without firing and once holding fire the whole time.
   const play = holdFire => {
     const st = createChallenge('d-2026-10-23', 'arc', settings);
@@ -182,4 +182,20 @@ test('version 4 spreads standing targets out; Hard spreads them further and make
   assert.ok(w.far === 0 && s4.far > 0.1 && h.far > s4.far, JSON.stringify({ w, s4, h }));
   assert.ok(s4.d > w.d && h.d > s4.d);
   assert.ok(h.r < s4.r && s4.r < w.r);
+});
+
+test('precision versions pay more for hits near the centre; older versions have no zones', () => {
+  const play = (off, opts) => {
+    const st = createChallenge('d-2026-10-23', 'arc', settings, opts);
+    while (!st.done) {
+      const it = st.item;
+      if (it && it.kind !== 'track') { st.view.yaw = it.T.yaw + off * it.T.r; st.view.pitch = it.T.pitch; step(st, 0, 0, !st.prevFire); } else step(st, 0, 0, false);
+    }
+    return summary(st);
+  };
+  const centre = play(0), edge = play(0.8);
+  assert.equal(centre.zones.bull, centre.hits);
+  assert.ok(edge.zones.edge > edge.hits * 0.8, JSON.stringify(edge.zones));
+  assert.ok(centre.score > edge.score * 1.3, `${centre.score} vs ${edge.score}`);
+  assert.equal(play(0, { v: 4 }).zones, null);
 });

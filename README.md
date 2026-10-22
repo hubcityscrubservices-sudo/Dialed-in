@@ -160,6 +160,11 @@ at 10–28° and a radius of 1.6–2.8° (was 12–36° and 1.8–3.0°). Practi
 prefix: p- Standard (version 4), h- Hard (version 5: 15–60° and radius 1.4–2.4°, a quicker strafer,
 2.8 s per target, no near-miss forgiveness) and w- Warm-up (version 3's closer spread).
 
+Versions 6, 7 and 8 (the 2026-10-22 daily on, and all practice: Standard 6, Hard 7, Warm-up 8) are 4, 5
+and 3 plus precision scoring. A standing-target hit is scored by how far the crosshair was from the
+centre, as a share of the target's radius: bullseye (within 25%) ×1.5, inner ring (within 60%) ×1.2,
+edge ×1. The end screen shows the bullseye rate and where hits landed; the hit pop-up names the zone.
+
 ## Field of view
 
 The range draws through a true perspective camera at the FOV you enter (src/camera.js), so a turn moves

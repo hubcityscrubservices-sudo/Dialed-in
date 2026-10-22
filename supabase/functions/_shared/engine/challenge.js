@@ -29,7 +29,12 @@ export const DT = 1 / CH.hz;
 // 10-28, and slightly smaller (radius 1.6-2.8). Brought forward to the 2026-10-22 daily as well.
 // Version 5 is Hard practice (h- codes): farther and smaller still, a quicker strafer, less time per
 // target and no near-miss forgiveness. Warm-up practice (w- codes) plays version 3's closer spread.
-export const V2_FROM = '2026-10-22', V3_FROM = '2026-10-22', V4_FROM = '2026-10-22';
+// Versions 6, 7 and 8 are 4 (daily, Standard), 5 (Hard) and 3 (Warm-up) plus precision scoring: a hit on
+// a standing or turn-around target scores x1.5 in the bullseye (inner 25% of the radius) and x1.2 in the
+// inner ring (25-60%); the edge scores as before. Dailies from V6_FROM (brought forward to 2026-10-22).
+export const V2_FROM = '2026-10-22', V3_FROM = '2026-10-22', V4_FROM = '2026-10-22', V6_FROM = '2026-10-22';
+export const ZONES = [{ key: 'bull', within: 0.25, mult: 1.5 }, { key: 'inner', within: 0.6, mult: 1.2 }, { key: 'edge', within: Infinity, mult: 1 }];
+export const zoneOf = frac => ZONES.find(z => frac <= z.within);
 const R2 = { flickTimeout: 3.5, missPenalty: 10, vertShare: 0.25, gap: 15, nearMiss: true, track: TRACK_V2, ang: true, eng: 2 };
 const R3 = { ...R2, holdFire: true, trackKeep: 0.7 };
 const SPREAD_V4 = { bands: [[12, 25, 0.4], [25, 40, 0.4], [40, 55, 0.2]], vert: [10, 28], r: [1.6, 2.8] };
@@ -41,12 +46,15 @@ export const RULES = {
   4: { ...R3, spread: SPREAD_V4 },
   5: { ...R3, spread: SPREAD_HARD, flickTimeout: 2.8, nearMiss: false, track: TRACK_HARD, trackKeep: 0.75 }
 };
+RULES[6] = { ...RULES[4], precision: true };
+RULES[7] = { ...RULES[5], precision: true };
+RULES[8] = { ...RULES[3], precision: true };
 export const versionOf = code => {
-  if (code.startsWith('h-')) return 5;
-  if (code.startsWith('w-')) return 3;
-  if (!code.startsWith('d-')) return 4;
+  if (code.startsWith('h-')) return 7;
+  if (code.startsWith('w-')) return 8;
+  if (!code.startsWith('d-')) return 6;
   const day = code.slice(2);
-  return day < V2_FROM ? 1 : day < V3_FROM ? 2 : day < V4_FROM ? 3 : 4;
+  return day < V2_FROM ? 1 : day < V3_FROM ? 2 : day < V4_FROM ? 3 : day < V6_FROM ? 4 : 6;
 };
 
 // Seconds a hit "should" take for its difficulty (Fitts' index of difficulty, ID). Version 1 used a
@@ -92,7 +100,7 @@ export function createChallenge(code, gameId, settings, opts = {}) {
     code, gameId, v, P, mouse, wait: 0, settings: s, rng: mulberry32(hashSeed(code)),
     ticks: Math.round((opts.seconds || CH.seconds) * CH.hz), log: [],
     tick: 0, view: makeView(), item: null, items: 0, prevFire: false, done: false,
-    score: 0, streak: 0, bestStreak: 0, hits: 0, shots: 0, timeouts: 0, hitTime: 0,
+    score: 0, streak: 0, bestStreak: 0, hits: 0, shots: 0, timeouts: 0, hitTime: 0, zones: { bull: 0, inner: 0, edge: 0 },
     trackOn: 0, trackT: 0, trackFire: 0, trackFireOn: 0, events: []
   };
   nextItem(st);
@@ -169,15 +177,23 @@ export function step(st, rx, ry, fire) {
       const lost = Math.min(st.P.missPenalty, st.score);
       st.score -= lost;
       it.pts -= lost;
-      st.events.push({ type: 'miss', yaw: st.view.yaw, pitch: st.view.pitch });
+      st.events.push({ type: 'miss', yaw: st.view.yaw, pitch: st.view.pitch, lost });
     } else if (out === 'hit') {
       st.shots++; st.hits++; st.streak++; st.bestStreak = Math.max(st.bestStreak, st.streak);
       st.hitTime += T.t;
-      const pts = hitPoints(T, st.streak, st.v, st.mouse);
+      let pts = hitPoints(T, st.streak, st.v, st.mouse), zone = null;
+      if (st.P.precision) {
+        // How far from the centre the shot landed, as a share of the radius (the same distance the hit test used).
+        const e = T.ang ? angleTo(st.view, T) : Math.hypot(st.view.yaw - T.yaw, st.view.pitch - T.pitch);
+        zone = zoneOf(e / T.r);
+        pts *= zone.mult;
+        st.zones[zone.key]++;
+        it.zone = zone.key;
+      }
       st.score += pts;
       it.pts += pts;
       st.log.push(it);
-      st.events.push({ type: 'hit', pts, yaw: T.yaw, pitch: T.pitch });
+      st.events.push({ type: 'hit', pts, yaw: T.yaw, pitch: T.pitch, zone: zone && zone.key });
       after(st);
     } else if (T.t >= st.P.flickTimeout - 1e-9 || out === 'timeout') {
       st.timeouts++; st.streak = 0;
@@ -205,7 +221,9 @@ export function summary(st) {
     bestStreak: st.bestStreak,
     tracking: st.trackT ? st.trackOn / st.trackT : null,
     // Version 3: share of firing time on the moving targets (null before version 3 or if never fired).
-    trackAcc: st.P.holdFire && st.trackFire ? st.trackFireOn / st.trackFire : null
+    trackAcc: st.P.holdFire && st.trackFire ? st.trackFireOn / st.trackFire : null,
+    // Precision versions: hits by zone (null before version 6).
+    zones: st.P.precision ? { ...st.zones } : null
   };
 }
 

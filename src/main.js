@@ -2018,8 +2018,8 @@ function chalTick(dt, edge) {
     c.acc -= DT;
   }
   for (const ev of c.st.events) {
-    if (ev.type === 'hit') { c.flash = { yaw: ev.yaw, pitch: ev.pitch, t: 0.3, good: true }; c.pop = { text: '+' + Math.round(ev.pts), t: 0.7 }; }
-    if (ev.type === 'miss') { c.flash = { yaw: ev.yaw, pitch: ev.pitch, t: 0.2, good: false }; c.pop = { text: '−25', t: 0.5 }; }
+    if (ev.type === 'hit') { c.flash = { yaw: ev.yaw, pitch: ev.pitch, t: 0.3, good: true }; c.pop = { text: '+' + Math.round(ev.pts) + (ev.zone === 'bull' ? '  BULLSEYE' : ev.zone === 'inner' ? '  INNER' : ''), t: ev.zone === 'bull' ? 0.9 : 0.7 }; }
+    if (ev.type === 'miss') { c.flash = { yaw: ev.yaw, pitch: ev.pitch, t: 0.2, good: false }; c.pop = { text: '−' + Math.round(ev.lost ?? c.st.P.missPenalty), t: 0.5 }; }
   }
   c.st.events.length = 0;
   if (c.st.done) endChallenge();
@@ -2083,6 +2083,7 @@ function showChalGuide(c) {
   const rules = [
     ...(level ? [level] : []),
     `60 seconds. Each hit in a row adds 10% to the next, up to double points.`,
+    ...(P.precision ? ['Hits near the centre score more: bullseye ×1.5, inner ring ×1.2, edge ×1.'] : []),
     `A miss costs ${P.missPenalty} points${P.nearMiss ? '. Your first near miss on a target keeps the streak' : ' and ends the streak'}.`,
     P.holdFire ? `Moving targets score only while you're on them and ${mouse ? 'holding the button' : 'holding fire'}. Firing off them costs nothing.` : 'Moving targets score for every second you stay on them.',
     ...(c.st.v >= 2 && !mouse ? ['Aim assist is on (medium), like your game.'] : [])
@@ -2293,10 +2294,12 @@ function renderChalEnd() {
       ${stat('Hits', sum.hits)}
       ${stat('Time per hit', sum.avgTime == null ? '–' : sum.avgTime.toFixed(2) + ' s')}
       ${stat('Best streak', sum.bestStreak)}
+      ${sum.zones && sum.hits ? stat('Bullseyes', pct(sum.zones.bull / sum.hits)) : ''}
       ${c.st.P.holdFire
         ? stat('Moving targets hit', sum.trackAcc == null ? '–' : pct(sum.trackAcc))
         : stat('On moving targets', sum.tracking == null ? '–' : pct(sum.tracking))}
     </div>
+    ${sum.zones && sum.hits ? `<p class="hint">Where your hits landed: Bullseye ${pct(sum.zones.bull / sum.hits)} · Inner ${pct(sum.zones.inner / sum.hits)} · Edge ${pct(sum.zones.edge / sum.hits)}</p>` : ''}
     ${reportHtml(reportCard(c.st.log, { game: c.game, style: cfg.style, v: c.st.v, mouse: c.st.mouse }))}
     <div class="share">
       <p>Share the code and anyone can play the exact same targets: <code>${c.code}</code></p>
