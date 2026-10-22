@@ -1968,8 +1968,8 @@ const INPUT_LABEL = { pad: 'Controller', mouse: 'Mouse', virtual: 'On-screen sti
 // board's tabs and its .board-table: the end screen's board or the setup screen's leaderboard.
 // code ALL_TIME reads the all-time board (best daily score per player), with a Day column.
 const ALL_TIME = 'all-time';
-// Boards show BOARD_PAGE rows; Show more adds another page, up to BOARD_MAX.
-const BOARD_PAGE = 25, BOARD_MAX = 200;
+// Boards show the top BOARD_PAGE; the button expands to the top BOARD_MAX and back.
+const BOARD_PAGE = 10, BOARD_MAX = 25;
 async function loadBoard(code, input, root, limit = BOARD_PAGE) {
   const box = root.querySelector('.board-table'), req = root.boardReq = (root.boardReq || 0) + 1;
   root.querySelectorAll('.board-tabs [data-board]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.board === input)));
@@ -1982,9 +1982,13 @@ async function loadBoard(code, input, root, limit = BOARD_PAGE) {
       ? `<table><thead><tr><th>#</th><th>Name</th>${all ? '<th>Input</th>' : ''}<th>Score</th><th>Accuracy</th><th>Streak</th><th>Game</th>${ever ? '<th>Day</th>' : ''}</tr></thead><tbody>${rows.map((r, i) =>
         `<tr><td class="num">${i + 1}</td><td>${esc(r.name)}</td>${all ? `<td><span class="input-tag ${esc(r.input)}">${esc(INPUT_LABEL[r.input] || r.input)}</span></td>` : ''}<td class="num">${r.score.toLocaleString('en-US')}</td><td class="num">${r.accuracy == null ? '–' : pct(r.accuracy)}</td><td class="num">${r.best_streak ?? '–'}</td><td>${esc(GAMES[r.game] ? gameTitle(GAMES[r.game]) : r.game)}</td>${ever ? `<td class="num">${esc(String(r.code).slice(2))}</td>` : ''}</tr>`).join('')}</tbody></table>`
       : `<p class="fine">No ${all ? '' : INPUT_LABEL[input].toLowerCase() + ' '}scores yet. Be the first.</p>`;
-    // A full page means there may be more.
-    if (rows.length >= limit && limit < BOARD_MAX) {
-      const more = button('Show more', 'small board-more', () => { more.disabled = true; more.textContent = 'Loading…'; loadBoard(code, input, root, limit + BOARD_PAGE); });
+    // Expand when the top 10 is full (there may be more); collapse again from the top 25.
+    const expanded = limit >= BOARD_MAX;
+    if (expanded || rows.length >= limit) {
+      const more = button(expanded ? 'Show top 10' : 'Show top 25', 'small board-more', () => {
+        more.disabled = true; more.textContent = 'Loading…';
+        loadBoard(code, input, root, expanded ? BOARD_PAGE : BOARD_MAX);
+      });
       box.append(more);
     }
   } catch (e) {
