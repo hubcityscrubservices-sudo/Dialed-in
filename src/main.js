@@ -15,7 +15,7 @@ import { makeWorld, paintSky, paintTerrain, paintCompass, paintDrone, paintOffsc
   noteFlash, paintFx, paintCrosshair, paintFigure, paintLens, paintCountdown, TRACK_BLUE } from './scenery.js';
 import { DUEL, duelPlan, duelCompare } from './duel.js';
 import { createMouse, CARD_CM, SWIPES, MIN_SWIPE, analyzeSwipes, resolveDpi, pollingHz, calibrationK, cm360 } from './mouse.js';
-import { boardsOn, submitScore, fetchBoard, fetchAllTime, fetchAllTimeRank, fetchTiers, addTurnSample, fetchTurnSamples, playerId, savedName, saveName } from './leaderboard.js';
+import { logEvent, boardsOn, submitScore, fetchBoard, fetchAllTime, fetchAllTimeRank, fetchTiers, addTurnSample, fetchTurnSamples, playerId, savedName, saveName } from './leaderboard.js';
 
 const $ = s => document.querySelector(s);
 // Calibration targets follow the play style: a closer fight means bigger targets that strafe across
@@ -823,7 +823,7 @@ function show(name) {
   if (name === 'setup') { renderWarmBests(); showLeader(); }
   else $('#p-leader').hidden = true;
   if (name === 'test') { if (chal) renderChalBrief(true); else renderBrief(true); }
-  if (name === 'results') renderResults();
+  if (name === 'results') { renderResults(); if (result && !result.logged) { result.logged = true; logEvent('results'); } }
   if (name === 'chend') { if (chal && chal.duel) renderDuelEnd(); else renderChalEnd(); }
   if (changed) window.scrollTo({ top: 0 });
 }
@@ -1646,6 +1646,7 @@ $('#spin-how').addEventListener('click', e => {
 $('#sens').addEventListener('input', spinHelp);
 
 $('#go').addEventListener('click', () => {
+  logEvent('calibrate');
   readSetup();
   sharePoolSample();
   result = null;
@@ -2094,6 +2095,7 @@ const kindLabel = c => c.kind === 'daily' ? CH_KIND.daily : `${CH_KIND[c.kind]}$
 
 // opts: { settings, seconds, duel } for duel runs; otherwise the run uses the setup form.
 function startChallenge(code, kind, opts = {}) {
+  if (kind === 'daily' || kind === 'practice') logEvent(kind);
   checkVersion();
   if (!opts.settings) { readSetup(); syncSetup(); sharePoolSample(); }
   session = null;
@@ -2817,3 +2819,5 @@ $('#setup-reset').addEventListener('click', () => {
   saveSetup();
 });
 requestAnimationFrame(frame);
+
+logEvent('visit');

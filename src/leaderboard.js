@@ -86,3 +86,22 @@ export function playerId() {
 }
 export function savedName() { try { return localStorage.getItem(NAME_KEY) || ''; } catch (e) { return ''; } }
 export function saveName(n) { try { localStorage.setItem(NAME_KEY, n); } catch (e) { /* storage blocked: name isn't remembered */ } }
+
+// Private visit counter (database function log_event): page loads and a few milestones, with a random
+// per-browser id kept apart from the leaderboard id, the referring site's host, a campaign tag and phone
+// or computer. Nothing personal and nothing readable back with the public key. Only on the real site.
+const VID_KEY = 'dialed-in:vid';
+const realSite = () => /(^|\.)dialedinaim\.com$|\.github\.io$/.test(location.hostname) && !new URLSearchParams(location.search).has('debug');
+function visitorId() {
+  try { let id = localStorage.getItem(VID_KEY); if (!id) { id = uuid(); localStorage.setItem(VID_KEY, id); } return id; }
+  catch (e) { return sessionId || (sessionId = uuid()); }
+}
+export function logEvent(kind) {
+  if (!boardsOn() || !realSite()) return;
+  let ref = null;
+  try { const h = document.referrer && new URL(document.referrer).hostname; if (h && h !== location.hostname) ref = h.replace(/^www\./, ''); } catch (e) { /* no usable referrer */ }
+  const q = new URLSearchParams(location.search), coarse = window.matchMedia && matchMedia('(pointer: coarse)').matches;
+  const device = !coarse ? 'computer' : Math.min(screen.width, screen.height) < 600 ? 'phone' : 'tablet';
+  fetch(`${SUPABASE.url}/rest/v1/rpc/log_event`, { method: 'POST', headers: headers(true), keepalive: true,
+    body: JSON.stringify({ p_visitor: visitorId(), p_kind: kind, p_ref: ref, p_utm: q.get('utm_source') || q.get('ref'), p_device: device }) }).catch(() => {});
+}
