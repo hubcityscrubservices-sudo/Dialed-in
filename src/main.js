@@ -1906,7 +1906,7 @@ function startChallenge(code, kind, opts = {}) {
   // Mouse runs carry their degrees per count, so the replay doesn't depend on this browser's calibration.
   if (GAMES[game].device === 'mouse') settings = { ...settings, dpc: GAMES[game].sens.rate(settings.sens) };
   chal = { st: createChallenge(code, game, settings, { seconds: opts.seconds }), rec: newRecording(), code, kind, phase: 'intro',
-    countLeft: 0, acc: 0, flash: null, pop: null, src: inp.src, settings, game, duel: opts.duel || null };
+    countLeft: 0, acc: 0, flash: null, pop: null, src: inp.src, used: {}, settings, game, duel: opts.duel || null };
   view.yaw = 0; view.pitch = 0;
   show('test');
 }
@@ -1937,6 +1937,8 @@ function chalTick(dt, edge) {
     c.fireSeen = false;
     c.prevView = { yaw: c.st.view.yaw, pitch: c.st.view.pitch };
     if (mouseRun) { c.mx -= rx; c.my -= ry; }
+    // Which input actually drove the run, tick by tick (see endChallenge).
+    if (rx || ry || fire) c.used[inp.src] = (c.used[inp.src] || 0) + 1;
     record(c.rec, rx, ry, fire);
     chStep(c.st, rx, ry, fire);
     c.acc -= DT;
@@ -2180,6 +2182,10 @@ function endChallenge() {
     renderChalBrief(true);
     return;
   }
+  // The board comes from the input that did most of the playing, not from what was connected at the
+  // start: a browser hides a controller until a button is pressed, so a run can begin before it shows up.
+  const used = Object.entries(c.used).sort((a, b) => b[1] - a[1]);
+  if (used.length) c.src = used[0][0];
   c.result = { sum, best: saveBest(c.code, c.kind, sum.score, c.src), replay: encodeReplay(c.rec) };
   mouse.unlock();
   show('chend');
@@ -2222,10 +2228,10 @@ function renderChalEnd() {
     </div>
     ${boardsOn() ? `<div class="board" id="board">
       <div style="display:grid;gap:4px"><h3 class="sub">Leaderboard · ${c.code}</h3>
-        <p class="fine">Your run goes on the ${INPUT_LABEL[c.src].toLowerCase()} board and the combined one. Every run is replayed on the server before it counts.</p></div>
+        <p class="fine">You played with ${c.src === 'pad' ? 'a controller' : c.src === 'mouse' ? 'a mouse' : 'the on-screen stick'}, so your run goes on the <b>${INPUT_LABEL[c.src].toLowerCase()}</b> board and the combined one. The board is set by what you played with; the tabs below only change which board you're looking at. Every run is replayed on the server before it counts.</p></div>
       <div class="board-tabs" role="tablist" aria-label="Which board">
         ${['all', 'pad', 'mouse', ...(c.src === 'virtual' ? ['virtual'] : [])].map(k =>
-          `<button type="button" role="tab" data-board="${k}" aria-selected="${k === c.src}">${k === 'all' ? 'All inputs' : INPUT_LABEL[k]}</button>`).join('')}
+          `<button type="button" role="tab" data-board="${k}" aria-selected="${k === c.src}">${k === 'all' ? 'All inputs' : INPUT_LABEL[k]}${k === c.src ? ' (yours)' : ''}</button>`).join('')}
       </div>
       <div class="actions">
         <label for="board-name" class="sr-only">Name on the leaderboard</label>
