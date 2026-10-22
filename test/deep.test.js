@@ -207,3 +207,22 @@ test('a second sitting adds to the first and plays its own full search', () => {
   const res = deepAnalyze(history, w, game, cur, mulberry32(42), 200);
   assert.ok(Math.abs(res.best.x + 0.3) < 0.35);
 });
+
+import { feelPoint, FEEL } from '../src/deep.js';
+
+test('feel: the speed where ratings cross from slow to fast', () => {
+  // A player who feels speed x as right at +0.3: ratings rise with speed, rounded to the 5 steps.
+  const xs = [-0.5, 0, 0.5, 0.3, 0, 0.8, 0.2];
+  const history = xs.map(x => ({ x, feel: Math.max(-2, Math.min(2, Math.round((x - 0.3) * 3))) }));
+  const f = feelPoint(history, game, cur);
+  assert.ok(Math.abs(f.x - 0.3) < 0.15, `crossing at ${f.x}`);
+  assert.equal(f.edge, null);
+  assert.equal(feelPoint(history.slice(0, FEEL.min - 1), game, cur), null); // too few ratings
+  assert.equal(feelPoint(history.map(h => ({ ...h, feel: 0 })), game, cur), null); // not about speed
+  // Every round too fast: the answer sits below the slowest tested speed, but not far.
+  const fast = feelPoint(xs.map(x => ({ x, feel: x > 0.4 ? 2 : 1 })), game, cur);
+  assert.equal(fast.edge, 'lo');
+  assert.ok(fast.x >= -0.5 - FEEL.reach - 1e-9);
+  // Skipped rounds (no rating) are left out.
+  assert.ok(feelPoint([...history, { x: 1, feel: null }], game, cur));
+});

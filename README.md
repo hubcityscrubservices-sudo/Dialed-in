@@ -243,6 +243,15 @@ speed inside the tested range is found within about 5% in 7 rounds. When the bes
 from the current one, the estimate leans about 9% toward the current speed and the verdict is
 more often "unclear". Players with no real preference are called "matters" about 5% of the time.
 
+Speed ratings: after each round the player rates its speed on five steps (way too slow, a bit
+slow, just right, a bit fast, way too fast; on a controller L1, D-pad ←, ↑, →, R1). A straight
+line through rating against speed crosses zero at the speed that feels right (needs 4 rated rounds
+at 2 or more speeds, and ratings that rise with speed; it may sit up to 30% past the tested speeds).
+Scores decide when they're clear. When that feel point is inside the range that scores within the
+noise of the best, or sensitivity barely matters (flat), the suggestion goes with feel; when it's
+outside, the scores win and the results say the new speed may feel off at first. Verify and the
+settings duel use the same five steps and show each side's average.
+
 More data, two ways:
 
 - **Play 4 more rounds** (on the results): the best guess and 30% either side of it, in random

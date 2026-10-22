@@ -3,7 +3,7 @@ import { makeCamera, hfov169 } from './camera.js';
 import { makeView, steer, newFlickTarget, flickStep, makeTrack, trackStep, newTurnTarget, turnStep, trackAim, TRACK_V2 } from './sim.js';
 import { summarize, recommend, recommendVertical, recommendAds, turnStats, recommendTurn, driftDeadzone, settingsChanged } from './analysis.js';
 import { verifyPlan, verifyCompare, ratingSummary, sideOf } from './verify.js';
-import { DEEP, SCREEN, MORE, deepNext, deepAnalyze, shuffled, morePlan, screenPlan, altCurve, screenAnalyze } from './deep.js';
+import { DEEP, SCREEN, MORE, FEEL, deepNext, deepAnalyze, feelPoint, shuffled, morePlan, screenPlan, altCurve, screenAnalyze } from './deep.js';
 import { emptyReach, recordReach, coverage, stickReport, outerFromReach, hardwareRecs } from './hardware.js';
 import { clamp, pct } from './util.js';
 import { buildExport } from './export.js';
@@ -37,10 +37,14 @@ const DRIFT_SECONDS = 4, ROLL_SECONDS = 10, SQUEEZE_SECONDS = 8;
 const RAIL = { setup: 'Setup', drift: 'Sticks', flick: 'Flicks', track: 'Tracking', deep: 'Search', screen: 'Screen', turn: 'Turns', ads: 'ADS', verify: 'Verify', results: 'Results' };
 const ADS = { flicks: 8, seconds: 8, scopedFlicks: 6, scopedSeconds: 6 };
 const TURNS = 6;
+// How a round's speed felt, -2 (way too slow) to +2 (way too fast). Deep mode finds where the ratings
+// cross from slow to fast; Verify and the duel show the average for each side.
 const RATINGS = [
-  { v: 1, label: 'Rough', key: 'dl', glyph: '←' },
-  { v: 2, label: 'OK', key: 'du', glyph: '↑' },
-  { v: 3, label: 'Great', key: 'dr', glyph: '→' }
+  { v: -2, label: 'Way too slow', key: 'lb', glyph: 'L1' },
+  { v: -1, label: 'A bit slow', key: 'dl', glyph: 'D-pad ←' },
+  { v: 0, label: 'Just right', key: 'du', glyph: 'D-pad ↑' },
+  { v: 1, label: 'A bit fast', key: 'dr', glyph: 'D-pad →' },
+  { v: 2, label: 'Way too fast', key: 'rb', glyph: 'R1' }
 ];
 const MODE_HINT = { quick: 'About 3 minutes', verify: 'About 5 minutes', deep: 'About 8 minutes' };
 
@@ -53,8 +57,8 @@ let screen = 'setup';  // setup | test | results
 let session = null;    // { segs, i, phase, countLeft, drift }
 let result = null;     // { cfg, stats, rec, drift, verify }
 const view = makeView();
-let inp = { src: 'virtual', name: null, lx: 0, ly: 0, rx: 0, ry: 0, fire: false, dl: false, du: false, dr: false };
-let prev = { fire: false, dl: false, du: false, dr: false };
+let inp = { src: 'virtual', name: null, lx: 0, ly: 0, rx: 0, ry: 0, fire: false, dl: false, du: false, dr: false, lb: false, rb: false };
+let prev = { fire: false, dl: false, du: false, dr: false, lb: false, rb: false };
 let lastT = 0, gpBlocked = false;
 
 const game = () => GAMES[cfg.game];
@@ -165,7 +169,7 @@ function verifySegments(A, B) {
         : `Same drill. The settings may have changed. ${VERIFY.flicks} targets, then tracking.` });
     segs.push({ kind: 'track', rail: 'verify', key: r.key, counter: title, dur: VERIFY.trackSeconds, warm: VERIFY.warmSeconds, settings: r.settings, title,
       text: 'Stay on the moving target.' });
-    segs.push({ kind: 'rate', rail: 'verify', key: r.key, counter: title, title: `How did round ${k + 1} feel?`,
+    segs.push({ kind: 'rate', rail: 'verify', key: r.key, counter: title, title: `How did the speed of round ${k + 1} feel?`,
       text: 'Go with your gut. Your answer is shown next to the measurements at the end.' });
   });
   segs.push({ kind: 'verdict' });
@@ -191,7 +195,7 @@ function loadDeepSaved() {
   } catch (err) { return null; }
 }
 function saveDeep(D, c) {
-  const compact = h => ({ sens: h.sens, rating: h.rating ?? null, sitting: h.sitting,
+  const compact = h => ({ sens: h.sens, feel: h.feel ?? null, sitting: h.sitting,
     flicks: h.flicks.map(f => ({ D: f.D, first: f.first ? { along: f.first.along, t: f.first.t } : null })), chunks: h.chunks });
   const sittings = [...new Set(D.history.map(h => h.sitting))].slice(-DEEP_SITTINGS);
   try {
@@ -219,13 +223,14 @@ function deepStep() {
   if (D.pending) {
     const r = D.pending, parts = session.segs.filter(x => x.round === r);
     const fl = parts.find(x => x.kind === 'flick'), tr = parts.find(x => x.kind === 'track'), ra = parts.find(x => x.kind === 'rate');
-    D.history.push({ x: r.x, sens: r.sens, flicks: fl.data.list.slice(fl.warm), chunks: tr.data.chunks, track: tr.data, rating: ra.data, block: D.block, sitting: D.sitting });
+    D.history.push({ x: r.x, sens: r.sens, flicks: fl.data.list.slice(fl.warm), chunks: tr.data.chunks, track: tr.data, rating: ra.data, feel: ra.data, block: D.block, sitting: D.sitting });
     D.pending = null;
   }
   const opts = D.more ? { base: D.base, min: MORE, max: MORE, control: -1 } : { base: D.base };
   const next = deepNext(D.history, PLAYSTYLES[cfg.style], game(), cfg.sens, D.order, opts);
   if (!next) {
     D.res = deepAnalyze(D.history, PLAYSTYLES[cfg.style], game(), cfg.sens);
+    D.feel = feelPoint(D.history, game(), cfg.sens);
     if (D.more) { session.segs.push({ kind: 'deepDone' }); return advance(); }
     const best = D.res && D.res.verdict !== 'flat' ? D.res.best.sens : cfg.sens;
     // Curve and vertical speed screening is about stick shaping; a mouse skips it.
@@ -248,7 +253,7 @@ function deepStep() {
         ? `The search runs ${DEEP.minRounds} short rounds, plus up to ${DEEP.maxRounds - DEEP.minRounds} extra if your best speed is still unclear. Each is ${DEEP_ROUND.flicks} targets, then ${DEEP_ROUND.trackSeconds} seconds of tracking, at a hidden sensitivity. Each round's speed is picked from how you did in the earlier ones.${pooled}`
         : `${DEEP_ROUND.flicks} targets, then tracking. The sensitivity has probably changed. Play the way you normally would.` },
     { kind: 'track', rail: 'deep', round, counter: title, dur: DEEP_ROUND.trackSeconds, warm: DEEP_ROUND.warmSeconds, settings, title, text: 'Stay on the moving target.' },
-    { kind: 'rate', rail: 'deep', round, counter: title, title: `How did round ${D.history.length + 1} feel?`, text: 'Go with your gut. Your ratings are shown next to the scores at the end.' },
+    { kind: 'rate', rail: 'deep', round, counter: title, title: `How did the speed of round ${D.history.length + 1} feel?`, text: 'Go with your gut. Where your answers turn from slow to fast is the speed that feels right to you, and it counts alongside your scores.' },
     { kind: 'deepNext' }
   );
   advance();
@@ -363,10 +368,7 @@ function deepDone() {
   const from = base.length ? base : now;
   const stats = summarize(from.flatMap(h => h.flicks), from[0].track);
   const rec = withHardware(recommend(stats, c, session.drift), session.drift);
-  if (res) {
-    rec.sens = res.verdict === 'flat' ? c.sens : res.best.sens;
-    rec.sensWhy = deepWhy(res, c);
-  }
+  if (res) Object.assign(rec, deepPick(res, D.feel, c));
   // Every round scales vertical with horizontal, so the up/down vs side-to-side comparison holds across all of them.
   Object.assign(rec, verticalRec(now.flatMap(h => h.flicks), c, rec.sens));
   applyScreen(rec, c, D);
@@ -374,24 +376,39 @@ function deepDone() {
   rec.turn = turnRec(c);
   rec.boost = c.boost; rec.boostRamp = c.boostRamp; rec.boostDelay = c.boostDelay;
   result = { cfg: c, stats, rec, drift: session.drift, mouse: session.mouse, verify: null, segs: session.segs, pad: inp.name,
-    deep: { res, rounds: D.history.map(h => ({ sens: h.sens, rating: h.rating })), screen: rec.screen, prior: D.prior, sittings: new Set(D.history.map(h => h.sitting)).size }, deepState: D };
+    deep: { res, feel: D.feel, rounds: D.history.map(h => ({ sens: h.sens, rating: h.feel ?? null })), screen: rec.screen, prior: D.prior, sittings: new Set(D.history.map(h => h.sitting)).size }, deepState: D };
   saveDeep(D, c);
   session = null;
   show('results');
 }
 
-function deepWhy(res, c) {
+// The sensitivity to suggest from the score fit and, when the speed ratings give one, the speed that
+// felt right. Scores decide when they're clear; within the range that scores the same (or when
+// sensitivity barely matters) the feel decides.
+function deepPick(res, feel, c) {
   const g = GAMES[c.game];
   const [lo, hi] = [res.range[0].sens, res.range[1].sens];
   const span = lo === hi ? `${lo}` : `${lo} to ${hi}`;
+  const inRange = feel && feel.x >= res.range[0].x - 0.05 && feel.x <= res.range[1].x + 0.05;
+  const feelEdge = !feel || !feel.edge ? '' : ` Nearly every round felt too ${feel.edge === 'lo' ? 'fast' : 'slow'}, so that speed sits a little ${feel.edge === 'lo' ? 'below the slowest' : 'above the fastest'} one tested.`;
+  const feelAt = feel ? `Your speed ratings turn from slow to fast at about ${feel.sens}.${feelEdge}` : '';
   if (res.verdict === 'matters') {
     const edge = res.edge ? ` Your best score came at the ${res.edge === 'hi' ? 'fastest' : 'slowest'} speed tested, so the true best may sit a little beyond it.` : '';
-    return `Your score peaked at ${res.best.sens} and fell about ${pct(res.drop)} when the speed was 30% off that. Anything from ${span} is within the noise of your best.${edge}`;
+    const base = `Your score peaked at ${res.best.sens} and fell about ${pct(res.drop)} when the speed was 30% off that. Anything from ${span} is within the noise of your best.${edge}`;
+    if (!feel) return { sens: res.best.sens, sensWhy: base };
+    if (Math.abs(feel.x - res.best.x) <= FEEL.agree) return { sens: res.best.sens, sensWhy: `${base} It felt right too: ${feelAt[0].toLowerCase() + feelAt.slice(1)}` };
+    if (inRange) return { sens: feel.sens, sensWhy: `${base} ${feelAt} That scores as well as your peak and feels right, so go with ${feel.sens}.` };
+    return { sens: res.best.sens, sensWhy: `${base} ${feelAt} That's outside the range you score best in, so ${res.best.sens} may feel ${feel.x < res.best.x ? 'fast' : 'slow'} at first. Give it a few matches before you judge it.` };
   }
   if (res.verdict === 'flat') {
-    return `Your score barely changed across the speeds tested (${pct(Math.max(0, res.drop))} at 30% off your best). Sensitivity is not what limits your aim, so keep whatever feels best. Your current ${c.sens} is fine.`;
+    const base = `Your score barely changed across the speeds tested (${pct(Math.max(0, res.drop))} at 30% off your best). Sensitivity is not what limits your aim, so go by feel.`;
+    return feel
+      ? { sens: feel.sens, sensWhy: `${base} ${feelAt} Go with ${feel.sens}.` }
+      : { sens: c.sens, sensWhy: `${base} Your current ${c.sens} is fine. Rate each round's speed next time and the app can say which speed feels best.` };
   }
-  return `Best guess is ${res.best.sens}, but your rounds varied too much to be sure. Anything from ${span} is reasonable in ${g.name}. More rounds would narrow it down.`;
+  const base = `Best guess is ${res.best.sens}, but your rounds varied too much to be sure. Anything from ${span} is reasonable in ${g.name}.`;
+  if (inRange) return { sens: feel.sens, sensWhy: `${base} ${feelAt} That's inside the range, so start with ${feel.sens}. More rounds would firm it up.` };
+  return { sens: res.best.sens, sensWhy: `${base}${feel ? ' ' + feelAt : ''} More rounds would narrow it down.` };
 }
 
 /* ---------- session flow ---------- */
@@ -717,7 +734,7 @@ function renderBrief(force) {
     row.className = 'rate';
     for (const r of RATINGS) {
       const b = button(r.label, '', () => rate(r.v));
-      if (!noPad) { const small = document.createElement('small'); small.textContent = 'D-pad ' + r.glyph; b.append(small); }
+      if (!noPad) { const small = document.createElement('small'); small.textContent = r.glyph; b.append(small); }
       row.append(b);
     }
     row.append(button('Skip', 'small', () => { seg().data = null; advance(); }));
@@ -740,7 +757,7 @@ function hint(t) { const s = document.createElement('span'); s.className = 'hint
 /* ---------- results ---------- */
 
 const signed = d => (d >= 0 ? '+' : '−') + Math.abs(Math.round(d * 100)) + '%';
-const feelLabel = v => v == null ? 'skipped' : RATINGS[clamp(Math.round(v), 1, 3) - 1].label;
+const feelLabel = v => v == null ? 'skipped' : RATINGS[clamp(Math.round(v), -2, 2) + 2].label;
 const likely = (d, p) => {
   const q = d >= 0 ? p : 1 - p;
   return `${q >= 0.995 ? 'Over 99%' : pct(q)} chance it is real`;
@@ -782,7 +799,7 @@ function deepBlock(d, g, c) {
     <div style="display:grid;gap:4px"><p class="eyebrow">Deep search · ${res.points.length} rounds${d.prior ? ` (${d.prior} from earlier sittings)` : ''}</p><h3>${head}</h3>
       <p>Each dot is one round's score at that sensitivity. The line is the fitted trend, and the shaded band is the range that scores within the noise of your best.</p></div>
     ${goal}
-    ${deepChart(res, c, g)}
+    ${deepChart(res, c, g, d)}
     ${warm}
     ${screenTable(d.screen, g)}
     <div class="table-wrap"><table><thead><tr><th>Round</th><th>${g.sens.label}</th><th>Score vs best</th><th>Felt</th></tr></thead><tbody>${rows}</tbody></table></div>
@@ -828,7 +845,7 @@ function screenTable(sc, g) {
     <p class="fine">Four rounds can only pick out a clear difference, about 15% or more. Smaller ones read as too close to tell.</p></div>`;
 }
 
-function deepChart(res, c, g) {
+function deepChart(res, c, g, d = {}) {
   const W = 600, H = 250, L = 46, R = 16, T = 22, B = 40;
   const pad = Math.max(0.08, (res.hi - res.lo) * 0.06);
   const x0 = res.lo - pad, x1 = res.hi + pad;
@@ -850,6 +867,9 @@ function deepChart(res, c, g) {
   const bestFar = Math.abs(sx(res.best.x) - sx(0)) > 46;
   out += marker(0, 'Current', 'c-mark');
   if (res.verdict !== 'flat' && bestFar) out += marker(res.best.x, 'Best', 'c-best');
+  // Where the speed ratings cross from slow to fast, when they give one and it isn't on top of another marker.
+  const feel = d.feel;
+  if (feel && feel.x >= x0 && feel.x <= x1 && Math.abs(sx(feel.x) - sx(0)) > 46 && (res.verdict === 'flat' || !bestFar || Math.abs(sx(feel.x) - sx(res.best.x)) > 46)) out += marker(feel.x, 'Feels right', 'c-feel');
   out += `<path class="c-fit" d="${res.curve.map((p, i) => `${i ? 'L' : 'M'}${sx(p.x).toFixed(1)},${sy(p.y / res.top * 100).toFixed(1)}`).join('')}"/>`;
   // Setting labels under the tested speeds, skipping any that would collide.
   const ticks = [...new Map(res.points.map(p => [p.sens, p.x])).entries()].sort((a, b) => a[1] - b[1]);
@@ -1453,7 +1473,7 @@ function poll() {
     const b = p.buttons;
     const pressed = i => !!b[i] && (b[i].pressed || b[i].value > 0.5);
     return { src: 'pad', name: p.id, lx: p.axes[0], ly: p.axes[1], rx: p.axes[2], ry: p.axes[3],
-      fire: pressed(7) || pressed(0) || pressed(5), dl: pressed(14), du: pressed(12), dr: pressed(15),
+      fire: pressed(7) || pressed(0) || pressed(5), dl: pressed(14), du: pressed(12), dr: pressed(15), lb: pressed(4), rb: pressed(5),
       lt: b[6] ? b[6].value : 0, rt: b[7] ? b[7].value : 0 };
   }
   let x = vpad.x, y = vpad.y;
@@ -1919,7 +1939,7 @@ function renderChalBrief(force) {
   const di = c.duel ? c.duel.i : 0;
   $('#swipe-fig').hidden = true;
   showChalGuide(c);
-  $('#brief-title').textContent = c.duel ? (c.phase === 'rate' ? `How did run ${di + 1} feel?` : `Settings duel · run ${di + 1} of ${DUEL.runs}`)
+  $('#brief-title').textContent = c.duel ? (c.phase === 'rate' ? `How did the speed of run ${di + 1} feel?` : `Settings duel · run ${di + 1} of ${DUEL.runs}`)
     : c.kind === 'daily' ? `Daily challenge · ${c.code.slice(2)}` : c.kind === 'practice' ? 'Practice challenge' : `Challenge ${c.code}`;
   $('#brief-text').textContent = c.phase === 'rate' ? 'Go with your gut. You can skip this.'
     : c.phase !== 'intro' ? (c.phase === 'count' ? 'Get ready.' : 'Go.')
@@ -1933,7 +1953,7 @@ function renderChalBrief(force) {
     row.className = 'rate';
     for (const r of RATINGS) {
       const b = button(r.label, '', () => duelRate(r.v));
-      if (inp.src === 'pad') { const small = document.createElement('small'); small.textContent = 'D-pad ' + r.glyph; b.append(small); }
+      if (inp.src === 'pad') { const small = document.createElement('small'); small.textContent = r.glyph; b.append(small); }
       row.append(b);
     }
     row.append(button('Skip', 'small', () => duelRate(null)));
@@ -2375,7 +2395,7 @@ function frame(ts) {
   css = getComputedStyle(document.documentElement);
   inp = poll();
   const edge = {};
-  for (const k of ['fire', 'dl', 'du', 'dr']) { edge[k] = inp[k] && !prev[k]; prev[k] = inp[k]; }
+  for (const k of ['fire', 'dl', 'du', 'dr', 'lb', 'rb']) { edge[k] = inp[k] && !prev[k]; prev[k] = inp[k]; }
   if (screen === 'test' && chal) chalTick(dt, edge);
   else if (screen === 'test' && session) tick(dt, edge);
   updateStatus();

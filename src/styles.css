@@ -430,3 +430,4 @@ pre#copytext { font: 12px/1.5 var(--mono); background: rgba(8, 16, 23, 0.6); bor
 .goal-bar { position: relative; height: 10px; background: var(--plate-hi); border-radius: 5px; }
 .goal-bar i { position: absolute; inset: 0 auto 0 0; background: var(--sun); border-radius: 5px; }
 .goal-bar em { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--ink); opacity: .6; }
+.c-feel { stroke: var(--good); stroke-width: 1.5; stroke-dasharray: 2 4; }

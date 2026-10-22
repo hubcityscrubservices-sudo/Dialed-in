@@ -206,6 +206,28 @@ export function deepAnalyze(history, w, game, cur, rng = Math.random, iters = 40
   };
 }
 
+/* ---------- feel: where rounds stop feeling slow and start feeling fast ---------- */
+
+// Each round can be rated on speed: -2 way too slow, -1 a bit slow, 0 just right, +1 a bit fast,
+// +2 way too fast. A straight line through rating against speed (x) crosses 0 at the speed that feels
+// right. It needs FEEL.min rated rounds at FEEL.speeds or more speeds, and ratings that rise with speed
+// (otherwise the ratings aren't about speed and there's no answer). The crossing may sit a little past
+// the tested speeds (all rounds felt slow, say) but no further than FEEL.reach.
+export const FEEL = { min: 4, speeds: 2, reach: 0.3, agree: 0.15 };
+export function feelPoint(history, game, cur) {
+  const r = history.filter(h => typeof h.feel === 'number');
+  if (r.length < FEEL.min || new Set(r.map(h => h.x.toFixed(3))).size < FEEL.speeds) return null;
+  const mx = mean(r.map(h => h.x)), my = mean(r.map(h => h.feel));
+  let sxy = 0, sxx = 0;
+  for (const h of r) { sxy += (h.x - mx) * (h.feel - my); sxx += (h.x - mx) ** 2; }
+  const b = sxy / sxx;
+  if (!(b > 0)) return null;
+  const xs = r.map(h => h.x), lo = Math.min(...xs), hi = Math.max(...xs);
+  const raw = mx - my / b;
+  const x = clamp(raw, Math.max(lo - FEEL.reach, -DEEP.limit - FEEL.reach), Math.min(hi + FEEL.reach, DEEP.limit + FEEL.reach));
+  return { sens: snap(x, game, cur).sens, x, edge: raw < lo ? 'lo' : raw > hi ? 'hi' : null, n: r.length, slope: b };
+}
+
 /* ---------- screening: which other settings matter ---------- */
 
 // After the sensitivity search, four rounds at the best speed cover every pairing of two curves and
