@@ -64,7 +64,7 @@ export const GAMES = {
     // Menu names, ranges and curve options from a player's PS5 Wireless Controller screen; defaults
     // there are that player's values. The menu has no outer or trigger deadzone. Look Boost (55) is
     // modeled as +55% turn speed at full stick (Vertical Look Boost 15 as +15%), ramping up over 1.6 s.
-    // Vertical Sensitivity shares the horizontal scale. Both sensitivity sliders and both inner deadzones (0 up) move in steps of 5. Sinusoidal is modeled as an
+    // Vertical Sensitivity shares the horizontal scale. Both sensitivity sliders both inner deadzones (0 up) and both zoom multipliers move in steps of 5. Sinusoidal is modeled as an
     // S-curve: softer than linear near center, quicker than exponential through the middle.
     name: 'ARC Raiders', camera: 'third', source: 'menu',
     // FOV slider 60-80 (confirmed by a player; default 70 per guides). Treated as vertical: at 60 the view
@@ -91,8 +91,8 @@ export const GAMES = {
     // ARC's aim assist slows the aim over targets and pulls toward them; its strength isn't published.
     assist: { win: 2.0, slow: 0.4, rot: 0.4 },
     ads: [
-      { key: 'zoom', label: 'Zoom Sensitivity Multiplier', zoom: 1.5, min: 0.01, max: 2, step: 0.01, def: 0.25, unit: '%', defKnown: false },
-      { key: 'scoped', label: 'Scoped Zoom Sensitivity Multiplier', zoom: 4, min: 0.01, max: 2, step: 0.01, def: 0.5, unit: '%', defKnown: false }
+      { key: 'zoom', label: 'Zoom Sensitivity Multiplier', zoom: 1.5, min: 0.05, max: 2, step: 0.05, def: 0.25, unit: '%', defKnown: false },
+      { key: 'scoped', label: 'Scoped Zoom Sensitivity Multiplier', zoom: 4, min: 0.05, max: 2, step: 0.05, def: 0.5, unit: '%', defKnown: false }
     ]
   },
   // Apex with Advanced Look Controls on: speeds are set directly. Yaw/Pitch Speed are taken as degrees

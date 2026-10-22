@@ -1190,7 +1190,7 @@ function renderAdsFields(g) {
     label.textContent = `${sp.label}${pctUnit ? ' (%)' : unitLabel || ''}`;
     const input = document.createElement('input');
     Object.assign(input, { type: 'number', id, inputMode: 'decimal',
-      min: pctUnit ? sp.min * 100 : sp.min, max: pctUnit ? sp.max * 100 : sp.max, step: pctUnit ? 1 : sp.step,
+      min: pctUnit ? sp.min * 100 : sp.min, max: pctUnit ? sp.max * 100 : sp.max, step: pctUnit ? Math.round(sp.step * 100) : sp.step,
       value: pctUnit ? Math.round(value * 100) : plain ? value : value.toFixed(2) });
     const small = document.createElement('small');
     small.textContent = sp.defKnown === false || plain
@@ -1269,7 +1269,7 @@ function applySaved(g, v) {
   if (typeof v.dz === 'number' && v.dz >= 0 && v.dz <= 0.3) cfg.dz = v.dz;
   if (aaOptions(g).some(([x]) => x === v.aa)) cfg.aa = v.aa;
   if (typeof v.spin === 'number' && v.spin >= 1 && v.spin <= 60) { cfg.spin = v.spin; cfg.kTurn = spinK(g, cfg.sens, cfg.spin); }
-  for (const sp of adsSpecs(g)) if (v.ads && inRange(v.ads[sp.key], sp)) cfg.ads[sp.key] = v.ads[sp.key];
+  for (const sp of adsSpecs(g)) if (v.ads && inRange(v.ads[sp.key], sp)) cfg.ads[sp.key] = sp.step ? snapTo(v.ads[sp.key], sp) : v.ads[sp.key];
   const bs = g.boost && g.boost.setting;
   if (bs && inRange(v.boost, bs)) cfg.boost = v.boost;
   if (bs && inRange(v.boostRamp, g.boost.rampSetting)) cfg.boostRamp = v.boostRamp;
@@ -1452,7 +1452,7 @@ function readSetup() {
   cfg.ads = adsDefaults(g);
   for (const sp of g.ads || []) {
     const raw = Number($('#ads-' + sp.key).value);
-    if (Number.isFinite(raw) && raw > 0) cfg.ads[sp.key] = clamp(sp.unit === '%' ? raw / 100 : raw, sp.min, sp.max);
+    if (Number.isFinite(raw) && raw > 0) cfg.ads[sp.key] = snapTo(sp.unit === '%' ? raw / 100 : raw, sp);
   }
   Object.assign(cfg, boostDefaults(g));
   if (g.boost && g.boost.setting) {
