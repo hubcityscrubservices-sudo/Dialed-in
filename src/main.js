@@ -14,7 +14,7 @@ import { makeWorld, paintSky, paintTerrain, paintCompass, paintDrone, paintOffsc
   noteFlash, paintFx, paintCrosshair, paintFigure, paintLens, paintCountdown } from './scenery.js';
 import { DUEL, duelPlan, duelCompare } from './duel.js';
 import { createMouse, CARD_CM, SWIPES, MIN_SWIPE, analyzeSwipes, resolveDpi, pollingHz, calibrationK, cm360 } from './mouse.js';
-import { boardsOn, submitScore, fetchBoard, fetchAllTime, addTurnSample, fetchTurnSamples, playerId, savedName, saveName } from './leaderboard.js';
+import { boardsOn, submitScore, fetchBoard, fetchAllTime, fetchTiers, addTurnSample, fetchTurnSamples, playerId, savedName, saveName } from './leaderboard.js';
 
 const $ = s => document.querySelector(s);
 // Calibration targets follow the play style: a closer fight means bigger targets that strafe across
@@ -1797,6 +1797,7 @@ function startChallenge(code, kind, opts = {}) {
   calibrate();
   let settings = opts.settings || settingsOf(cfg);
   const game = opts.game || cfg.game;
+  loadTiers(GAMES[game].device === 'mouse');
   // Mouse runs carry their degrees per count, so the replay doesn't depend on this browser's calibration.
   if (GAMES[game].device === 'mouse') settings = { ...settings, dpc: GAMES[game].sens.rate(settings.sens) };
   chal = { st: createChallenge(code, game, settings, { seconds: opts.seconds }), rec: newRecording(), code, kind, phase: 'intro',
@@ -2080,7 +2081,7 @@ function renderChalEnd() {
       <p class="lede">${best.prev == null ? 'Your first score on this ' + (c.kind === 'practice' ? 'practice board.' : 'challenge.')
         : best.isBest ? `Up from ${best.prev.toLocaleString('en-US')}.` : `Your best here is ${best.prev.toLocaleString('en-US')}.`}</p>
     </div>
-    ${medalHtml(sum.score)}
+    ${medalHtml(sum.score, c.src === 'mouse')}
     <div class="ch-stats">
       ${stat('Accuracy', pct(sum.accuracy))}
       ${stat('Hits', sum.hits)}
@@ -2121,17 +2122,42 @@ function renderChalEnd() {
   $('#ch-back').addEventListener('click', leaveChallenge);
 }
 
-// Medal tiers for a 60-second run, set from simulated players: casual about 2,500, decent about 9,000,
-// sharp about 15,000.
+// Medal tiers for a 60-second run. Once enough real daily scores exist for an input type (TIER_MIN),
+// the cutoffs are their percentiles: Bronze beats 40% of daily scores, Silver 65%, Gold 85%, Ace 95%.
+// Before that, fixed provisional cutoffs (first set from simulated players) are used.
 const TIERS = [
   { key: 'bronze', name: 'Bronze', min: 3000 },
   { key: 'silver', name: 'Silver', min: 7000 },
   { key: 'gold', name: 'Gold', min: 11000 },
   { key: 'ace', name: 'Ace', min: 15000 }
 ];
-function medalHtml(score) {
-  const got = [...TIERS].reverse().find(t => score >= t.min);
-  const next = TIERS.find(t => score < t.min);
+const TIER_MIN = 30;
+const liveTiers = {};
+function loadTiers(mouse) {
+  const k = mouse ? 'mouse' : 'pad';
+  if (!boardsOn() || liveTiers[k] !== undefined) return;
+  liveTiers[k] = null;
+  fetchTiers(mouse).then(t => {
+    if (!t || t.n < TIER_MIN) { liveTiers[k] = t ? { n: t.n } : null; return; }
+    // Rounded to 50, and kept at least 50 apart so every tier stays reachable.
+    let last = 0;
+    liveTiers[k] = { n: t.n, list: TIERS.map(x => { last = Math.max(last + 50, Math.round(t[x.key] / 50) * 50); return { ...x, min: last }; }) };
+  }).catch(() => { liveTiers[k] = undefined; });
+}
+function tiersFor(mouse) {
+  const t = liveTiers[mouse ? 'mouse' : 'pad'];
+  return t && t.list ? t.list : TIERS;
+}
+function tierNote(mouse) {
+  const t = liveTiers[mouse ? 'mouse' : 'pad'], who = mouse ? 'mouse' : 'controller';
+  if (t && t.list) return `Medals come from ${t.n} ${who} daily scores: Bronze beats 40% of them, Silver 65%, Gold 85%, Ace 95%.`;
+  const n = t ? t.n : 0;
+  return `Provisional medals. Once ${TIER_MIN} ${who} daily scores are in${n ? ` (${n} so far)` : ''}, they're set from real players: Bronze beats 40%, Silver 65%, Gold 85%, Ace 95%.`;
+}
+function medalHtml(score, mouse = false) {
+  const tiers = tiersFor(mouse);
+  const got = [...tiers].reverse().find(t => score >= t.min);
+  const next = tiers.find(t => score < t.min);
   const from = got ? got.min : 0;
   const fill = next ? clamp((score - from) / (next.min - from), 0, 1) : 1;
   return `<div class="medal-row">
@@ -2140,6 +2166,7 @@ function medalHtml(score) {
       <b>${got ? `${got.name} range` : 'Unranked'}</b>
       <div class="bar" role="img" aria-label="${pct(fill)} of the way to ${next ? next.name : 'the top'}"><i style="width:${(fill * 100).toFixed(1)}%"></i></div>
       <small>${next ? `${(next.min - score).toLocaleString('en-US')} points to ${next.name} (${next.min.toLocaleString('en-US')}).` : 'Top tier. Share the code and see who can match it.'}</small>
+      <small class="fine">${tierNote(mouse)}</small>
     </div>
   </div>`;
 }

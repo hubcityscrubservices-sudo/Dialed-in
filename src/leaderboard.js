@@ -38,6 +38,15 @@ export async function fetchAllTime(input, limit = 25) {
   return res.json();
 }
 
+// Medal cutoffs from real daily scores: { n, bronze, silver, gold, ace } (database function score_tiers).
+export async function fetchTiers(mouse) {
+  const res = await fetch(`${SUPABASE.url}/rest/v1/rpc/score_tiers`, {
+    method: 'POST', headers: headers(true), body: JSON.stringify({ p_mouse: !!mouse })
+  });
+  if (!res.ok) throw new Error(`Tiers request failed with ${res.status}`);
+  return (await res.json())[0] || null;
+}
+
 // Pooled turn-speed timings (seconds for 5 full spins at full stick, at a sensitivity).
 export async function addTurnSample(game, sens, seconds) {
   const res = await fetch(`${SUPABASE.url}/rest/v1/rpc/add_turn_sample`, {

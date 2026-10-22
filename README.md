@@ -310,6 +310,12 @@ supabase functions deploy submit-score --no-verify-jwt
 
 Then put the project URL and public (anon or publishable) key in `src/config.js` and push.
 
+Medals: once 30 version-3 daily scores exist for an input type (controller or mouse), the cutoffs
+come from them (database function `score_tiers`): Bronze beats 40% of daily scores, Silver 65%,
+Gold 85%, Ace 95%. Until then the fixed cutoffs (3,000 / 7,000 / 11,000 / 15,000) show, marked
+provisional. Simulated players can't set them: even with human reaction times the bots never miss
+and score 7,000–15,000, while the first real run scored 847.
+
 ## Hosting
 
 `.github/workflows/pages.yml` tests, builds and publishes `dist/index.html` to GitHub Pages on
