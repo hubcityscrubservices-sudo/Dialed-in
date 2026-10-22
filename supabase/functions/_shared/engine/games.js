@@ -51,8 +51,8 @@ export const GAMES = {
     // Vertical Sensitivity shares the horizontal scale. Sinusoidal is modeled as an
     // S-curve: softer than linear near center, quicker than exponential through the middle.
     name: 'ARC Raiders', camera: 'third', source: 'menu',
-    // FOV range and convention from player guides (slider tops out at 80); still to check against the menu.
-    fov: { label: 'Field of View', min: 50, max: 120, step: 1, def: 70, defKnown: false, type: 'h169' },
+    // FOV slider 60-80 (confirmed by a player; default 70 per guides). Assumed horizontal, as in Unreal.
+    fov: { label: 'Field of View', min: 60, max: 80, step: 1, def: 70, type: 'h169' },
     sens: { label: 'Horizontal Sensitivity', min: 1, max: 400, step: 1, def: 80, defKnown: false, rate: s => s * 2.6 },
     vsens: { label: 'Vertical Sensitivity', min: 1, max: 400, step: 1, def: 60, defKnown: false, rate: s => s * 2.6 },
     dz: { label: 'Look Inner Deadzone', def: 0.05, fmt: d => String(Math.round(d * 100)) },
