@@ -160,3 +160,50 @@ test('screening judges vertical speed on up/down targets only', () => {
   assert.equal(res.vert.verdict, 'worse'); // the faster vertical level did worse
   assert.notEqual(res.curve.verdict, 'better');
 });
+
+import { MORE, morePlan } from '../src/deep.js';
+
+test('pooled sittings each get their own level and share one curve', () => {
+  const xs = [-0.5, 0, 0.5, 0.3, -0.2, 0.6, 0, 0.3];
+  const blocks = [0, 0, 0, 0, 1, 1, 1, 1];
+  const ts = [0, 1 / 3, 2 / 3, 1, 0, 1 / 3, 2 / 3, 1];
+  // Day two scores 0.3 higher everywhere; the peak stays at 0.2.
+  const ys = xs.map((x, i) => 1 - (x - 0.2) ** 2 + (blocks[i] ? 0.3 : 0));
+  const fit = fitCurve(xs, ts, ys, blocks);
+  assert.ok(Math.abs(peakOf(fit, -0.5, 0.6).x - 0.2) < 1e-6);
+  assert.ok(Math.abs(fit.off(4) - fit.off(0) - 0.3) < 1e-6);
+});
+
+test('more rounds extend a finished search around its best guess', () => {
+  const rng = mulberry32(31);
+  const history = runSearch(31, 0.3, 4);
+  const n = history.length;
+  const order = morePlan(history, w, rng);
+  assert.equal(order.length, 3);
+  const opts = { base: n, min: MORE, max: MORE, control: -1 };
+  for (;;) {
+    const next = deepNext(history, w, game, cur, order, opts);
+    if (!next) break;
+    history.push(round(next.x, rng, 0.3, 4));
+  }
+  assert.equal(history.length, n + MORE);
+  const res = deepAnalyze(history, w, game, cur, mulberry32(32), 200);
+  assert.ok(Math.abs(res.best.x - 0.3) < 0.35);
+});
+
+test('a second sitting adds to the first and plays its own full search', () => {
+  const rng = mulberry32(41);
+  const first = runSearch(41, -0.3, 4);
+  const history = first.map(h => ({ ...h, block: 0 }));
+  const base = history.length, order = shuffled(DEEP.initial, rng);
+  for (;;) {
+    const next = deepNext(history, w, game, cur, order, { base });
+    if (!next) break;
+    const r = round(next.x, rng, -0.3, 4);
+    r.chunks = r.chunks.map(c => c * 0.8); // sharper today
+    history.push({ ...r, block: 1 });
+  }
+  assert.ok(history.length - base >= DEEP.minRounds);
+  const res = deepAnalyze(history, w, game, cur, mulberry32(42), 200);
+  assert.ok(Math.abs(res.best.x + 0.3) < 0.35);
+});

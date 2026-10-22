@@ -421,3 +421,5 @@ pre#copytext { font: 12px/1.5 var(--mono); background: rgba(8, 16, 23, 0.6); bor
 /* Saved settings */
 .current-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .saved-note { margin-top: -6px; }
+.pool-opt { display: flex; gap: 10px; align-items: center; color: var(--muted); font-size: 14px; min-height: 44px; cursor: pointer; }
+.pool-opt input { width: 20px; height: 20px; accent-color: var(--accent, currentColor); }

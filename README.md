@@ -215,6 +215,17 @@ speed inside the tested range is found within about 5% in 7 rounds. When the bes
 from the current one, the estimate leans about 9% toward the current speed and the verdict is
 more often "unclear". Players with no real preference are called "matters" about 5% of the time.
 
+More data, two ways:
+
+- **Play 4 more rounds** (on the results): the best guess and 30% either side of it, in random
+  order, then one round wherever the refit points. Every earlier round still counts. Screening,
+  turn and ADS results are kept, not replayed.
+- **Add to my earlier search** (setup, Deep): each game keeps its last 3 sittings of Deep rounds
+  in the browser. A new sitting plays its own full search and the fit uses every round. Each
+  sitting gets its own score level (`+ e_s` per sitting), so a sharp day or a tired one doesn't
+  move the curve; warm-up `t` runs within each sitting. Rounds re-centre on the current
+  sensitivity, and a sitting only pools with the same response curve and aim assist.
+
 ## Deep mode: other settings, tested blind
 
 After the sensitivity search, four rounds at the best speed cover every pairing of two response

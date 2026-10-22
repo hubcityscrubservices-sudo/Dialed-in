@@ -58,15 +58,24 @@ export function lstsq(rows, ys) {
   return A.map((row, i) => row[k] / row[i]);
 }
 
-export function fitCurve(xs, ts, ys) {
+// blocks (optional) = which sitting each round came from. Pooled sittings each get their own score
+// level, since a player can be sharper one day than another; the curve's shape is shared.
+export function fitCurve(xs, ts, ys, blocks = null) {
   if (new Set(xs.map(x => x.toFixed(3))).size < 3) return null;
-  const drift = ys.length >= 5;
-  const beta = lstsq(xs.map((x, i) => drift ? [1, x, x * x, ts[i]] : [1, x, x * x]), ys);
+  const ids = blocks ? [...new Set(blocks)].sort((p, q) => p - q) : [0];
+  const extra = ids.slice(1);
+  const drift = ys.length >= 5 + extra.length;
+  const row = (x, i) => [1, x, x * x, ...(drift ? [ts[i]] : []), ...extra.map(b => blocks[i] === b ? 1 : 0)];
+  const beta = lstsq(xs.map(row), ys);
   if (!beta) return null;
-  const [a, b, c, d = 0] = beta;
+  const [a, b, c] = beta, d = drift ? beta[3] : 0;
+  const offs = [0, ...beta.slice(drift ? 4 : 3)];
+  const offMean = mean(offs);
+  const off = i => blocks ? offs[ids.indexOf(blocks[i])] - offMean : 0;
   const tMid = mean(ts);
-  // Predictions are taken at the middle of the session so warm-up doesn't tilt the curve.
-  return { a, b, c, d, at: x => a + b * x + c * x * x + d * tMid };
+  // Predictions are taken at the middle of the session, and at the average sitting, so warm-up and
+  // a good or bad day don't tilt the curve.
+  return { a, b, c, d, off, at: x => a + b * x + c * x * x + d * tMid + offMean };
 }
 
 export function peakOf(fit, lo, hi) {
@@ -91,24 +100,37 @@ function orderTs(n) {
   return Array.from({ length: n }, (_, i) => n > 1 ? i / (n - 1) : 0);
 }
 
+// Warm-up runs within a sitting: each round's position among its own sitting's rounds.
+function sittingTs(history) {
+  const out = new Array(history.length);
+  const groups = new Map();
+  history.forEach((h, i) => { const b = h.block || 0; if (!groups.has(b)) groups.set(b, []); groups.get(b).push(i); });
+  for (const idx of groups.values()) orderTs(idx.length).forEach((t, k) => { out[idx[k]] = t; });
+  return out;
+}
+
 function estimate(history, w) {
   const ys = roundScores(history, w);
   if (!ys) return null;
   const xs = history.map(h => h.x);
-  const fit = fitCurve(xs, orderTs(history.length), ys);
+  const blocks = history.some(h => h.block) ? history.map(h => h.block || 0) : null;
+  const fit = fitCurve(xs, sittingTs(history), ys, blocks);
   if (!fit) return null;
   return { fit, ys, lo: Math.min(...xs), hi: Math.max(...xs), peak: peakOf(fit, Math.min(...xs), Math.max(...xs)) };
 }
 
 // Picks the next round's setting, or null when the search is done.
-// history = [{ x, sens, flicks, chunks }]; order = the shuffled initial design.
-export function deepNext(history, w, game, cur, order) {
-  const n = history.length;
-  if (n < order.length) return snap(order[n], game, cur);
-  if (n === DEEP.controlAt) return snap(0, game, cur);
-  if (n >= DEEP.maxRounds) return null;
+// history = [{ x, sens, flicks, chunks, block? }]; order = this batch's opening design.
+// opts.base = rounds already played before this batch (earlier sittings, or the search before
+// "more rounds"); the round counts, the opening design and the control round are relative to it.
+export function deepNext(history, w, game, cur, order, opts = {}) {
+  const { base = 0, min = DEEP.minRounds, max = DEEP.maxRounds, control = DEEP.controlAt } = opts;
+  const n = history.length, k = n - base;
+  if (k < order.length) return snap(order[k], game, cur);
+  if (k === control) return snap(0, game, cur);
+  if (k >= max) return null;
   const est = estimate(history, w);
-  if (n >= DEEP.minRounds && est) {
+  if (k >= min && est) {
     const prev = estimate(history.slice(0, -1), w);
     if (prev && Math.abs(prev.peak.x - est.peak.x) < DEEP.stable) return null;
   }
@@ -127,6 +149,16 @@ export function deepNext(history, w, game, cur, order) {
     if (tested(around[0]) < 2) s = around[0];
   }
   return s;
+}
+
+// "More rounds": the best guess and 30% either side of it, in random order, then one round wherever
+// the refit points. Those three settle how much score is lost away from the peak, which is what an
+// unclear verdict is short on.
+export const MORE = 4;
+export function morePlan(history, w, rng = Math.random) {
+  const est = estimate(history, w);
+  const p = est ? est.peak.x : 0;
+  return shuffled([p - DEEP.off, p, p + DEEP.off].map(x => clamp(x, -DEEP.limit, DEEP.limit)), rng);
 }
 
 // Score lost 30% away from the peak, looking only at speeds that were actually tested
@@ -158,8 +190,7 @@ export function deepAnalyze(history, w, game, cur, rng = Math.random, iters = 40
   if (!n) return null;
   peaks.sort((p, q) => p - q);
   const pMatters = matter / n;
-  const tMid = mean(orderTs(history.length));
-  const ts = orderTs(history.length);
+  const ts = sittingTs(history), tMid = mean(ts);
   return {
     verdict: pMatters >= 0.8 ? 'matters' : pMatters <= 0.3 ? 'flat' : 'unclear',
     pMatters, drop,
@@ -170,8 +201,8 @@ export function deepAnalyze(history, w, game, cur, rng = Math.random, iters = 40
     lo, hi,
     curve: Array.from({ length: 41 }, (_, i) => { const x = lo + (hi - lo) * i / 40; return { x, y: fit.at(x) }; }),
     top: fit.at(peak.x),
-    // Raw scores with the warm-up trend removed, so they sit on the same scale as the curve.
-    points: history.map((h, i) => ({ x: h.x, sens: h.sens, y: ys[i] - fit.d * (ts[i] - tMid), round: i + 1 }))
+    // Raw scores with the warm-up trend and each sitting's level removed, so they sit on the same scale as the curve.
+    points: history.map((h, i) => ({ x: h.x, sens: h.sens, y: ys[i] - fit.d * (ts[i] - tMid) - fit.off(i), round: i + 1, block: h.block || 0 }))
   };
 }
 

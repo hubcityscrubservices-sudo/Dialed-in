@@ -3,7 +3,7 @@ import { makeCamera, hfov169 } from './camera.js';
 import { makeView, steer, newFlickTarget, flickStep, makeTrack, trackStep, newTurnTarget, turnStep, trackAim, TRACK_V2 } from './sim.js';
 import { summarize, recommend, recommendVertical, recommendAds, turnStats, recommendTurn, driftDeadzone, settingsChanged } from './analysis.js';
 import { verifyPlan, verifyCompare, ratingSummary, sideOf } from './verify.js';
-import { DEEP, SCREEN, deepNext, deepAnalyze, shuffled, screenPlan, altCurve, screenAnalyze } from './deep.js';
+import { DEEP, SCREEN, MORE, deepNext, deepAnalyze, shuffled, morePlan, screenPlan, altCurve, screenAnalyze } from './deep.js';
 import { emptyReach, recordReach, coverage, stickReport, outerFromReach, hardwareRecs } from './hardware.js';
 import { clamp, pct } from './util.js';
 import { buildExport } from './export.js';
@@ -177,46 +177,99 @@ function deepSegments() {
   ];
 }
 
+// Saved Deep rounds, per game, so a later sitting can add to them. Only what the sensitivity fit
+// reads is kept. A sitting counts only with the same curve and aim assist, which change how a speed feels.
+const DEEP_KEY = 'dialed-in:deep', DEEP_SITTINGS = 3;
+function loadDeepSaved() {
+  try {
+    const all = JSON.parse(localStorage.getItem(DEEP_KEY) || '{}'), e = all[cfg.game];
+    if (!e || !Array.isArray(e.rounds) || !e.rounds.length) return null;
+    if (!isMouse() && (e.curve !== cfg.curve || e.aa !== (cfg.aa ?? 1))) return null;
+    return e;
+  } catch (err) { return null; }
+}
+function saveDeep(D, c) {
+  const compact = h => ({ sens: h.sens, rating: h.rating ?? null, sitting: h.sitting,
+    flicks: h.flicks.map(f => ({ D: f.D, first: f.first ? { along: f.first.along, t: f.first.t } : null })), chunks: h.chunks });
+  const sittings = [...new Set(D.history.map(h => h.sitting))].slice(-DEEP_SITTINGS);
+  try {
+    const all = JSON.parse(localStorage.getItem(DEEP_KEY) || '{}');
+    all[c.game] = { curve: c.curve, aa: c.aa ?? 1, rounds: D.history.filter(h => sittings.includes(h.sitting)).map(compact) };
+    localStorage.setItem(DEEP_KEY, JSON.stringify(all));
+  } catch (err) { /* storage full or blocked: the next sitting just starts fresh */ }
+}
+// Earlier rounds re-centred on the current sensitivity, each sitting numbered as a block for the fit.
+function priorRounds(e) {
+  const g = game().sens, base = g.rate(cfg.sens);
+  const ids = [...new Set(e.rounds.map(r => r.sitting))];
+  return e.rounds.filter(r => g.rate(r.sens) > 0).map(r => ({ ...r, x: Math.log2(g.rate(r.sens) / base), block: ids.indexOf(r.sitting) }));
+}
+function newDeep(pool) {
+  const prior = pool ? priorRounds(pool) : [];
+  const block = prior.length ? Math.max(...prior.map(h => h.block)) + 1 : 0;
+  return { order: shuffled(DEEP.initial), history: prior, base: prior.length, prior: prior.length, block, sitting: Date.now(), pending: null };
+}
+
 // Queues the next search round, or the read-out when the search is done.
+// D.more = playing extra rounds after a finished search; screening, turns and ADS are already done.
 function deepStep() {
   const D = session.deep;
   if (D.pending) {
     const r = D.pending, parts = session.segs.filter(x => x.round === r);
     const fl = parts.find(x => x.kind === 'flick'), tr = parts.find(x => x.kind === 'track'), ra = parts.find(x => x.kind === 'rate');
-    D.history.push({ x: r.x, sens: r.sens, flicks: fl.data.list.slice(fl.warm), chunks: tr.data.chunks, track: tr.data, rating: ra.data });
+    D.history.push({ x: r.x, sens: r.sens, flicks: fl.data.list.slice(fl.warm), chunks: tr.data.chunks, track: tr.data, rating: ra.data, block: D.block, sitting: D.sitting });
     D.pending = null;
   }
-  const next = deepNext(D.history, PLAYSTYLES[cfg.style], game(), cfg.sens, D.order);
+  const opts = D.more ? { base: D.base, min: MORE, max: MORE, control: -1 } : { base: D.base };
+  const next = deepNext(D.history, PLAYSTYLES[cfg.style], game(), cfg.sens, D.order, opts);
   if (!next) {
     D.res = deepAnalyze(D.history, PLAYSTYLES[cfg.style], game(), cfg.sens);
+    if (D.more) { session.segs.push({ kind: 'deepDone' }); return advance(); }
     const best = D.res && D.res.verdict !== 'flat' ? D.res.best.sens : cfg.sens;
     // Curve and vertical speed screening is about stick shaping; a mouse skips it.
     session.segs.push(...(isMouse() ? [] : screenSegments(D, best)), ...turnSegments(), ...adsSegments(), { kind: 'deepDone' });
     return advance();
   }
-  const k = D.history.length + 1;
+  const k = D.history.length - D.base + 1;
   const round = { x: next.x, sens: next.sens };
   const settings = { sens: next.sens, ...verticalFor(next.sens), curve: cfg.curve, dz: checkedDz(), outer: checkedOuter(), ...turnK() };
   // The search always plays DEEP.minRounds; it adds up to two more only when the best speed is still unclear.
-  const title = k <= DEEP.minRounds ? `Round ${k} of ${DEEP.minRounds}` : `Extra round ${k - DEEP.minRounds} of up to ${DEEP.maxRounds - DEEP.minRounds}`;
+  const title = D.more ? `Extra round ${k} of ${MORE}`
+    : k <= DEEP.minRounds ? `Round ${k} of ${DEEP.minRounds}` : `Extra round ${k - DEEP.minRounds} of up to ${DEEP.maxRounds - DEEP.minRounds}`;
+  const pooled = D.prior ? ` Your ${D.prior} rounds from before count too.` : '';
   D.pending = round;
   session.segs.push(
     { kind: 'flick', rail: 'deep', round, counter: title, n: DEEP_ROUND.flicks, warm: DEEP_ROUND.warmFlicks, settings, intro: true, title,
-      text: k === 1
-        ? `The search runs ${DEEP.minRounds} short rounds, plus up to ${DEEP.maxRounds - DEEP.minRounds} extra if your best speed is still unclear. Each is ${DEEP_ROUND.flicks} targets, then ${DEEP_ROUND.trackSeconds} seconds of tracking, at a hidden sensitivity. Each round's speed is picked from how you did in the earlier ones.`
+      text: D.more && k === 1
+        ? `${MORE} more rounds at and around your best guess so far, at hidden sensitivities. Then everything is refitted with all ${D.base + MORE} rounds.`
+        : k === 1
+        ? `The search runs ${DEEP.minRounds} short rounds, plus up to ${DEEP.maxRounds - DEEP.minRounds} extra if your best speed is still unclear. Each is ${DEEP_ROUND.flicks} targets, then ${DEEP_ROUND.trackSeconds} seconds of tracking, at a hidden sensitivity. Each round's speed is picked from how you did in the earlier ones.${pooled}`
         : `${DEEP_ROUND.flicks} targets, then tracking. The sensitivity has probably changed. Play the way you normally would.` },
     { kind: 'track', rail: 'deep', round, counter: title, dur: DEEP_ROUND.trackSeconds, warm: DEEP_ROUND.warmSeconds, settings, title, text: 'Stay on the moving target.' },
-    { kind: 'rate', rail: 'deep', round, counter: title, title: `How did round ${k} feel?`, text: 'Go with your gut. Your ratings are shown next to the scores at the end.' },
+    { kind: 'rate', rail: 'deep', round, counter: title, title: `How did round ${D.history.length + 1} feel?`, text: 'Go with your gut. Your ratings are shown next to the scores at the end.' },
     { kind: 'deepNext' }
   );
   advance();
 }
 
+// Picks a finished Deep search back up for MORE extra rounds, keeping every round and check so far.
+function deepMore() {
+  const D = result.deepState;
+  D.more = true; D.base = D.history.length; D.order = morePlan(D.history, PLAYSTYLES[cfg.style]);
+  const segs = result.segs;
+  segs.push({ kind: 'deepNext' });
+  session = { segs, i: segs.length - 1, phase: 'intro', countLeft: 0, drift: result.drift, deep: D, mouse: result.mouse };
+  result = null;
+  calibrate();
+  enter();
+}
+
 // Screening: four blind rounds at the best speed covering both curves x two vertical speeds.
 function screenSegments(D, best) {
   const g = game();
-  const base = D.history.filter(h => h.sens === cfg.sens);
-  const from = base.length ? base : D.history;
+  const now = D.history.filter(h => h.track);
+  const base = now.filter(h => h.sens === cfg.sens);
+  const from = base.length ? base : now;
   const wanted = recommend(summarize(from.flatMap(h => h.flicks), from[0].track), cfg, session.drift).curve;
   const alt = altCurve(g, cfg.curve, wanted);
   const vBase = verticalFor(best);
@@ -303,8 +356,9 @@ function deepDone() {
   const c = { ...cfg };
   const res = D.res;
   // Curve and deadzone advice come from the rounds played at the current speed.
-  const base = D.history.filter(h => h.sens === c.sens);
-  const from = base.length ? base : D.history;
+  const now = D.history.filter(h => h.track);
+  const base = now.filter(h => h.sens === c.sens);
+  const from = base.length ? base : now;
   const stats = summarize(from.flatMap(h => h.flicks), from[0].track);
   const rec = withHardware(recommend(stats, c, session.drift), session.drift);
   if (res) {
@@ -312,13 +366,14 @@ function deepDone() {
     rec.sensWhy = deepWhy(res, c);
   }
   // Every round scales vertical with horizontal, so the up/down vs side-to-side comparison holds across all of them.
-  Object.assign(rec, verticalRec(D.history.flatMap(h => h.flicks), c, rec.sens));
+  Object.assign(rec, verticalRec(now.flatMap(h => h.flicks), c, rec.sens));
   applyScreen(rec, c, D);
   rec.ads = adsRecs(c, rec.sens);
   rec.turn = turnRec(c);
   rec.boost = c.boost; rec.boostRamp = c.boostRamp;
   result = { cfg: c, stats, rec, drift: session.drift, mouse: session.mouse, verify: null, segs: session.segs, pad: inp.name,
-    deep: { res, rounds: D.history.map(h => ({ sens: h.sens, rating: h.rating })), screen: rec.screen } };
+    deep: { res, rounds: D.history.map(h => ({ sens: h.sens, rating: h.rating })), screen: rec.screen, prior: D.prior }, deepState: D };
+  saveDeep(D, c);
   session = null;
   show('results');
 }
@@ -334,7 +389,7 @@ function deepWhy(res, c) {
   if (res.verdict === 'flat') {
     return `Your score barely changed across the speeds tested (${pct(Math.max(0, res.drop))} at 30% off your best). Sensitivity is not what limits your aim, so keep whatever feels best. Your current ${c.sens} is fine.`;
   }
-  return `Best guess is ${res.best.sens}, but your rounds varied too much to be sure. Anything from ${span} is reasonable in ${g.name}. Running the search again would narrow it down.`;
+  return `Best guess is ${res.best.sens}, but your rounds varied too much to be sure. Anything from ${span} is reasonable in ${g.name}. More rounds would narrow it down.`;
 }
 
 /* ---------- session flow ---------- */
@@ -718,14 +773,16 @@ function deepBlock(d, g, c) {
   const warm = res.warmup > 0.05
     ? `<p class="fine">You improved about ${pct(res.warmup)} from the first round to the last. The fit allows for that warm-up, so later rounds don't score higher just for coming later.</p>`
     : '';
+  const more = d.canMore ? `<div class="offer"><p>${res.verdict === 'unclear' ? 'Not sure yet? ' : ''}Play ${MORE} more rounds at and around your best guess (about 2 minutes). Every round so far still counts, so the answer only gets sharper. Your rounds are also saved, so a Deep run another day can add to them.</p><button class="btn${res.verdict === 'unclear' ? ' primary' : ''}" id="deep-more" type="button">Play ${MORE} more rounds</button></div>` : '';
   const rows = res.points.map((p, i) => `<tr><td class="num">${p.round}</td><td class="num">${p.sens}${p.sens === c.sens ? ' (current)' : ''}</td><td class="num">${Math.round(p.y / res.top * 100)}%</td><td>${feelLabel(d.rounds[i].rating)}</td></tr>`).join('');
   return `<div class="verdict ${res.verdict === 'matters' ? 'better' : ''}">
-    <div style="display:grid;gap:4px"><p class="eyebrow">Deep search · ${res.points.length} rounds</p><h3>${head}</h3>
+    <div style="display:grid;gap:4px"><p class="eyebrow">Deep search · ${res.points.length} rounds${d.prior ? ` (${d.prior} from earlier sittings)` : ''}</p><h3>${head}</h3>
       <p>Each dot is one round's score at that sensitivity. The line is the fitted trend, and the shaded band is the range that scores within the noise of your best.</p></div>
     ${deepChart(res, c, g)}
     ${warm}
     ${screenTable(d.screen, g)}
     <div class="table-wrap"><table><thead><tr><th>Round</th><th>${g.sens.label}</th><th>Score vs best</th><th>Felt</th></tr></thead><tbody>${rows}</tbody></table></div>
+    ${more}
   </div>`;
 }
 
@@ -875,7 +932,7 @@ function renderResults() {
       [`Average tracking error, zoomed ${a.spec.zoom}×`, a.stats.trackErr == null ? '–' : a.stats.trackErr.toFixed(2) + '°']
     ])
   ];
-  const deepHtml = result.deep ? deepBlock(result.deep, g, c) : '';
+  const deepHtml = result.deep ? deepBlock({ ...result.deep, canMore: !!result.deepState }, g, c) : '';
   const hw = hardwareRecs(result.drift, g);
   let verifyHtml;
   const ds = duelSettings(c, r);
@@ -932,6 +989,8 @@ function renderResults() {
 
   const du = $('#duel');
   if (du) du.addEventListener('click', startDuel);
+  const dm = $('#deep-more');
+  if (dm) dm.addEventListener('click', deepMore);
   const vb = $('#verify');
   if (vb) vb.addEventListener('click', () => start(verifySegments(c, r), result.drift));
   wireChart();
@@ -1175,8 +1234,17 @@ function syncSetup() {
     if (radio) radio.checked = true;
   }
   $('#go-hint').textContent = MODE_HINT[cfg.mode];
+  // Deep can add to the rounds saved from an earlier sitting with this game.
+  const pool = cfg.mode === 'deep' ? loadDeepSaved() : null;
+  $('#deep-pool').hidden = !pool;
+  if (pool) {
+    const n = pool.rounds.length, sit = new Set(pool.rounds.map(r => r.sitting)).size;
+    $('#deep-pool-text').textContent = `Add to my earlier search (${n} rounds from ${sit === 1 ? 'one sitting' : sit + ' sittings'}). Untick to start fresh.`;
+  }
 }
 $('#game').addEventListener('change', e => { setGame(e.target.value); syncSetup(); });
+$('#curve').addEventListener('change', () => { readSetup(); syncSetup(); });
+$('#aa').addEventListener('change', () => { readSetup(); syncSetup(); });
 document.querySelectorAll('input[name="device"]').forEach(r => r.addEventListener('change', e => {
   cfg.device = e.target.value;
   const same = cfg.device === 'mouse' ? 'm-' + cfg.game : cfg.game.replace(/^m-/, '');
@@ -1306,7 +1374,7 @@ $('#go').addEventListener('click', () => {
   sharePoolSample();
   result = null;
   syncSetup();
-  if (cfg.mode === 'deep') start(deepSegments(), null, { order: shuffled(DEEP.initial), history: [], pending: null });
+  if (cfg.mode === 'deep') start(deepSegments(), null, newDeep($('#deep-add').checked && !$('#deep-pool').hidden ? loadDeepSaved() : null));
   else start(quickSegments(), null);
 });
 
