@@ -14,7 +14,7 @@ import { makeWorld, paintSky, paintTerrain, paintCompass, paintDrone, paintOffsc
   noteFlash, paintFx, paintCrosshair, paintFigure, paintLens, paintCountdown } from './scenery.js';
 import { DUEL, duelPlan, duelCompare } from './duel.js';
 import { createMouse, CARD_CM, SWIPES, MIN_SWIPE, analyzeSwipes, resolveDpi, pollingHz, calibrationK, cm360 } from './mouse.js';
-import { boardsOn, submitScore, fetchBoard, fetchAllTime, fetchTiers, addTurnSample, fetchTurnSamples, playerId, savedName, saveName } from './leaderboard.js';
+import { boardsOn, submitScore, fetchBoard, fetchAllTime, fetchAllTimeRank, fetchTiers, addTurnSample, fetchTurnSamples, playerId, savedName, saveName } from './leaderboard.js';
 
 const $ = s => document.querySelector(s);
 // Calibration targets follow the play style: a closer fight means bigger targets that strafe across
@@ -2376,11 +2376,41 @@ function wireBoard(c, sum) {
         : `Verified. Your best here is still ${res.best.toLocaleString('en-US')}: ${where}.`;
       btn.textContent = 'Submitted';
       loadBoard(c.code, shown, root);
+      showAllTimeStanding(c, sum.score, status);
     } catch (err) {
       status.textContent = BOARD_BLOCKED;
       btn.disabled = false;
     }
   });
+}
+
+// After a daily submit: where the score stands all time, with a call-out for a new record.
+async function showAllTimeStanding(c, score, status) {
+  let el = $('#board-ever');
+  if (!el) { el = document.createElement('p'); el.id = 'board-ever'; el.className = 'board-ever'; status.after(el); }
+  el.className = 'board-ever';
+  if (!c.code.startsWith('d-')) { el.textContent = ''; return; }
+  if (c.code < 'd-' + V3_FROM) { el.textContent = `All time starts with the ${fmtDay(V3_FROM)} daily, when the current rules began, so this one counts for today only.`; return; }
+  const board = INPUT_LABEL[c.src].toLowerCase();
+  try {
+    const [mine, all] = await Promise.all([fetchAllTimeRank(c.src, score), fetchAllTimeRank(null, score)]);
+    if (!mine) return;
+    const n = v => v.toLocaleString('en-US');
+    const ownBetter = mine.own_best != null && mine.own_best > score;
+    const recordHere = !ownBetter && (mine.others_best == null || score > mine.others_best);
+    const recordAll = recordHere && all && (all.others_best == null || score > all.others_best);
+    if (recordHere) {
+      el.className = 'board-ever record';
+      el.textContent = mine.total <= 1
+        ? `New all-time record: the first ${board} score on the all-time board.`
+        : `New all-time record on the ${board} board${recordAll ? ', and the best across all inputs' : ''}!`;
+      return;
+    }
+    const where = `#${mine.rank} of ${mine.total} all time on the ${board} board${all ? `, #${all.rank} of ${all.total} across all inputs` : ''}`;
+    el.textContent = ownBetter
+      ? `This run places ${where}. Your all-time best is ${n(mine.own_best)}.`
+      : `New personal all-time best: ${where}.${mine.others_best != null ? ` The record is ${n(mine.others_best)}.` : ''}`;
+  } catch (e) { el.textContent = ''; }
 }
 
 // The setup screen's leaderboard: today's daily range or all time, on the tabs last picked.

@@ -349,6 +349,11 @@ Gold 85%, Ace 95%. Until then the fixed cutoffs (3,000 / 7,000 / 11,000 / 15,000
 provisional. Simulated players can't set them: even with human reaction times the bots never miss
 and score 7,000–15,000, while the first real run scored 847.
 
+After a daily score is submitted the result screen says where it stands all time (database function
+`all_time_rank`): a new record on its input's board (and across all inputs when it is), a new
+personal all-time best with its rank and the current record, or its rank next to the player's
+higher best. Dailies before the current rules say they count for that day only.
+
 ## Hosting
 
 `.github/workflows/pages.yml` tests, builds and publishes `dist/index.html` to GitHub Pages on

@@ -38,6 +38,16 @@ export async function fetchAllTime(input, limit = 25) {
   return res.json();
 }
 
+// Where a just-submitted daily score stands all time: { rank, total, own_best, others_best }.
+// input: one input type, or null for every input.
+export async function fetchAllTimeRank(input, score) {
+  const res = await fetch(`${SUPABASE.url}/rest/v1/rpc/all_time_rank`, {
+    method: 'POST', headers: headers(true), body: JSON.stringify({ p_player: playerId(), p_input: input, p_score: score })
+  });
+  if (!res.ok) throw new Error(`Rank request failed with ${res.status}`);
+  return (await res.json())[0] || null;
+}
+
 // Medal cutoffs from real daily scores: { n, bronze, silver, gold, ace } (database function score_tiers).
 export async function fetchTiers(mouse) {
   const res = await fetch(`${SUPABASE.url}/rest/v1/rpc/score_tiers`, {
