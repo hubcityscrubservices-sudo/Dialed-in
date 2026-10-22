@@ -233,6 +233,33 @@
             <p class="eyebrow">Objective</p>
             <h2 id="brief-title"></h2>
             <p class="lede" id="brief-text"></p>
+            <details class="chal-guide" id="chal-guide" hidden>
+              <summary>How it scores</summary>
+              <svg viewBox="0 0 540 150" role="img" aria-label="Three kinds of target: a stationary one you shoot once, a moving one you hold fire on, and one behind you that an arrow points to">
+                <g transform="translate(90 62)">
+                  <circle r="26" fill="none" stroke="#FFB547" stroke-width="2" opacity=".5"/>
+                  <circle r="17" fill="#FF6A3D"/><circle r="22" fill="none" stroke="#EDF1EA" stroke-width="2.5" stroke-dasharray="10 8"/>
+                  <path d="M-6 0H6M0 -6V6" stroke="#1A0904" stroke-width="2.5"/>
+                  <text y="62" text-anchor="middle" class="cg-k">STANDING</text>
+                  <text y="80" text-anchor="middle" class="cg-s" id="cg-flick">One shot. Faster = more points</text>
+                </g>
+                <g transform="translate(270 62)">
+                  <path d="M-62 4 C-40 4 -30 -2 -12 0" stroke="#6FE0A6" stroke-width="7" stroke-linecap="round" opacity=".45"/>
+                  <circle r="17" fill="#6FE0A6"/><circle r="22" fill="none" stroke="#EDF1EA" stroke-width="2.5" stroke-dasharray="10 8"/>
+                  <path d="M30 0H52M45 -6L52 0L45 6" stroke="#EDF1EA" stroke-width="2.5" fill="none"/>
+                  <text y="62" text-anchor="middle" class="cg-k">MOVING</text>
+                  <text y="80" text-anchor="middle" class="cg-s" id="cg-track">Hold fire while you stay on it</text>
+                </g>
+                <g transform="translate(450 62)">
+                  <rect x="-58" y="-34" width="116" height="68" rx="6" fill="none" stroke="#93A7AC" stroke-width="1.5" stroke-dasharray="4 4"/>
+                  <path d="M-46 0L-28 -12L-32 0L-28 12z" fill="#FF6A3D"/>
+                  <text x="-14" y="5" class="cg-k">142°</text>
+                  <text y="62" text-anchor="middle" class="cg-k">BEHIND YOU</text>
+                  <text y="80" text-anchor="middle" class="cg-s">Follow the arrow, then shoot</text>
+                </g>
+              </svg>
+              <ul id="cg-rules"></ul>
+            </details>
             <figure class="swipe-fig" id="swipe-fig" hidden>
               <svg viewBox="0 0 520 300" role="img" aria-labelledby="swipe-fig-cap">
                 <defs><marker id="sf-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#FFB547"/></marker></defs>

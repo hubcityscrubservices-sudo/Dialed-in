@@ -409,3 +409,11 @@ pre#copytext { font: 12px/1.5 var(--mono); background: rgba(8, 16, 23, 0.6); bor
 /* New version available */
 .update-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
   padding: 10px 14px; border: 1px solid var(--sun); background: rgba(255, 181, 71, 0.12); color: var(--ink); font-size: 14px; }
+
+/* Challenge scoring guide */
+.chal-guide { margin-top: 10px; border: 1px solid rgba(147, 167, 172, 0.3); max-width: 560px; }
+.chal-guide > summary { cursor: pointer; padding: 10px 14px; font: 700 13px var(--display); text-transform: uppercase; letter-spacing: .08em; color: var(--sun); min-height: 40px; }
+.chal-guide svg { display: block; width: 100%; height: auto; padding: 4px 8px 0; }
+.chal-guide .cg-k { font: 600 12px var(--mono); fill: var(--ink); letter-spacing: .06em; }
+.chal-guide .cg-s { font: 500 12px var(--body); fill: var(--muted); }
+.chal-guide ul { margin: 0; padding: 4px 14px 14px 32px; display: grid; gap: 4px; color: var(--ink); font-size: 14px; line-height: 1.45; }

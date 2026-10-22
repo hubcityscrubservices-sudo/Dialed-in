@@ -643,6 +643,7 @@ function renderBrief(force) {
   if (P === 'run' && s.kind === 'drift') text = STICK_PART_TEXT[s.data.part];
   $('#brief-text').textContent = text;
   $('#swipe-fig').hidden = s.kind !== 'mcheck' || P !== 'intro'; // the range draws it during the slides
+  $('#chal-guide').hidden = true;
 
   const act = $('#brief-actions');
   act.textContent = '';
@@ -1723,17 +1724,43 @@ function chalScene() {
 }
 
 let chalBriefKey = '';
+// The scoring guide on the challenge start screen: open the first time, then folded into
+// "How it scores". Hidden once the run starts and for settings-duel runs after the first.
+const GUIDE_KEY = 'dialed-in:guide-seen';
+function showChalGuide(c) {
+  const el = $('#chal-guide');
+  const show = c.phase === 'intro' && (!c.duel || c.duel.i === 0);
+  el.hidden = !show;
+  if (!show) return;
+  let seen = false;
+  try { seen = localStorage.getItem(GUIDE_KEY) === '1'; localStorage.setItem(GUIDE_KEY, '1'); } catch (e) { /* storage blocked: show it open */ }
+  if (!el.dataset.ready) { el.open = !seen; el.dataset.ready = '1'; }
+  const P = c.st.P, mouse = c.st.mouse, fire = mouse ? 'click' : 'fire';
+  $('#cg-flick').textContent = `One ${mouse ? 'click' : 'shot'}. Faster = more points`;
+  $('#cg-track').textContent = P.holdFire ? `Hold ${fire} while you stay on it` : 'Keep the crosshair on it';
+  const rules = [
+    `60 seconds. Each hit in a row adds 10% to the next, up to double points.`,
+    `A miss costs ${P.missPenalty} points${P.nearMiss ? '. Your first near miss on a target keeps the streak' : ' and ends the streak'}.`,
+    P.holdFire ? `Moving targets score only while you're on them and ${mouse ? 'holding the button' : 'holding fire'}. Firing off them costs nothing.` : 'Moving targets score for every second you stay on them.',
+    ...(c.st.v >= 2 && !mouse ? ['Aim assist is on (medium), like your game.'] : [])
+  ];
+  const ul = $('#cg-rules');
+  ul.textContent = '';
+  for (const r of rules) { const li = document.createElement('li'); li.textContent = r; ul.append(li); }
+}
+
 function renderChalBrief(force) {
   const c = chal, key = c.phase + inp.src + mouse.locked;
   if (key === chalBriefKey && !force) return;
   chalBriefKey = key;
   const di = c.duel ? c.duel.i : 0;
   $('#swipe-fig').hidden = true;
+  showChalGuide(c);
   $('#brief-title').textContent = c.duel ? (c.phase === 'rate' ? `How did run ${di + 1} feel?` : `Settings duel · run ${di + 1} of ${DUEL.runs}`)
     : c.kind === 'daily' ? `Daily challenge · ${c.code.slice(2)}` : c.kind === 'practice' ? 'Practice challenge' : `Challenge ${c.code}`;
   $('#brief-text').textContent = c.phase === 'rate' ? 'Go with your gut. You can skip this.'
     : c.phase !== 'intro' ? (c.phase === 'count' ? 'Get ready.' : 'Go.')
-    : !c.duel ? `60 seconds. Hit each target fast for more points, and keep a streak going for a bonus. Missed shots cost points. ${c.st.P.holdFire ? 'On the moving targets, hold fire while you stay on them: they score only while you are on target and firing, and missing costs nothing.' : 'Stay on the moving targets, no need to fire at those.'}${c.st.v >= 2 && !c.st.mouse ? ' Aim assist is on (medium) for every controller run.' : ''}`
+    : !c.duel ? '60 seconds of standing, moving and behind-you targets, the same for everyone who plays this code. How it scores is below.'
     : di === 0 ? `${DUEL.runs} challenge runs of ${DUEL.seconds} seconds. Two use your old settings and two use the suggested ones, in a hidden order, and each pair plays the same targets.`
     : `Run ${di + 1} of ${DUEL.runs}. Same drill. The settings may have changed.`;
   const act = $('#brief-actions');
