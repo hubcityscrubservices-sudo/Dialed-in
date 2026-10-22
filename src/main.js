@@ -1620,11 +1620,22 @@ const tok = n => css.getPropertyValue(n).trim();
 // Canvas pixels per CSS pixel: the screen's pixel ratio, capped so a canvas never holds more than
 // MAX_CANVAS_PX pixels. A big range on a high-resolution display otherwise redraws ~4 million pixels a
 // frame, which can push a graphics driver into resetting the whole browser window (a white flash).
-const MAX_CANVAS_PX = 2.2e6;
+// Lighter graphics (a toggle, and switched on by itself if the browser loses the canvas to a driver
+// reset): about 0.8 million pixels and 60 frames a second, a fraction of the work.
+const MAX_CANVAS_PX = 2.2e6, LITE_CANVAS_PX = 0.8e6;
+const LITE_KEY = 'dialed-in:lite';
+let lite = false;
+try { lite = localStorage.getItem(LITE_KEY) === '1'; } catch (e) { /* storage blocked: full graphics */ }
+function setLite(on, why) {
+  lite = on;
+  try { localStorage.setItem(LITE_KEY, on ? '1' : '0'); } catch (e) { /* not remembered */ }
+  const box = $('#lite'); if (box) box.checked = on;
+  const note = $('#lite-note'); if (note) { note.hidden = !why; note.textContent = why || ''; }
+}
 function fit(c) {
-  const r = c.getBoundingClientRect();
+  const r = c.getBoundingClientRect(), cap = lite ? LITE_CANVAS_PX : MAX_CANVAS_PX;
   let d = window.devicePixelRatio || 1;
-  if (r.width * r.height * d * d > MAX_CANVAS_PX) d = Math.sqrt(MAX_CANVAS_PX / (r.width * r.height));
+  if (r.width * r.height * d * d > cap) d = Math.sqrt(cap / (r.width * r.height));
   const w = Math.round(r.width * d), h = Math.round(r.height * d);
   if (w && h && (c.width !== w || c.height !== h)) { c.width = w; c.height = h; }
   c.dataset.px = String(r.width ? w / r.width : 1);
@@ -2495,6 +2506,12 @@ function toggleFullscreen() {
   else if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
 }
 $('#fs-btn').addEventListener('click', toggleFullscreen);
+$('#lite').checked = lite;
+$('#lite').addEventListener('change', e => setLite(e.target.checked, ''));
+// A graphics driver reset takes the canvas with it; the browser rebuilds it, and the range drops to
+// lighter graphics so it is less likely to happen again.
+$('#arena').addEventListener('contextlost', () => setLite(true, 'Your graphics driver reset, so the range switched to lighter graphics. Untick it to go back.'));
+$('#arena').addEventListener('contextrestored', () => { lastDraw = 0; });
 document.addEventListener('fullscreenchange', () => {
   const on = !!document.fullscreenElement;
   $('#fs-btn').setAttribute('aria-pressed', String(on));
@@ -2565,18 +2582,24 @@ function updateStatus() {
   $('#hud-l').textContent = l; $('#hud-r').textContent = r;
 }
 
+// Drawing is capped at 120 frames a second (60 with lighter graphics): high-refresh monitors would
+// otherwise redraw the range 144-240 times a second for no visible gain. Input and timing still run every frame.
+let lastDraw = 0, styleAge = 0;
 function frame(ts) {
   const dt = lastT ? Math.min(0.05, (ts - lastT) / 1000) : 0;
   lastT = ts;
-  css = getComputedStyle(document.documentElement);
+  if (!css || ++styleAge > 30) { css = getComputedStyle(document.documentElement); styleAge = 0; }
   inp = poll();
   const edge = {};
   for (const k of ['fire', 'dl', 'du', 'dr', 'lb', 'rb']) { edge[k] = inp[k] && !prev[k]; prev[k] = inp[k]; }
   if (screen === 'test' && chal) chalTick(dt, edge);
   else if (screen === 'test' && session) tick(dt, edge);
   updateStatus();
-  drawSticks();
-  drawArena();
+  if (ts - lastDraw >= 1000 / (lite ? 60 : 120) - 2) {
+    lastDraw = ts;
+    drawSticks();
+    drawArena();
+  }
   requestAnimationFrame(frame);
 }
 

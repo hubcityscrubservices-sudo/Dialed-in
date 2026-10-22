@@ -309,7 +309,11 @@
             </figure>
           </div>
           <div class="actions" id="brief-actions"></div>
-          <button class="btn small fs-btn" id="fs-btn" type="button" aria-pressed="false">⛶ Full screen</button>
+          <div class="view-opts">
+            <label class="pool-opt"><input type="checkbox" id="lite"> Lighter graphics</label>
+            <button class="btn small fs-btn" id="fs-btn" type="button" aria-pressed="false">⛶ Full screen</button>
+          </div>
+          <p class="fine" id="lite-note" hidden></p>
         </div>
         <div class="arena-wrap">
           <canvas id="arena" aria-label="Aim range"></canvas>

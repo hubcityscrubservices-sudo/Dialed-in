@@ -457,3 +457,4 @@ body.testing .arena-wrap { width: min(100%, calc((100vh - 275px) * 16 / 9)); min
 .fs-btn { justify-self: end; }
 #p-test:fullscreen { background: var(--bg); padding: 12px 18px; align-content: center; overflow: auto; }
 #p-test:fullscreen .arena-wrap { width: min(100%, calc((100vh - 150px) * 16 / 9)); margin-inline: auto; }
+.view-opts { display: flex; justify-content: flex-end; align-items: center; gap: 16px; flex-wrap: wrap; }
