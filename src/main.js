@@ -1634,6 +1634,7 @@ const CH_KIND = { daily: 'Daily challenge', practice: 'Practice', code: 'Shared 
 
 // opts: { settings, seconds, duel } for duel runs; otherwise the run uses the setup form.
 function startChallenge(code, kind, opts = {}) {
+  checkVersion();
   if (!opts.settings) { readSetup(); syncSetup(); sharePoolSample(); }
   session = null;
   calibrate();
@@ -2032,7 +2033,12 @@ function wireBoard(c, sum) {
     try {
       const res = await submitScore({ code: c.code, game: c.game, input: c.src, playerId: playerId(), name,
         settings: c.settings, score: sum.score, replay: c.result.replay });
-      if (!res.ok) { status.textContent = res.error || 'The score was not saved.'; btn.disabled = false; return; }
+      if (!res.ok) {
+        // A replay mismatch almost always means the page is older than the server's rules.
+        status.textContent = (res.error || 'The score was not saved.') + (/replay scored/.test(res.error || '')
+          ? ' This usually means the site was updated while this page was open. Refresh the page and play the run again.' : '');
+        btn.disabled = false; checkVersion(); return;
+      }
       const where = `#${res.rank} of ${res.total} on the ${INPUT_LABEL[c.src].toLowerCase()} board${res.rankAll ? `, #${res.rankAll} of ${res.totalAll} across all inputs` : ''}`;
       status.textContent = res.saved
         ? `Verified and saved. You're ${where}.`
@@ -2159,6 +2165,27 @@ function frame(ts) {
   drawArena();
   requestAnimationFrame(frame);
 }
+
+/* ---------- staying current ---------- */
+
+// The website build checks version.json (written next to the page at deploy) for a newer build. A page
+// left open across a deploy would otherwise play challenges under old rules that the server no
+// longer replays the same way. Only on the website: the file and the claude.ai preview have no version.json.
+const BUILD = typeof __BUILD__ === 'string' ? __BUILD__ : 'dev';
+let outdated = false;
+async function checkVersion() {
+  if (!/^https?:$/.test(location.protocol) || outdated) return;
+  try {
+    const res = await fetch('version.json', { cache: 'no-store' });
+    if (!res.ok) return;
+    const { build } = await res.json();
+    if (build && build !== BUILD) { outdated = true; $('#update-bar').hidden = false; }
+  } catch (e) { /* offline or blocked: keep going */ }
+}
+$('#update-reload').addEventListener('click', () => location.reload());
+checkVersion();
+setInterval(checkVersion, 5 * 60 * 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkVersion(); });
 
 // Read-only hook for automated browser tests (page opened with ?debug); not used by the app.
 if (new URLSearchParams(location.search).has('debug')) window.dialedInDebug = { chal: () => chal, session: () => session, view: () => view, game: () => game() };

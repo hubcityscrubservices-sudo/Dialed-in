@@ -405,3 +405,7 @@ pre#copytext { font: 12px/1.5 var(--mono); background: rgba(8, 16, 23, 0.6); bor
 .spin-guide .sf-big { font: 800 30px var(--display); fill: var(--ink); }
 .field > label .unit { font: 500 12px var(--body); text-transform: none; letter-spacing: 0; color: var(--muted); }
 .board-table .board-more { margin-top: 10px; }
+
+/* New version available */
+.update-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 10px 14px; border: 1px solid var(--sun); background: rgba(255, 181, 71, 0.12); color: var(--ink); font-size: 14px; }
