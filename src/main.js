@@ -47,7 +47,7 @@ const RATINGS = [
   { v: 1, label: 'A bit fast', key: 'dr', glyph: 'D-pad →' },
   { v: 2, label: 'Way too fast', key: 'rb', glyph: 'R1' }
 ];
-const MODE_HINT = { quick: 'About 3 minutes', verify: 'About 5 minutes', deep: 'About 8 minutes', full: 'About 15-18 minutes' };
+const MODE_HINT = { quick: 'About 4 minutes', verify: 'About 6 minutes', deep: 'About 9 minutes', full: 'About 15-18 minutes' };
 // Full dial-in: Deep with about 20 rounds' worth of data in one sitting. Simulated players came out the
 // same with more rounds or longer ones at equal time, so it does a bit of both: 16-18 search rounds of
 // 10 targets and 10 s of tracking, the curve and vertical checks twice over (8 rounds), longer turn and
