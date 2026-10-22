@@ -1671,6 +1671,25 @@ const reducedMotion = () => !!(window.matchMedia && window.matchMedia('(prefers-
 
 // One frame of the aim range. sc = { view, zoom, phase, countLeft, worldKey, gameId, flick: { cur, flash }?, track?,
 // figure, overlay?, hud? }.
+// The sky, sun, hills and ground grid are soft gradients and fills that cover the whole screen several
+// layers deep, the bulk of each frame's work. They're drawn at reduced resolution on a canvas of their
+// own and scaled up (BG_SCALE, lower with lighter graphics); targets, effects and the HUD stay sharp on top.
+const BG_SCALE = 0.5, BG_SCALE_LITE = 0.35;
+let bgCanvas = null;
+function paintBackground(ctx, sc, view, W, H, d, zoom, w, now, calm) {
+  const k = W * H < 600000 ? 1 : lite ? BG_SCALE_LITE : BG_SCALE;
+  const bw = Math.max(1, Math.round(W * k)), bh = Math.max(1, Math.round(H * k));
+  if (!bgCanvas) bgCanvas = document.createElement('canvas');
+  if (bgCanvas.width !== bw || bgCanvas.height !== bh) { bgCanvas.width = bw; bgCanvas.height = bh; }
+  const bctx = bgCanvas.getContext('2d', { alpha: false });
+  const bcam = makeCamera(view, bw, bh, sc.hfov, zoom);
+  bcam.d = d * k;
+  paintSky(bctx, bcam, w, now, calm);
+  paintTerrain(bctx, bcam, w);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(bgCanvas, 0, 0, W, H);
+}
+
 function drawScene(c, sc) {
   const view = sc.view, P = sc.phase, now = performance.now(), calm = reducedMotion();
   const ctx = c.getContext('2d'), W = c.width, H = c.height, d = pxRatio(c);
@@ -1679,8 +1698,7 @@ function drawScene(c, sc) {
   cam.d = d;
   const { cx, cy, ppd } = cam;
   const w = worldFor(sc.worldKey);
-  paintSky(ctx, cam, w, now, calm);
-  paintTerrain(ctx, cam, w);
+  paintBackground(ctx, sc, view, W, H, d, zoom, w, now, calm);
 
   const running = P === 'run';
   const scopeR = zoom >= 3 ? Math.min(W, H) * 0.46 : 0;
@@ -2585,6 +2603,19 @@ function updateStatus() {
 // Drawing is capped at 120 frames a second (60 with lighter graphics): high-refresh monitors would
 // otherwise redraw the range 144-240 times a second for no visible gain. Input and timing still run every frame.
 let lastDraw = 0, styleAge = 0;
+const drawStats = []; // ms per drawn frame, for the debug hook
+// A computer that can't keep up gets lighter graphics on its own: after 2 seconds of a test, if the
+// median frame took over 14 ms to draw. Never overrides a choice the player made with the checkbox.
+let autoChecked = false;
+function autoLite() {
+  if (autoChecked || lite || screen !== 'test' || drawStats.length < 120) return;
+  let chosen = null;
+  try { chosen = localStorage.getItem(LITE_KEY); } catch (e) { /* no stored choice */ }
+  autoChecked = true;
+  if (chosen === '0') return;
+  const last = drawStats.slice(-120).sort((a, b) => a - b);
+  if (last[60] > 14) setLite(true, 'Your computer was working hard to draw the range, so it switched to lighter graphics for smoother aiming. Untick it to go back.');
+}
 function frame(ts) {
   const dt = lastT ? Math.min(0.05, (ts - lastT) / 1000) : 0;
   lastT = ts;
@@ -2597,8 +2628,11 @@ function frame(ts) {
   updateStatus();
   if (ts - lastDraw >= 1000 / (lite ? 60 : 120) - 2) {
     lastDraw = ts;
+    const t0 = performance.now();
     drawSticks();
     drawArena();
+    drawStats.push(performance.now() - t0); if (drawStats.length > 600) drawStats.shift();
+    autoLite();
   }
   requestAnimationFrame(frame);
 }
@@ -2625,7 +2659,7 @@ setInterval(checkVersion, 5 * 60 * 1000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) checkVersion(); });
 
 // Read-only hook for automated browser tests (page opened with ?debug); not used by the app.
-if (new URLSearchParams(location.search).has('debug')) window.dialedInDebug = { chal: () => chal, session: () => session, view: () => view, game: () => game() };
+if (new URLSearchParams(location.search).has('debug')) window.dialedInDebug = { drawStats: () => drawStats.slice(), chal: () => chal, session: () => session, view: () => view, game: () => game() };
 
 restoreSetup();
 syncSetup();
