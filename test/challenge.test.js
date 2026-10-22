@@ -85,7 +85,7 @@ test('hit points grow with difficulty, speed and streak', () => {
 // these drift would break verification of runs already on the leaderboard.
 test('version 1 rules replay exactly as before (dailies before V2_FROM)', () => {
   const s = { sens: 80, vsens: 60, vmult: 1, curve: 'expo', dz: 0.05, outer: 1, boost: 55, boostRamp: 1.6 };
-  const cases = [['d-2026-10-21', 'arc', 0.15, s, 25313], ['d-2026-10-20', 'cod', 0.1, { sens: 6, vsens: 6, curve: 'mid', dz: 0.1 }, 24278],
+  const cases = [['d-2026-10-21', 'arc', 0.15, s, 25313], ['d-2026-10-20', 'cod', 0.1, { sens: 1.65, vsens: 1.65, curve: 'mid', dz: 0.1 }, 24278],
     ['d-2026-10-19', 'apex', 0.2, { sens: 3, curve: 'mid', dz: 0.1 }, 18799]];
   for (const [code, game, k, set, want] of cases) {
     const st = createChallenge(code, game, set), rng = mulberry32(7);
@@ -114,7 +114,7 @@ test('version 2: controller runs get aim assist and engine-2 rules; submitted va
 // Version-2 dailies (2026-10-22) must also keep replaying exactly, now that version 3 exists.
 test('version 2 rules replay exactly as when they shipped', () => {
   const s = { sens: 80, vsens: 60, vmult: 1, curve: 'expo', dz: 0.05, outer: 1, boost: 55, boostRamp: 1.6 };
-  const cases = [['arc', 0.15, s, 18326], ['cod', 0.1, { sens: 6, vsens: 6, curve: 'mid', dz: 0.1 }, 15363], ['apex', 0.2, { sens: 3, curve: 'mid', dz: 0.1 }, 18828]];
+  const cases = [['arc', 0.15, s, 18326], ['cod', 0.1, { sens: 1.65, vsens: 1.65, curve: 'mid', dz: 0.1 }, 15363], ['apex', 0.2, { sens: 3, curve: 'mid', dz: 0.1 }, 18828]];
   for (const [game, k, set, want] of cases) {
     const st = createChallenge('d-2026-10-22', game, set), rng = mulberry32(7);
     assert.equal(st.v, 2);

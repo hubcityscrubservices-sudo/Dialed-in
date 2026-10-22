@@ -28,9 +28,9 @@ test('steer: look boost speeds up turning only after holding full stick', () => 
   assert.ok(Math.abs(later / first - 1.55) < 1e-9);
   // Games without boost turn at a constant rate.
   const w = makeView();
-  const a = steer(w, { rx: 1, ry: 0 }, { sens: 6, curve: 'mid', dz: 0.1 }, GAMES.cod, 0.05).vy;
-  for (let i = 0; i < 20; i++) steer(w, { rx: 1, ry: 0 }, { sens: 6, curve: 'mid', dz: 0.1 }, GAMES.cod, 0.05);
-  assert.equal(steer(w, { rx: 1, ry: 0 }, { sens: 6, curve: 'mid', dz: 0.1 }, GAMES.cod, 0.05).vy, a);
+  const a = steer(w, { rx: 1, ry: 0 }, { sens: 1.65, curve: 'mid', dz: 0.1 }, GAMES.cod, 0.05).vy;
+  for (let i = 0; i < 20; i++) steer(w, { rx: 1, ry: 0 }, { sens: 1.65, curve: 'mid', dz: 0.1 }, GAMES.cod, 0.05);
+  assert.equal(steer(w, { rx: 1, ry: 0 }, { sens: 1.65, curve: 'mid', dz: 0.1 }, GAMES.cod, 0.05).vy, a);
 });
 
 test('flick trial records first-shot endpoint and overshoot', () => {
@@ -63,7 +63,7 @@ test('throughput rewards speed and penalizes scatter', () => {
 });
 
 const base = { throughput: 3, hitRate: 0.8, avgTime: 0.8, trackErr: 3, onTarget: 0.5, jitter: 0 };
-const cfg = { game: 'cod', style: 'balanced', sens: 6, curve: 'mid', dz: 0.1 };
+const cfg = { game: 'cod', style: 'balanced', sens: 1.65, curve: 'mid', dz: 0.1 };
 
 test('recommend: overshooting and running ahead lowers sensitivity', () => {
   const r = recommend({ ...base, over: 0.6, under: 0.1, behind: 0.1, ahead: 0.5 }, cfg, null);
@@ -75,13 +75,13 @@ test('recommend: overshooting and running ahead lowers sensitivity', () => {
 
 test('recommend: stopping short and trailing raises sensitivity', () => {
   const r = recommend({ ...base, over: 0.1, under: 0.6, behind: 0.6, ahead: 0.1 }, cfg, null);
-  assert.ok(r.sens > 6);
+  assert.ok(r.sens > 1.65);
   assert.equal(r.curve, 'linear');
 });
 
 test('recommend: balanced errors keep the setting', () => {
   const r = recommend({ ...base, over: 0.3, under: 0.3, behind: 0.3, ahead: 0.3 }, cfg, null);
-  assert.equal(r.sens, 6);
+  assert.equal(r.sens, 1.65);
   assert.equal(r.curve, 'mid');
 });
 
@@ -211,9 +211,9 @@ test('vertical speed: overshooting only up and down lowers vertical relative to 
 });
 
 test('vertical speed: stopping short only up and down raises it', () => {
-  const c = { ...cfg, game: 'cod', sens: 6, vsens: 6 };
-  const r = recommendVertical(mix(['short', 'short', 'miss', 'ok'], ['ok', 'ok', 'over', 'ok', 'short']), c, 6);
-  assert.ok(r.vsens > 6);
+  const c = { ...cfg, game: 'cod', sens: 1.65, vsens: 1.65 };
+  const r = recommendVertical(mix(['short', 'short', 'miss', 'ok'], ['ok', 'ok', 'over', 'ok', 'short']), c, 1.65);
+  assert.ok(r.vsens > 1.65);
 });
 
 test('vertical speed follows the horizontal change when the patterns match', () => {
@@ -307,7 +307,7 @@ test('ADS: games without a known menu get a relative change; unmeasured keeps th
   assert.equal(spec.generic, true);
   const r = recommendAds(mix([], ['short', 'short', 'miss', 'ok']), trackOf(0.6, 0.1), c, 45, spec, spec.def);
   assert.ok(r.rel > 1);
-  const none = recommendAds([], null, { ...cfg, game: 'cod' }, 6, adsSpecs(GAMES.cod)[0], 1);
+  const none = recommendAds([], null, { ...cfg, game: 'cod' }, 1.65, adsSpecs(GAMES.cod)[0], 1);
   assert.equal(none.measured, false);
   assert.equal(none.next, 1);
 });
@@ -382,10 +382,22 @@ test('turn drill: slow without pushing all the way leaves boost alone; other gam
 test('kTurn scales both axes of the stick turn rate', async () => {
   const { steer, makeView } = await import('../src/sim.js');
   const { GAMES } = await import('../src/games.js');
-  const s = { sens: 6, vsens: 6, curve: 'linear', dz: 0.05 };
+  const s = { sens: 1.65, vsens: 1.65, curve: 'linear', dz: 0.05 };
   const a = makeView(), b = makeView();
   steer(a, { rx: 1, ry: -1 }, s, GAMES.cod, 0.1);
   steer(b, { rx: 1, ry: -1 }, { ...s, kTurn: 1.5 }, GAMES.cod, 0.1);
   assert.ok(Math.abs(b.yaw / a.yaw - 1.5) < 1e-9);
   assert.ok(Math.abs(b.pitch / a.pitch - 1.5) < 1e-9);
+});
+
+import { codOldUnits, codFromOld } from '../src/games.js';
+
+test('Call of Duty 0.10-4.00 scale turns like the published old-scale values', () => {
+  for (const [n, o] of [[1, 3], [1.65, 6], [1.9, 8], [2, 9], [3, 15], [4, 20]]) {
+    assert.ok(Math.abs(codOldUnits(n) - o) < 1e-9);
+    assert.equal(codFromOld(o), n);
+  }
+  assert.equal(GAMES.cod.sens.rate(1.65), 6 * 48); // same turn speed as the old default of 6
+  assert.ok(GAMES.cod.sens.rate(0.5) < GAMES.cod.sens.rate(1)); // below 1.00 still slower
+  assert.equal(codFromOld(12), 2.5);
 });

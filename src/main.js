@@ -1,4 +1,4 @@
-import { GAMES, PLAYSTYLES, gameTitle, extraSetting, adsSpecs, fmtAds } from './games.js';
+import { GAMES, PLAYSTYLES, gameTitle, extraSetting, adsSpecs, fmtAds, codFromOld } from './games.js';
 import { makeCamera, hfov169 } from './camera.js';
 import { makeView, steer, newFlickTarget, flickStep, makeTrack, trackStep, newTurnTarget, turnStep, trackAim, TRACK_V2 } from './sim.js';
 import { summarize, recommend, recommendVertical, recommendAds, turnStats, recommendTurn, driftDeadzone, settingsChanged } from './analysis.js';
@@ -1121,13 +1121,15 @@ function saveSetup() {
   s.last = { device: cfg.device, game: cfg.game, style: cfg.style, mode: cfg.mode, dpi: cfg.dpi, cm0: cfg.cm0 };
   s.games = s.games || {};
   s.games[cfg.game] = { sens: cfg.sens, vsens: cfg.vsens, fov: cfg.fov, curve: cfg.curve, dz: cfg.dz, aa: cfg.aa,
-    spin: cfg.spin, ads: cfg.ads, boost: cfg.boost, boostRamp: cfg.boostRamp };
+    spin: cfg.spin, ads: cfg.ads, boost: cfg.boost, boostRamp: cfg.boostRamp, ...(cfg.game === 'cod' ? { scale: 2 } : {}) };
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(s)); } catch (e) { /* storage blocked: settings just aren't remembered */ }
 }
 // Saved values are only taken when they still fit the game's menu, so an old save can't break setup.
 function applySaved(g, v) {
   if (!v) return;
   const inRange = (x, sp) => typeof x === 'number' && sp && x >= sp.min && x <= sp.max;
+  // Call of Duty moved from 1-20 to 0.10-4.00; settings saved on the old scale are converted.
+  if (g === GAMES.cod && v.scale !== 2) { if (typeof v.sens === 'number') v.sens = codFromOld(v.sens); if (typeof v.vsens === 'number') v.vsens = codFromOld(v.vsens); }
   if (inRange(v.sens, g.sens)) cfg.sens = v.sens;
   if (g.vsens && inRange(v.vsens, g.vsens)) cfg.vsens = v.vsens;
   if (!g.fov.fixed && inRange(v.fov, g.fov)) cfg.fov = v.fov;
