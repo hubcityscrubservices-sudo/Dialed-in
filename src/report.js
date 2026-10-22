@@ -27,9 +27,9 @@ function trackFiring(items) {
 }
 
 function mergedTrack(items) {
-  const m = { T: 0, errSum: 0, on: 0, behind: 0, ahead: 0, near: 0, rev: 0, tRev: 0, chunks: [] };
+  const m = { T: 0, errSum: 0, on: 0, behind: 0, ahead: 0, refBehind: 0, refAhead: 0, near: 0, rev: 0, tRev: 0, chunks: [] };
   for (const { TR } of items) {
-    for (const k of ['T', 'errSum', 'on', 'behind', 'ahead', 'near', 'rev', 'tRev']) m[k] += TR[k];
+    for (const k of ['T', 'errSum', 'on', 'behind', 'ahead', 'refBehind', 'refAhead', 'near', 'rev', 'tRev']) m[k] += TR[k] || 0;
     m.chunks.push(...TR.chunks);
   }
   return m;
@@ -78,7 +78,7 @@ export function reportCard(log, c) {
   }
 
   if (track.length >= 2 && tr.T) {
-    const lean = (tr.behind - tr.ahead) / tr.T;
+    const lean = ((tr.behind - tr.ahead) - (tr.refBehind - tr.refAhead)) / tr.T;
     if (lean > REPORT.trackLean) hints.push({ area: 'track', text: `You trailed the moving targets ${pct(tr.behind / tr.T)} of the time and rarely got ahead. Your sensitivity may be a little low.` });
     else if (lean < -REPORT.trackLean) hints.push({ area: 'track', text: `You ran ahead of the moving targets ${pct(tr.ahead / tr.T)} of the time. Your sensitivity may be a little high.` });
   }

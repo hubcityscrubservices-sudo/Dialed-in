@@ -399,3 +399,30 @@ test('Call of Duty 0.10-4.00 scale: proportional turn speed, old values converte
   assert.equal(codFromOld(4), 1.2);
   assert.equal(codFromOld(12), 2.46);
 });
+
+import { TRACK_V2 } from '../src/sim.js';
+
+// A delayed tracker following the strafing target: gain 1 = perfect speed, below 1 too slow.
+function leanOf(seed, gain, delay = 0.2) {
+  const rng = mulberry32(seed), TR = makeTrack(1.5, 1, TRACK_V2), view = { yaw: 0, pitch: 0 }, H = [], dt = 1 / 60;
+  for (let t = 0; t < 8; t += dt) {
+    H.push({ t: TR.t, y: TR.tgt.yaw, v: TR.tgt.v, p: TR.tgt.pitch, me: view.yaw });
+    const d = H.find(h => h.t >= TR.t - delay) || H[0];
+    const vy = gain * (d.v + 3.5 * (d.y - d.me));
+    view.yaw += vy * dt; view.pitch = d.p;
+    trackStep(TR, view, vy, dt, rng);
+  }
+  return summarize([], TR);
+}
+
+test('tracking: reaction lag alone does not read as low sensitivity', () => {
+  let raw = 0, lean = 0, slow = 0;
+  for (let i = 1; i <= 20; i++) {
+    const s = leanOf(i * 7, 1);
+    raw += (s.behind - s.ahead) / 20; lean += s.lean / 20;
+    slow += leanOf(i * 7, 0.75).lean / 20;
+  }
+  assert.ok(raw > 0.07, `a perfect-speed tracker trails ${raw.toFixed(2)} on the raw count`);
+  assert.ok(Math.abs(lean) < 0.05, `against the reference it reads ${lean.toFixed(3)}`);
+  assert.ok(slow > 0.2, `a 25% slow tracker still reads as trailing (${slow.toFixed(2)})`);
+});

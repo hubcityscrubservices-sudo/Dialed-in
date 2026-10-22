@@ -36,6 +36,8 @@ export function summarize(flicks, track) {
     onTarget: track.on / T,
     behind: track.behind / T,
     ahead: track.ahead / T,
+    // Trailing minus leading, beyond what a perfect-speed player with normal reaction time shows.
+    lean: ((track.behind - track.ahead) - ((track.refBehind || 0) - (track.refAhead || 0))) / T,
     jitter: track.near > 1 ? Math.max(0, track.rev - track.tRev) / track.near : 0
   };
 }
@@ -46,7 +48,7 @@ export function summarize(flicks, track) {
 export function speedAdjust(s, style) {
   const st = PLAYSTYLES[style];
   const flickAdj = clamp((s.under - s.over) * 0.5, -0.3, 0.3);
-  const trackAdj = clamp((s.behind - s.ahead) * 0.6 - (s.jitter > 2.5 ? 0.08 : 0), -0.3, 0.3);
+  const trackAdj = clamp((s.lean ?? s.behind - s.ahead) * 0.6 - (s.jitter > 2.5 ? 0.08 : 0), -0.3, 0.3);
   const adj = st.wf * flickAdj + st.wt * trackAdj;
   return Math.abs(adj) < 0.04 ? 0 : adj;
 }
@@ -63,7 +65,7 @@ export function recommend(s, c, drift) {
       if (e < err) { err = e; sens = v; }
     }
   }
-  const measured = `You overshot ${pct(s.over)} of flicks and stopped short on ${pct(s.under)}. While tracking you trailed the target ${pct(s.behind)} of the time and ran ahead ${pct(s.ahead)}.`;
+  const measured = `You overshot ${pct(s.over)} of flicks and stopped short on ${pct(s.under)}. While tracking you trailed the target ${pct(s.behind)} of the time and ran ahead ${pct(s.ahead)}${s.lean != null ? ', judged against a player with normal reaction time' : ''}.`;
   let sensWhy;
   if (sens > c.sens) sensWhy = measured + ' You were mostly too slow, so turn it up.';
   else if (sens < c.sens) sensWhy = measured + ' You were mostly too fast, so turn it down.';
@@ -77,7 +79,7 @@ export function recommend(s, c, drift) {
     curveWhy = s.jitter > 2.5
       ? `You made a lot of small corrections near targets (${s.jitter.toFixed(1)} extra direction changes per second). A curve with a softer center makes fine aim steadier.`
       : `You overshot ${pct(s.over)} of flicks. A curve with a softer center slows the first part of the stick's travel, so it is easier to stop on target.`;
-  } else if (s.under > 0.4 && s.behind > s.ahead) {
+  } else if (s.under > 0.4 && (s.lean ?? s.behind - s.ahead) > 0) {
     curve = 'linear';
     curveWhy = 'Your aim got moving late on small stick pushes. A linear curve responds sooner.';
   }

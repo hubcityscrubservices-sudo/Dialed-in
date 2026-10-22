@@ -614,7 +614,7 @@ function tickFlick(s, dt, fireEdge) {
   const st = steer(view, inp, s.settings, game(), dt, 0, F.cur);
   if (F.flash) F.flash.t -= dt;
   if (s.turn) turnStep(F.cur, view, st.mag, dt);
-  const out = flickStep(F.cur, view, st.mag, fireEdge, dt);
+  const out = flickStep(F.cur, view, st.push, fireEdge, dt);
   if (out === 'miss') F.flash = { yaw: view.yaw, pitch: view.pitch, t: 0.2, good: false };
   if (out === 'hit') F.flash = { yaw: F.cur.yaw, pitch: F.cur.pitch, t: 0.3, good: true };
   if (out === 'hit' || out === 'timeout') {

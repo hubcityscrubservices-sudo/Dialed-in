@@ -47,6 +47,8 @@ export function steer(view, input, settings, game, dt, minDz = 0, aim = null) {
   const curve = (game.curve.fn && game.curve.fn[settings.curve]) || (e2 ? CURVE_EXP2 : CURVE_EXP)[settings.curve];
   const dz = Math.max(settings.dz, minDz), outer = settings.outer ?? 1;
   const [sx, sy, mag] = shape(input.rx, input.ry, dz, curve, outer);
+  // How far the stick is pushed past the deadzone, before the curve: what the player's thumb did.
+  const push = Math.min(1, Math.max(0, (Math.hypot(input.rx, input.ry) - dz) / (outer - dz)));
   let boost = 1, vboost = 1;
   let b = settings.zoomed && game.zoomBoost ? game.zoomBoost : game.boost;
   // The player's own hip-fire boost values (percent extra speed, ramp-up seconds) override the profile's.
@@ -54,7 +56,6 @@ export function steer(view, input, settings, game, dt, minDz = 0, aim = null) {
   if (b) {
     if (e2) {
       // Push before the curve, so every curve boosts at the same stick position; dips under 0.1 s keep the ramp.
-      const push = Math.min(1, Math.max(0, (Math.hypot(input.rx, input.ry) - dz) / (outer - dz)));
       if (push >= 0.9) { view.boostT += dt; view.dipT = 0; }
       else { view.dipT = (view.dipT || 0) + dt; if (view.dipT > 0.1) view.boostT = 0; }
     } else view.boostT = mag >= 0.95 ? view.boostT + dt : 0;
@@ -67,7 +68,7 @@ export function steer(view, input, settings, game, dt, minDz = 0, aim = null) {
   if (aim && settings.aa && game.assist) [vy, vp] = assistTurn(vy, vp, mag, view, aim, game.assist, settings.aa);
   view.yaw += vy * dt;
   view.pitch = clamp(view.pitch + vp * dt, -40, 40);
-  return { vy, vp, mag };
+  return { vy, vp, mag, push };
 }
 
 /* ---------- aim assist ---------- */
@@ -120,7 +121,8 @@ export function steerMouse(view, input, settings, game, dt) {
   view.yaw += dy;
   view.pitch = clamp(view.pitch + dp, -40, 40);
   const vy = dt ? dy / dt : 0, vp = dt ? dp / dt : 0;
-  return { vy, vp, mag: Math.min(1, Math.hypot(vy, vp) / MOUSE_FULL) };
+  const mag = Math.min(1, Math.hypot(vy, vp) / MOUSE_FULL);
+  return { vy, vp, mag, push: mag };
 }
 
 /* ---------- flick trials ---------- */
@@ -152,7 +154,7 @@ export function newFlickTarget(view, rng = Math.random, vertical = false, scale 
   const dy = yaw - view.yaw, dp = pitch - view.pitch, D = Math.hypot(dy, dp);
   const r = (1.8 + rng() * 1.2) * scale * size;
   return {
-    yaw, pitch, r, W: 2 * r, D, sy: view.yaw, sp: view.pitch, ux: dy / D, uy: dp / D, ang: trueAngle,
+    yaw, pitch, r, W: 2 * r, D, sy: view.yaw, sp: view.pitch, ux: dy / D, uy: dp / D, ang: trueAngle, sc: scale,
     maxProj: 0, segs: 0, active: false, shots: 0, t: 0, hit: false, overshoot: false, first: null
   };
 }
@@ -187,12 +189,15 @@ function along(T, view) {
 }
 
 // Advances one flick trial. Returns 'hit', 'timeout', 'miss' (a shot that missed) or null.
-export function flickStep(T, view, mag, fireEdge, dt) {
+// push = stick push past the deadzone, before the curve (steer's push), so a soft curve doesn't hide
+// a movement. A movement counts as a new correction only when it starts outside the target: settling
+// onto a target you're already on isn't stopping short.
+export function flickStep(T, view, push, fireEdge, dt) {
   T.t += dt;
   const proj = along(T, view);
   T.maxProj = Math.max(T.maxProj, proj);
-  const act = mag > 0.12;
-  if (act && !T.active) T.segs++;
+  const act = push > 0.12;
+  if (act && !T.active && angleTo(view, T) > T.r) T.segs++;
   T.active = act;
   if (fireEdge) {
     T.shots++;
@@ -205,9 +210,12 @@ export function flickStep(T, view, mag, fireEdge, dt) {
   return null;
 }
 
+// Overshoot is judged against a fixed distance past the target's centre (the average target radius,
+// scaled for zoom), so bigger targets for a close-range play style don't hide it.
+export const OVER_DEG = 2.4;
 function finish(T, view, why) {
   if (!T.first) T.first = { t: T.t, along: along(T, view) };
-  T.overshoot = (T.maxProj - T.D) > T.r;
+  T.overshoot = (T.maxProj - T.D) > OVER_DEG * (T.sc ?? 1);
   return why;
 }
 
@@ -224,8 +232,24 @@ export function makeTrack(warm = 0, scale = 1, P = TRACK_V1) {
   return {
     t: 0, warm, scale, P, r: 2.6 * scale * (P.size ?? 1), T: 0, errSum: 0, chunks: [], chunk: { sum: 0, time: 0 },
     on: 0, behind: 0, ahead: 0, near: 0, rev: 0, tRev: 0, last: 0,
+    ref: null, refHist: [], refBehind: 0, refAhead: 0,
     tgt: { yaw: 0, pitch: 0, v: 0, goal: 0, next: 0.4, on: false }
   };
+}
+
+// A reference player on the same target path: perfect speed, but reacting 0.2 s late like a person
+// (matching the target's speed and closing the gap as of 0.2 s ago). Even it trails after every
+// reversal, so the analysis judges the player's trailing against this one's, not against zero.
+// It only reads the target's path, so the challenge score and replays are unaffected.
+export const REF = { delay: 0.2, k: 3.5 };
+function refStep(TR, view, dt) {
+  const g = TR.tgt, H = TR.refHist;
+  if (TR.ref == null) TR.ref = view.yaw;
+  H.push({ t: TR.t, y: g.yaw, v: g.v, r: TR.ref });
+  while (H.length > 1 && H[1].t <= TR.t - REF.delay) H.shift();
+  const d = H[0].t <= TR.t - REF.delay ? H[0] : null;
+  if (d) TR.ref += (d.v + REF.k * (d.y - d.r)) * dt;
+  return TR.ref;
 }
 
 export function trackStep(TR, view, vy, dt, rng = Math.random) {
@@ -245,7 +269,10 @@ export function trackStep(TR, view, vy, dt, rng = Math.random) {
   g.pitch = (TR.pitch0 ?? 0) + 3 * TR.scale * Math.sin(TR.t * 1.3);
   const ey = view.yaw - g.yaw, ep = view.pitch - g.pitch, e = P.ang ? angleTo(view, g) : Math.hypot(ey, ep);
   g.on = e <= TR.r;
+  const ry = refStep(TR, view, dt);
   if (TR.t <= TR.warm) return;
+  // The reference player's trailing and leading, scored the same way as the player's.
+  if (Math.abs(ry - g.yaw) > TR.r && Math.abs(g.v) > 6 * TR.scale) { if ((ry - g.yaw) * Math.sign(g.v) < 0) TR.refBehind += dt; else TR.refAhead += dt; }
 
   TR.T += dt;
   TR.errSum += e * dt;

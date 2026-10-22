@@ -205,6 +205,20 @@ known not to have the setting (`null` in its profile) gets no row.
 - Overshoot, stopping short, trailing/leading and extra corrections drive the direction of each
   suggestion (`src/analysis.js`).
 
+## Reaction time in the analysis
+
+A person reacts about 0.2 s late, so after every direction change even a perfect-speed player
+trails the moving target for a moment. Counted raw, that read as "too slow" (+7–14% on the tracking
+part of the advice). Each tracking run now also plays a reference player on the same target path:
+perfect speed, 0.2 s late. The advice uses your trailing minus its trailing. In simulation a
+perfect-speed tracker now reads about 0 (it read +0.11), a 20% slow one still reads as trailing,
+and a 20% fast one now reads as leading (it read 0 before).
+
+Flicks: a correction counts from the stick push before the response curve (a soft curve no longer
+hides small pushes), only when it starts outside the target, and overshoot is judged against a
+fixed 2.4° past the target (× zoom) rather than the target's own radius, so bigger close-range
+targets don't hide it. None of this changes challenge scores.
+
 ## Deep mode
 
 Each round is scored as speed and accuracy combined (flick throughput and tracking error, each

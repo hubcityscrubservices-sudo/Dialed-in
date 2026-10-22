@@ -144,7 +144,7 @@ export function step(st, rx, ry, fire) {
   } else {
     const T = it.T;
     if (it.kind === 'turn') turnStep(T, st.view, s.mag, DT);
-    const out = flickStep(T, st.view, s.mag, fireEdge, DT);
+    const out = flickStep(T, st.view, s.push, fireEdge, DT);
     if (out === 'miss') {
       st.shots++;
       // Version 2 forgives the first near miss on a target (within twice its radius): the streak stays.
