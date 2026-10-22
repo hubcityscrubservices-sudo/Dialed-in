@@ -893,7 +893,7 @@ function renderResults() {
     <div style="display:grid;gap:6px">
       <p class="eyebrow">${gameTitle(g)} · ${PLAYSTYLES[c.style].label}${mouseGame ? ' · mouse' : ''}${g.camera === 'third' ? ' · third person' : ''}</p>
       <h2>Your settings for ${g.name}</h2>
-      <p class="lede">Set these in your game's ${mouseGame ? 'mouse' : 'controller'} settings, then play a private match or two before you judge them.${mouseGame ? '' : ` Tested with aim assist ${({ 0: 'off', 0.6: 'on (low)', 1: 'on (medium)', 1.4: 'on (high)' })[c.aa ?? 1]}, like your game.`}${mouseGame && !g.yaw ? ` ${g.name === 'your game' ? 'This game' : g.name} has no published conversion, so the cm/360 figures scale from the ${c.cm0} cm you measured.` : ''}</p>
+      <p class="lede">Set these in your game's ${mouseGame ? 'mouse' : 'controller'} settings, then play a private match or two before you judge them.${mouseGame ? '' : ` Tested with aim assist ${AA_ON_OFF.has(c.game) ? ((c.aa ?? 1) ? 'on' : 'off') : ({ 0: 'off', 0.6: 'on (low)', 1: 'on (medium)', 1.4: 'on (high)' })[c.aa ?? 1]}, like your game.`}${mouseGame && !g.yaw ? ` ${g.name === 'your game' ? 'This game' : g.name} has no published conversion, so the cm/360 figures scale from the ${c.cm0} cm you measured.` : ''}</p>
     </div>
     <div class="recs">
       ${mouseGame
@@ -1004,6 +1004,12 @@ function fillGames() {
     sel.append(o);
   }
 }
+// Aim assist choices per game, as its menu offers them. On = the profile's estimated strength.
+const AA_ON_OFF = new Set(['arc', 'apex']);
+const aaOptions = g => AA_ON_OFF.has(Object.keys(GAMES).find(k => GAMES[k] === g))
+  ? [[0, 'Off'], [1, 'On']]
+  : [[0, 'Off'], [0.6, 'Low'], [1, 'Medium'], [1.4, 'High']];
+
 // Picks a game: its defaults, then whatever this browser saved for it last time (unless useSaved is false).
 function setGame(id, useSaved = true) {
   cfg.game = id;
@@ -1042,7 +1048,7 @@ function applySaved(g, v) {
   if (!g.fov.fixed && inRange(v.fov, g.fov)) cfg.fov = v.fov;
   if (['linear', 'mid', 'expo'].includes(v.curve)) cfg.curve = v.curve;
   if (typeof v.dz === 'number' && v.dz >= 0 && v.dz <= 0.3) cfg.dz = v.dz;
-  if ([0, 0.6, 1, 1.4].includes(v.aa)) cfg.aa = v.aa;
+  if (aaOptions(g).some(([x]) => x === v.aa)) cfg.aa = v.aa;
   if (typeof v.spin === 'number' && v.spin >= 1 && v.spin <= 60) { cfg.spin = v.spin; cfg.kTurn = spinK(g, cfg.sens, cfg.spin); }
   for (const sp of adsSpecs(g)) if (v.ads && inRange(v.ads[sp.key], sp)) cfg.ads[sp.key] = v.ads[sp.key];
   const bs = g.boost && g.boost.setting;
@@ -1077,7 +1083,16 @@ function syncSetup() {
   $('#dpi-measure').textContent = mouseCheck && mouseCheck.cpcm ? 'Measure again' : 'Measure my DPI';
   // Controller menu settings the range plays with: curve, deadzone, and the optional measured turn speed.
   for (const id of ['#curve-field', '#aa-field', '#dz-field', '#spin-field']) $(id).hidden = mouseGame;
-  $('#aa').value = String(cfg.aa ?? 1);
+  // Aim assist as the game's menu has it: on/off (ARC Raiders, Apex) or a strength.
+  const aaSel = $('#aa'), opts = aaOptions(g);
+  aaSel.textContent = '';
+  for (const [v, label] of opts) { const o = document.createElement('option'); o.value = v; o.textContent = label; aaSel.append(o); }
+  if (!opts.some(([v]) => v === cfg.aa)) cfg.aa = 1;
+  aaSel.value = String(cfg.aa);
+  $('#aa-help').textContent = (opts.length === 2
+    ? `On or off, as in ${g.name === 'your game' ? 'your game' : g.name}. On slows your aim over targets and helps follow moving ones. `
+    : 'As set in your game. It slows your aim over targets and helps follow moving ones. ')
+    + 'No game publishes its strength, so the range uses an estimate. Challenge runs always have it on.';
   // Fine-tune holds whatever optional settings this game has; with none (a mouse game with a fixed
   // field of view) it isn't shown at all.
   const tune = [!mouseGame && 'turn speed check', !mouseGame && 'deadzone', !g.fov.fixed && 'field of view',
@@ -1211,7 +1226,7 @@ function readSetup() {
   if (g.device === 'mouse') { cfg.curve = g.curve.def; cfg.dz = g.dz.def; cfg.spin = null; cfg.kTurn = 1; }
   else {
     const aa = Number($('#aa').value);
-    cfg.aa = [0, 0.6, 1, 1.4].includes(aa) ? aa : 1;
+    cfg.aa = aaOptions(g).some(([v]) => v === aa) ? aa : 1;
     cfg.curve = $('#curve').value in CURVE_KEYS ? $('#curve').value : g.curve.def;
     const opts = DZ_OPTIONS[cfg.game];
     const dz = Number($('#dz').value);
