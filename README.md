@@ -53,6 +53,12 @@ side felt. It starts from the calibration results page.
 Call of Duty, Fortnite, Apex Legends, ARC Raiders, and a generic profile. Profiles live in
 `src/games.js`. Turn rates are modeled approximations.
 
+Apex Legends (Advanced Look Controls) and Fortnite (Advanced Options) are separate choices with
+those menus' own settings. Apex: Yaw/Pitch Speed taken as degrees per second, Turning Extra Yaw as
+degrees per second added at full stick, plus Turning Ramp-up Time and Delay. Fortnite: Look
+Horizontal/Vertical Speed (%) on the basic sensitivity's scale, Turning Horizontal Boost (%) and
+Turning Boost Ramp Time. Units come from player guides, not the studios, so both are marked as such.
+
 Call of Duty uses the 0.10–4.00 stick scale from Black Ops 6 and Warzone (Season 1 Reloaded). The
 new number reads as a speed multiplier, so turn speed is proportional to it, scaled so 1.65 turns
 like the old default of 6. Settings saved on the old 1–20 scale are converted with the community

@@ -51,15 +51,22 @@ export function steer(view, input, settings, game, dt, minDz = 0, aim = null) {
   const push = Math.min(1, Math.max(0, (Math.hypot(input.rx, input.ry) - dz) / (outer - dz)));
   let boost = 1, vboost = 1;
   let b = settings.zoomed && game.zoomBoost ? game.zoomBoost : game.boost;
-  // The player's own hip-fire boost values (percent extra speed, ramp-up seconds) override the profile's.
-  if (b && !settings.zoomed && settings.boost != null) b = { ...b, mult: 1 + settings.boost / 100, ramp: settings.boostRamp ?? b.ramp };
+  // The player's own hip-fire boost values override the profile's: extra speed (percent, or degrees per
+  // second on top of the base speed for a profile marked abs, like Apex's Turning Extra Yaw), ramp-up
+  // seconds and, where the game has one, a delay before the ramp starts.
+  if (b && !settings.zoomed && settings.boost != null) {
+    const extra = b.abs ? settings.boost / Math.max(1, game.sens.rate(settings.sens)) : settings.boost / 100;
+    b = { ...b, mult: 1 + extra, vmult: b.abs ? 1 : b.vmult, ramp: settings.boostRamp ?? b.ramp, delay: settings.boostDelay ?? b.delay };
+  }
   if (b) {
     if (e2) {
       // Push before the curve, so every curve boosts at the same stick position; dips under 0.1 s keep the ramp.
       if (push >= 0.9) { view.boostT += dt; view.dipT = 0; }
       else { view.dipT = (view.dipT || 0) + dt; if (view.dipT > 0.1) view.boostT = 0; }
     } else view.boostT = mag >= 0.95 ? view.boostT + dt : 0;
-    const ramp = clamp((view.boostT - (e2 ? 0 : BOOST_DELAY)) / (b.ramp ?? BOOST_RAMP), 0, 1);
+    const held = view.boostT - (e2 ? (b.delay ?? 0) : BOOST_DELAY), rampT = b.ramp ?? BOOST_RAMP;
+    // A ramp-up of 0 means full boost as soon as the push is held (0/0 would give no number at all).
+    const ramp = rampT > 0 ? clamp(held / rampT, 0, 1) : held > 0 ? 1 : 0;
     boost = 1 + (b.mult - 1) * ramp;
     vboost = 1 + ((b.vmult ?? 1) - 1) * ramp;
   }

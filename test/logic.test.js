@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { shape, steer, makeView, newFlickTarget, flickStep, makeTrack, trackStep, newTurnTarget, turnStep } from '../src/sim.js';
 import { flickThroughput, recommend, summarize, driftDeadzone, recommendVertical, isVertical, settingsChanged, recommendAds, speedAdjust, turnStats, recommendTurn } from '../src/analysis.js';
 import { verifyPlan, verifyCompare } from '../src/verify.js';
-import { GAMES, adsSpecs, fmtAds } from '../src/games.js';
+import { GAMES, adsSpecs, fmtAds, gameTitle } from '../src/games.js';
 import { mulberry32 } from '../src/util.js';
 
 const trial = (D, along, t) => ({ D, first: { along, t } });
@@ -425,4 +425,24 @@ test('tracking: reaction lag alone does not read as low sensitivity', () => {
   assert.ok(raw > 0.07, `a perfect-speed tracker trails ${raw.toFixed(2)} on the raw count`);
   assert.ok(Math.abs(lean) < 0.05, `against the reference it reads ${lean.toFixed(3)}`);
   assert.ok(slow > 0.2, `a 25% slow tracker still reads as trailing (${slow.toFixed(2)})`);
+});
+
+test('look boost: a ramp-up of 0 gives full boost at once, not an invalid speed', () => {
+  const g = GAMES.arc, s = { sens: 80, vsens: 60, curve: 'linear', dz: 0, boost: 100, boostRamp: 0, eng: 2 };
+  const v = makeView();
+  const a = steer(v, { rx: 1, ry: 0 }, s, g, 1 / 60);
+  assert.ok(Number.isFinite(a.vy));
+  const b = steer(v, { rx: 1, ry: 0 }, s, g, 1 / 60);
+  assert.ok(Math.abs(b.vy - 80 * 2.6 * 2) < 1e-9); // +100% once the push is held
+});
+
+test('Apex Advanced Look Controls: Turning Extra Yaw adds degrees per second after the delay and ramp', () => {
+  const g = GAMES['apex-alc'], s = { sens: 200, vsens: 150, curve: 'linear', dz: 0, boost: 100, boostRamp: 0.5, boostDelay: 0.25, eng: 2 };
+  const v = makeView();
+  let last;
+  for (let i = 0; i < 15; i++) last = steer(v, { rx: 1, ry: 0 }, s, g, 1 / 60); // 0.25 s: still in the delay
+  assert.ok(Math.abs(last.vy - 200) < 1e-9);
+  for (let i = 0; i < 40; i++) last = steer(v, { rx: 1, ry: 0 }, s, g, 1 / 60); // past delay + ramp
+  assert.ok(Math.abs(last.vy - 300) < 1e-9);
+  assert.equal(gameTitle(g), 'Apex Legends (Advanced Look Controls)');
 });

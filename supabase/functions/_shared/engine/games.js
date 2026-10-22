@@ -95,6 +95,43 @@ export const GAMES = {
       { key: 'scoped', label: 'Scoped Zoom Sensitivity Multiplier', zoom: 4, min: 0.01, max: 2, step: 0.01, def: 0.5, unit: '%', defKnown: false }
     ]
   },
+  // Apex with Advanced Look Controls on: speeds are set directly. Yaw/Pitch Speed are taken as degrees
+  // per second and Turning Extra Yaw as degrees per second added at full stick (community guides; the
+  // units are not published). Look boost here ignores pitch.
+  'apex-alc': {
+    name: 'Apex Legends', variant: 'Advanced Look Controls', camera: 'first', source: 'guides',
+    fov: { label: 'Field of view', min: 70, max: 110, step: 1, def: 70, type: 'h43' },
+    sens: { label: 'Yaw Speed', min: 1, max: 500, step: 1, def: 160, defKnown: false, rate: s => s },
+    vsens: { label: 'Pitch Speed', min: 1, max: 500, step: 1, def: 120, defKnown: false, rate: s => s },
+    dz: { label: 'Look Deadzone', def: 0.10, fmt: d => Math.round(d * 100) + '%' },
+    outer: { label: 'Outer Threshold', fmt: r => Math.round((1 - r) * 100) + '%' },
+    curve: { label: 'Response Curve', def: 'linear', linear: 'Linear (0)', mid: 'Moderate', expo: 'Strong' },
+    boost: {
+      label: 'Turning Extra Yaw', abs: true, mult: 1, vmult: 1, ramp: 0.3, delay: 0.2,
+      setting: { label: 'Turning Extra Yaw', min: 0, max: 500, step: 1, def: 0, adj: 40 },
+      rampSetting: { label: 'Turning Ramp-up Time', min: 0, max: 1, step: 0.05, def: 0.3 },
+      delaySetting: { label: 'Turning Ramp-up Delay', min: 0, max: 1, step: 0.05, def: 0.2 }
+    },
+    assist: { win: 2.0, slow: 0.4, rot: 0.6 }
+  },
+  // Fortnite with Use Advanced Options on: Look Horizontal/Vertical Speed in percent (taken as the same
+  // scale as the basic Look Sensitivity), and Turning Horizontal Boost as percent extra speed at full
+  // stick after the ramp time. Ranges past 100% are not confirmed.
+  'fortnite-adv': {
+    name: 'Fortnite', variant: 'Advanced Options', camera: 'third', source: 'guides',
+    fov: { fixed: true, def: 80, type: 'h169', note: "Fortnite's field of view is fixed, so the range uses about 80 degrees." },
+    sens: { label: 'Look Horizontal Speed (%)', min: 1, max: 100, step: 1, def: 45, rate: s => s * 6.4 },
+    vsens: { label: 'Look Vertical Speed (%)', min: 1, max: 100, step: 1, def: 45, rate: s => s * 6.4 * 0.8 },
+    dz: { label: 'Right stick deadzone', def: 0.10, fmt: d => Math.round(d * 100) + '%' },
+    moveDz: { label: 'Left stick deadzone', fmt: d => Math.round(d * 100) + '%' },
+    curve: { label: 'Look input curve', def: 'mid', linear: 'Linear', mid: 'Exponential', expo: 'Exponential' },
+    boost: {
+      label: 'Turning Horizontal Boost', mult: 1, vmult: 1, ramp: 0,
+      setting: { label: 'Turning Horizontal Boost (%)', min: 0, max: 100, step: 1, def: 0 },
+      rampSetting: { label: 'Turning Boost Ramp Time', min: 0, max: 1, step: 0.05, def: 0 }
+    },
+    assist: { win: 2.0, slow: 0.35, rot: 0.35 }
+  },
   other: {
     name: 'your game', camera: 'first', source: 'model',
     fov: { label: 'Field of view (horizontal)', min: 50, max: 130, step: 1, def: 90, type: 'h169' },
@@ -183,5 +220,5 @@ export function fmtAds(spec, v) {
 }
 
 export function gameTitle(g) {
-  return g.name === 'your game' ? 'Other game' : g.name;
+  return g.name === 'your game' ? 'Other game' : g.variant ? `${g.name} (${g.variant})` : g.name;
 }

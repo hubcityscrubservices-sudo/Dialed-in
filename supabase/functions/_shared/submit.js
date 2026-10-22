@@ -47,6 +47,8 @@ export function cleanSettings(game, s) {
   const bs = g.boost && g.boost.setting;
   if (s.boost != null) { if (!bs || !num(s.boost, bs.min, bs.max)) return null; out.boost = s.boost; }
   if (s.boostRamp != null) { if (!bs || !num(s.boostRamp, g.boost.rampSetting.min, g.boost.rampSetting.max)) return null; out.boostRamp = s.boostRamp; }
+  const ds = g.boost && g.boost.delaySetting;
+  if (s.boostDelay != null) { if (!ds || !num(s.boostDelay, ds.min, ds.max)) return null; out.boostDelay = s.boostDelay; }
   return out;
 }
 

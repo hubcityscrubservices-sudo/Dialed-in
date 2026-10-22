@@ -171,3 +171,12 @@ test('a measured turn speed (kTurn) replays and is range-checked', async () => {
   assert.equal((await handleSubmit(body(code, r), memoryDb(), NOW)).status, 422);
   assert.equal((await handleSubmit(body(code, r, { settings: { ...settings, kTurn: 9 } }), memoryDb(), NOW)).status, 400);
 });
+
+test('cleanSettings accepts a turning ramp-up delay only for games that have one', async () => {
+  const { cleanSettings } = await import('../supabase/functions/_shared/submit.js');
+  const alc = { sens: 200, vsens: 150, curve: 'linear', dz: 0.1, boost: 100, boostRamp: 0.3, boostDelay: 0.2 };
+  assert.equal(cleanSettings('apex-alc', alc).boostDelay, 0.2);
+  assert.equal(cleanSettings('apex-alc', { ...alc, boostDelay: 3 }), null);
+  assert.equal(cleanSettings('arc', { sens: 80, vsens: 60, curve: 'expo', dz: 0.05, boost: 55, boostRamp: 1.6, boostDelay: 0.2 }), null);
+  assert.equal(cleanSettings('fortnite-adv', { sens: 45, vsens: 40, curve: 'mid', dz: 0.1, boost: 20, boostRamp: 0.2 }).boost, 20);
+});

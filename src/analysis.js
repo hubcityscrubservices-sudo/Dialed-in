@@ -217,7 +217,7 @@ export function recommendTurn(st, c, cur = {}) {
   else why += slow ? " You were slow but rarely pushed all the way, so the boost isn't the limit." : ' Your big turns are quick and controlled, so leave it.';
   const out = { verdict, measured: true, why, stats: st };
   if (bs) {
-    const d = verdict === 'less' ? -15 : verdict === 'more' ? 15 : 0;
+    const step = bs.adj ?? 15, d = verdict === 'less' ? -step : verdict === 'more' ? step : 0;
     out.boost = clamp(cur.boost + d, bs.min, bs.max);
     out.ramp = verdict === 'sooner' ? Number(clamp(ramp - 0.4, rs.min, rs.max).toFixed(1)) : cur.ramp;
   }

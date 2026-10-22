@@ -45,7 +45,9 @@ const RATINGS = [
 const MODE_HINT = { quick: 'About 3 minutes', verify: 'About 5 minutes', deep: 'About 8 minutes' };
 
 const adsDefaults = g => Object.fromEntries(adsSpecs(g).map(sp => [sp.key, sp.def]));
-const boostDefaults = g => g.boost && g.boost.setting ? { boost: g.boost.setting.def, boostRamp: g.boost.rampSetting.def } : { boost: undefined, boostRamp: undefined };
+const boostDefaults = g => g.boost && g.boost.setting
+  ? { boost: g.boost.setting.def, boostRamp: g.boost.rampSetting.def, boostDelay: g.boost.delaySetting ? g.boost.delaySetting.def : undefined }
+  : { boost: undefined, boostRamp: undefined, boostDelay: undefined };
 const cfg = { game: 'arc', style: 'balanced', mode: 'verify', sens: GAMES.arc.sens.def, vsens: GAMES.arc.vsens.def, ads: adsDefaults(GAMES.arc), ...boostDefaults(GAMES.arc), curve: GAMES.arc.curve.def, dz: GAMES.arc.dz.def, aa: 1, fov: GAMES.arc.fov.def, device: 'pad', dpi: 800, cm0: 30 };
 let screen = 'setup';  // setup | test | results
 let session = null;    // { segs, i, phase, countLeft, drift }
@@ -68,7 +70,7 @@ const turnK = () => {
   if (game().device === 'mouse') return { eng: 2 };
   return { eng: 2, ...(cfg.aa ? { aa: cfg.aa } : {}), ...(cfg.kTurn && cfg.kTurn !== 1 ? { kTurn: cfg.kTurn } : {}) };
 };
-const settingsOf = c => ({ sens: c.sens, vsens: c.vsens, vmult: c.vmult ?? 1, curve: c.curve, dz: c.dz, outer: c.outer ?? 1, boost: c.boost, boostRamp: c.boostRamp, ...turnK() });
+const settingsOf = c => ({ sens: c.sens, vsens: c.vsens, vmult: c.vmult ?? 1, curve: c.curve, dz: c.dz, outer: c.outer ?? 1, boost: c.boost, boostRamp: c.boostRamp, boostDelay: c.boostDelay, ...turnK() });
 
 /* ---------- session plans ---------- */
 
@@ -276,7 +278,7 @@ function screenSegments(D, best) {
   const vAt = f => g.vsens ? { vsens: nearestVsens(g.vsens.rate(vBase.vsens) * f) } : { vmult: vBase.vmult * f };
   D.screen = { best, curves: [cfg.curve, alt || cfg.curve], verts: [vAt(SCREEN.vLow), vAt(SCREEN.vHigh)], vBase };
   return screenPlan().flatMap((p, k) => {
-    const settings = { sens: best, ...D.screen.verts[p.vert], curve: D.screen.curves[p.curve], dz: checkedDz(), outer: checkedOuter(), boost: cfg.boost, boostRamp: cfg.boostRamp, ...turnK() };
+    const settings = { sens: best, ...D.screen.verts[p.vert], curve: D.screen.curves[p.curve], dz: checkedDz(), outer: checkedOuter(), boost: cfg.boost, boostRamp: cfg.boostRamp, boostDelay: cfg.boostDelay, ...turnK() };
     const title = `Check ${k + 1} of 4`;
     return [
       { kind: 'flick', rail: 'screen', screen: p, counter: title, n: DEEP_ROUND.flicks, warm: DEEP_ROUND.warmFlicks, settings, intro: true, title,
@@ -370,7 +372,7 @@ function deepDone() {
   applyScreen(rec, c, D);
   rec.ads = adsRecs(c, rec.sens);
   rec.turn = turnRec(c);
-  rec.boost = c.boost; rec.boostRamp = c.boostRamp;
+  rec.boost = c.boost; rec.boostRamp = c.boostRamp; rec.boostDelay = c.boostDelay;
   result = { cfg: c, stats, rec, drift: session.drift, mouse: session.mouse, verify: null, segs: session.segs, pad: inp.name,
     deep: { res, rounds: D.history.map(h => ({ sens: h.sens, rating: h.rating })), screen: rec.screen, prior: D.prior, sittings: new Set(D.history.map(h => h.sitting)).size }, deepState: D };
   saveDeep(D, c);
@@ -463,7 +465,7 @@ function analyze() {
   rec.ads = adsRecs(c, rec.sens);
   rec.turn = turnRec(c);
   // Verify compares the other settings; look boost stays at the player's values on both sides.
-  rec.boost = c.boost; rec.boostRamp = c.boostRamp;
+  rec.boost = c.boost; rec.boostRamp = c.boostRamp; rec.boostDelay = c.boostDelay;
   result = { cfg: c, stats, rec, drift: session.drift, mouse: session.mouse, verify: null, segs: session.segs, pad: inp.name };
   if (c.mode === 'verify' && settingsChanged(c, rec)) {
     session.segs.push(...verifySegments(c, rec));
@@ -1055,6 +1057,7 @@ function renderAdsFields(g) {
   if (g.boost && g.boost.setting) {
     fields.push({ sp: g.boost.setting, id: 'boost', value: cfg.boost, plain: true });
     fields.push({ sp: g.boost.rampSetting, id: 'boost-ramp', value: cfg.boostRamp, plain: true, unitLabel: ' (seconds)' });
+    if (g.boost.delaySetting) fields.push({ sp: g.boost.delaySetting, id: 'boost-delay', value: cfg.boostDelay, plain: true, unitLabel: ' (seconds)' });
   }
   for (const { sp, id, pctUnit, value, plain, unitLabel } of fields) {
     const wrap = document.createElement('div');
@@ -1076,7 +1079,7 @@ function renderAdsFields(g) {
 }
 
 // Controller games and mouse games share ids where the game is the same (arc / m-arc).
-const PAD_LIST = ['arc', 'cod', 'fortnite', 'apex', 'other'];
+const PAD_LIST = ['arc', 'cod', 'fortnite', 'fortnite-adv', 'apex', 'apex-alc', 'other'];
 const MOUSE_LIST = ['m-arc', 'm-cs2', 'm-valorant', 'm-apex', 'm-cod', 'm-ow2', 'm-fortnite', 'm-other'];
 function fillGames() {
   const sel = $('#game'), ids = isMouse() ? MOUSE_LIST : PAD_LIST;
@@ -1085,12 +1088,12 @@ function fillGames() {
   sel.textContent = '';
   for (const id of ids) {
     const o = document.createElement('option');
-    o.value = id; o.textContent = GAMES[id].name === 'your game' ? 'Another game' : GAMES[id].name;
+    o.value = id; o.textContent = GAMES[id].name === 'your game' ? 'Another game' : gameTitle(GAMES[id]);
     sel.append(o);
   }
 }
 // Aim assist choices per game, as its menu offers them. On = the profile's estimated strength.
-const AA_ON_OFF = new Set(['arc', 'apex']);
+const AA_ON_OFF = new Set(['arc', 'apex', 'apex-alc']);
 const aaOptions = g => AA_ON_OFF.has(Object.keys(GAMES).find(k => GAMES[k] === g))
   ? [[0, 'Off'], [1, 'On']]
   : [[0, 'Off'], [0.6, 'Low'], [1, 'Medium'], [1.4, 'High']];
@@ -1121,7 +1124,7 @@ function saveSetup() {
   s.last = { device: cfg.device, game: cfg.game, style: cfg.style, mode: cfg.mode, dpi: cfg.dpi, cm0: cfg.cm0 };
   s.games = s.games || {};
   s.games[cfg.game] = { sens: cfg.sens, vsens: cfg.vsens, fov: cfg.fov, curve: cfg.curve, dz: cfg.dz, aa: cfg.aa,
-    spin: cfg.spin, ads: cfg.ads, boost: cfg.boost, boostRamp: cfg.boostRamp, ...(cfg.game === 'cod' ? { scale: 2 } : {}) };
+    spin: cfg.spin, ads: cfg.ads, boost: cfg.boost, boostRamp: cfg.boostRamp, boostDelay: cfg.boostDelay, ...(cfg.game === 'cod' ? { scale: 2 } : {}) };
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(s)); } catch (e) { /* storage blocked: settings just aren't remembered */ }
 }
 // Saved values are only taken when they still fit the game's menu, so an old save can't break setup.
@@ -1141,6 +1144,7 @@ function applySaved(g, v) {
   const bs = g.boost && g.boost.setting;
   if (bs && inRange(v.boost, bs)) cfg.boost = v.boost;
   if (bs && inRange(v.boostRamp, g.boost.rampSetting)) cfg.boostRamp = v.boostRamp;
+  if (bs && g.boost.delaySetting && inRange(v.boostDelay, g.boost.delaySetting)) cfg.boostDelay = v.boostDelay;
 }
 function restoreSetup() {
   const last = loadSaved().last;
@@ -1275,7 +1279,7 @@ $('#curve').addEventListener('change', () => { readSetup(); syncSetup(); });
 $('#aa').addEventListener('change', () => { readSetup(); syncSetup(); });
 document.querySelectorAll('input[name="device"]').forEach(r => r.addEventListener('change', e => {
   cfg.device = e.target.value;
-  const same = cfg.device === 'mouse' ? 'm-' + cfg.game : cfg.game.replace(/^m-/, '');
+  const same = cfg.device === 'mouse' ? 'm-' + cfg.game.replace(/-(alc|adv)$/, '') : cfg.game.replace(/^m-/, '');
   setGame(GAMES[same] && (cfg.device === 'mouse') === (GAMES[same].device === 'mouse') ? same : (cfg.device === 'mouse' ? 'm-arc' : 'arc'));
   syncSetup(); renderRail(); renderWarmBests();
 }));
@@ -1318,6 +1322,8 @@ function readSetup() {
     const b = Number($('#boost').value), rr = Number($('#boost-ramp').value);
     if (Number.isFinite(b)) cfg.boost = clamp(b, g.boost.setting.min, g.boost.setting.max);
     if (Number.isFinite(rr)) cfg.boostRamp = clamp(rr, g.boost.rampSetting.min, g.boost.rampSetting.max);
+    const dl = g.boost.delaySetting && Number($('#boost-delay').value);
+    if (g.boost.delaySetting && Number.isFinite(dl)) cfg.boostDelay = clamp(dl, g.boost.delaySetting.min, g.boost.delaySetting.max);
   }
   if (g.device === 'mouse') { cfg.curve = g.curve.def; cfg.dz = g.dz.def; cfg.spin = null; cfg.kTurn = 1; }
   else {
