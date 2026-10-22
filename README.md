@@ -1,5 +1,7 @@
 # Dialed In
 
+Live at **https://dialedinaim.com** (GitHub Pages, custom domain, HTTPS enforced).
+
 Controller aim tuning in the browser. A player answers a few questions, runs short aim tests with
 a PlayStation or Xbox controller, and gets suggested sensitivity, deadzone and response-curve
 settings for their game, each with the measurements behind it.
