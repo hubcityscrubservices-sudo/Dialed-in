@@ -135,7 +135,7 @@ past slower near the crosshair than at 70. Matching it removes that "different f
 
 Games state FOV differently, so each profile names its convention and the range converts it: Call of Duty
 is horizontal on 16:9, Apex uses a 4:3 scale (90 there is about 106 on a 16:9 screen), Fortnite's is fixed.
-ARC Raiders' FOV slider runs 60-80 (default 70); it is assumed to be horizontal, as Unreal games usually are.
+ARC Raiders' FOV slider runs 60-80 (default 70) and is treated as vertical: 60 is about 91 degrees wide on a 16:9 screen, 80 about 112, which matches how the game looks at those settings.
 A range that isn't 16:9 keeps the vertical FOV and shows more or less to the sides, as games do.
 
 ## Vertical sensitivity
