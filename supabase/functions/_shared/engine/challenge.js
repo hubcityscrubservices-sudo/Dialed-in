@@ -1,5 +1,5 @@
 import { GAMES } from './games.js';
-import { makeView, steer, newFlickTarget, flickStep, makeTrack, trackStep, newTurnTarget, turnStep, angleTo, trackAim, TRACK_V1, TRACK_V2 } from './sim.js';
+import { makeView, steer, newFlickTarget, flickStep, makeTrack, trackStep, newTurnTarget, turnStep, angleTo, trackAim, TRACK_V1, TRACK_V2, TRACK_HARD } from './sim.js';
 import { mulberry32, clamp } from './util.js';
 
 // Warm-up challenge: 60 seconds of flicks, short tracking bursts and turn-arounds, scored for speed
@@ -24,17 +24,29 @@ export const DT = 1 / CH.hz;
 // moving target keeps the streak when at least trackKeep of the firing time was on it.
 // Version 3 was brought forward to the 2026-10-22 daily, the day version 2 shipped, so no daily code
 // maps to version 2 any more. Its rules stay (version 3 builds on them) and tests reach them with opts.v.
-export const V2_FROM = '2026-10-22', V3_FROM = '2026-10-22';
+// Version 4 (dailies from V4_FROM, and Standard practice): standing targets spread out. 40% close
+// (12-25 degrees), 40% mid (25-40), 20% wide (40-55, near the edge of the screen), up-and-down ones
+// 10-28, and slightly smaller (radius 1.6-2.8). Brought forward to the 2026-10-22 daily as well.
+// Version 5 is Hard practice (h- codes): farther and smaller still, a quicker strafer, less time per
+// target and no near-miss forgiveness. Warm-up practice (w- codes) plays version 3's closer spread.
+export const V2_FROM = '2026-10-22', V3_FROM = '2026-10-22', V4_FROM = '2026-10-22';
 const R2 = { flickTimeout: 3.5, missPenalty: 10, vertShare: 0.25, gap: 15, nearMiss: true, track: TRACK_V2, ang: true, eng: 2 };
+const R3 = { ...R2, holdFire: true, trackKeep: 0.7 };
+const SPREAD_V4 = { bands: [[12, 25, 0.4], [25, 40, 0.4], [40, 55, 0.2]], vert: [10, 28], r: [1.6, 2.8] };
+const SPREAD_HARD = { bands: [[15, 30, 0.3], [30, 45, 0.4], [45, 60, 0.3]], vert: [12, 30], r: [1.4, 2.4] };
 export const RULES = {
   1: { flickTimeout: 3, missPenalty: 25, vertShare: 0.4, gap: 0, nearMiss: false, track: TRACK_V1, ang: false, eng: 1 },
   2: R2,
-  3: { ...R2, holdFire: true, trackKeep: 0.7 }
+  3: R3,
+  4: { ...R3, spread: SPREAD_V4 },
+  5: { ...R3, spread: SPREAD_HARD, flickTimeout: 2.8, nearMiss: false, track: TRACK_HARD, trackKeep: 0.75 }
 };
 export const versionOf = code => {
-  if (!code.startsWith('d-')) return 3;
+  if (code.startsWith('h-')) return 5;
+  if (code.startsWith('w-')) return 3;
+  if (!code.startsWith('d-')) return 4;
   const day = code.slice(2);
-  return day < V2_FROM ? 1 : day < V3_FROM ? 2 : 3;
+  return day < V2_FROM ? 1 : day < V3_FROM ? 2 : day < V4_FROM ? 3 : 4;
 };
 
 // Seconds a hit "should" take for its difficulty (Fitts' index of difficulty, ID). Version 1 used a
@@ -56,12 +68,13 @@ export function hashSeed(str) {
 }
 // Codes are plain tokens so they survive in a link's #fragment: d-2026-10-21, p-k3x9q2.
 export const dailyCode = (date = new Date()) => 'd-' + date.toISOString().slice(0, 10);
-export function practiceCode(rand = Math.random) {
+// Practice levels: p- Standard (the daily's rules), h- Hard, w- Warm-up.
+export function practiceCode(rand = Math.random, level = 'p') {
   let s = '';
   for (let i = 0; i < 6; i++) s += '0123456789abcdefghijklmnopqrstuvwxyz'[Math.floor(rand() * 36)];
-  return 'p-' + s;
+  return level + '-' + s;
 }
-export const isCode = s => /^[dp]-[a-z0-9-]{4,16}$/.test(s);
+export const isCode = s => /^[dphw]-[a-z0-9-]{4,16}$/.test(s);
 
 export const quantize = v => clamp(Math.round(v * 1000), -1000, 1000);
 
@@ -92,7 +105,7 @@ function nextItem(st) {
   st.items++;
   const r = st.rng(), P = st.P;
   const kind = st.items <= 2 ? 'flick' : r < 0.12 ? 'track' : r < 0.24 ? 'turn' : 'flick';
-  if (kind === 'flick') st.item = { kind, pts: 0, T: newFlickTarget(st.view, st.rng, st.rng() < P.vertShare, 1, P.ang) };
+  if (kind === 'flick') st.item = { kind, pts: 0, T: newFlickTarget(st.view, st.rng, st.rng() < P.vertShare, 1, P.ang, 1, P.spread || null) };
   else if (kind === 'turn') st.item = { kind, pts: 0, T: newTurnTarget(st.view, st.rng, st.rng() < 0.5 ? 1 : -1, P.ang) };
   else {
     const TR = makeTrack(0, 1, P.track);

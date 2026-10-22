@@ -1908,6 +1908,9 @@ function drawSticks() {
 
 let chal = null; // { st, rec, code, kind, phase, countLeft, acc, flash, pop, src }
 const CH_KIND = { daily: 'Daily challenge', practice: 'Practice', code: 'Shared challenge' };
+// Practice levels by code prefix (challenge.js versionOf).
+const LEVEL_NAME = { p: 'Standard', h: 'Hard', w: 'Warm-up' };
+const kindLabel = c => c.kind === 'daily' ? CH_KIND.daily : `${CH_KIND[c.kind]}${c.code[0] !== 'd' ? ' · ' + LEVEL_NAME[c.code[0]] : ''}`;
 
 // opts: { settings, seconds, duel } for duel runs; otherwise the run uses the setup form.
 function startChallenge(code, kind, opts = {}) {
@@ -2018,7 +2021,11 @@ function showChalGuide(c) {
   const P = c.st.P, mouse = c.st.mouse, fire = mouse ? 'click' : 'fire';
   $('#cg-flick').textContent = `One ${mouse ? 'click' : 'shot'}. Faster = more points`;
   $('#cg-track').textContent = P.holdFire ? `Hold ${fire} while you stay on it` : 'Keep the crosshair on it';
+  const level = c.code[0] === 'h' ? 'Hard: standing targets sit farther out and are smaller, the strafer is quicker, each target gives you 2.8 seconds, and a near miss ends the streak.'
+    : c.code[0] === 'w' ? 'Warm-up: standing targets sit closer to the crosshair and are a little bigger.'
+    : P.spread ? 'Standing targets can appear anywhere from close in to the edge of the screen. Wider ones are worth more.' : null;
   const rules = [
+    ...(level ? [level] : []),
     `60 seconds. Each hit in a row adds 10% to the next, up to double points.`,
     `A miss costs ${P.missPenalty} points${P.nearMiss ? '. Your first near miss on a target keeps the streak' : ' and ends the streak'}.`,
     P.holdFire ? `Moving targets score only while you're on them and ${mouse ? 'holding the button' : 'holding fire'}. Firing off them costs nothing.` : 'Moving targets score for every second you stay on them.',
@@ -2218,7 +2225,7 @@ function renderChalEnd() {
   const stat = (k, v) => `<div><span>${k}</span><b>${v}</b></div>`;
   $('#p-chend').innerHTML = `
     <div style="display:grid;gap:6px">
-      <p class="eyebrow">${CH_KIND[c.kind]} · ${c.code} · ${gameTitle(g)}${c.src === 'pad' ? '' : c.src === 'mouse' ? ' · mouse' : ' · on-screen stick'}</p>
+      <p class="eyebrow">${kindLabel(c)} · ${c.code} · ${gameTitle(g)}${c.src === 'pad' ? '' : c.src === 'mouse' ? ' · mouse' : ' · on-screen stick'}</p>
       <div class="score-hero"><b>${sum.score.toLocaleString('en-US')}</b><span>points</span>${best.isBest && best.prev != null ? '<span class="pb">New personal best</span>' : ''}</div>
       <p class="lede">${best.prev == null ? 'Your first score on this ' + (c.kind === 'practice' ? 'practice board.' : 'challenge.')
         : best.isBest ? `Up from ${best.prev.toLocaleString('en-US')}.` : `Your best here is ${best.prev.toLocaleString('en-US')}.`}</p>
@@ -2259,7 +2266,7 @@ function renderChalEnd() {
       <p class="hint" id="board-status" role="status"></p>
       <div class="table-wrap board-table"><p class="fine">Loading the board…</p></div>
     </div>` : '<p class="fine">Scores are kept in this browser for now. Every run is recorded so its score can be checked once leaderboards open.</p>'}`;
-  $('#ch-again').addEventListener('click', () => startChallenge(c.kind === 'practice' ? practiceCode() : c.code, c.kind));
+  $('#ch-again').addEventListener('click', () => startChallenge(c.kind === 'practice' ? practiceCode(Math.random, c.code[0]) : c.code, c.kind));
   if (boardsOn()) wireBoard(c, sum);
   $('#ch-share').addEventListener('click', e => copyText(shareText, e.currentTarget));
   $('#ch-back').addEventListener('click', leaveChallenge);
@@ -2461,11 +2468,14 @@ const esc = t => String(t).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;
 
 function startCodeFromInput() {
   const code = $('#ch-code').value.trim().toLowerCase();
-  if (!isCode(code)) { $('#ch-note').textContent = 'That code doesn\'t look right. Codes look like d-2026-10-21 or p-k3x9q2.'; return; }
+  if (!isCode(code)) { $('#ch-note').textContent = 'That code doesn\'t look right. Codes look like d-2026-10-21 or p-k3x9q2 (h- for Hard, w- for Warm-up).'; return; }
   startChallenge(code, code === dailyCode() ? 'daily' : 'code');
 }
 $('#ch-daily').addEventListener('click', () => startChallenge(dailyCode(), 'daily'));
-$('#ch-practice').addEventListener('click', () => startChallenge(practiceCode(), 'practice'));
+const LEVEL_KEY = 'dialed-in:level';
+try { const lv = localStorage.getItem(LEVEL_KEY); if (LEVEL_NAME[lv]) $('#ch-level').value = lv; } catch (e) { /* storage blocked: Standard */ }
+$('#ch-level').addEventListener('change', e => { try { localStorage.setItem(LEVEL_KEY, e.target.value); } catch (err) { /* not remembered */ } });
+$('#ch-practice').addEventListener('click', () => startChallenge(practiceCode(Math.random, $('#ch-level').value), 'practice'));
 $('#ch-code-go').addEventListener('click', startCodeFromInput);
 $('#ch-code').addEventListener('keydown', e => { if (e.key === 'Enter') startCodeFromInput(); });
 {

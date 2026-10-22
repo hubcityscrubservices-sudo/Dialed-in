@@ -151,6 +151,12 @@ shows "Moving targets hit" (share of firing time on target).
 Calibration always uses version-2 targets and stick rules (tracking there is follow-only). The
 all-time board ranks version-3 dailies.
 
+Version 4 (the 2026-10-22 daily on, and Standard practice) spreads standing targets out: 40% close
+(12–25°), 40% mid (25–40°) and 20% wide (40–55°, near the edge of the screen), with up-and-down ones
+at 10–28° and a radius of 1.6–2.8° (was 12–36° and 1.8–3.0°). Practice has three levels by code
+prefix: p- Standard (version 4), h- Hard (version 5: 15–60° and radius 1.4–2.4°, a quicker strafer,
+2.8 s per target, no near-miss forgiveness) and w- Warm-up (version 3's closer spread).
+
 ## Field of view
 
 The range draws through a true perspective camera at the FOV you enter (src/camera.js), so a turn moves

@@ -144,17 +144,25 @@ export function steerMouse(view, input, settings, game, dt) {
 // `scale` shrinks distance and size for aiming down sights at range (1 / zoom).
 // `trueAngle` = use the true-angle hit test (engine 2). `size` scales the target's radius only (the
 // calibration's play styles: closer enemies look bigger); the challenge always uses 1.
-export function newFlickTarget(view, rng = Math.random, vertical = false, scale = 1, trueAngle = false, size = 1) {
+// `spread` (challenge version 4 on) replaces the fixed distances with bands { bands: [[lo, hi, share]...],
+// vert: [lo, hi], r: [lo, hi] }: one extra draw picks the band. Without it the draws are exactly as before.
+function bandDist(rng, bands) {
+  let u = rng();
+  for (const [lo, hi, share] of bands) { if (u < share) return lo + rng() * (hi - lo); u -= share; }
+  const [lo, hi] = bands[bands.length - 1];
+  return lo + rng() * (hi - lo);
+}
+export function newFlickTarget(view, rng = Math.random, vertical = false, scale = 1, trueAngle = false, size = 1, spread = null) {
   let yaw, pitch;
   if (vertical) {
     const up = view.pitch > 5 ? false : view.pitch < -5 ? true : rng() < 0.5;
     const ang = (up ? 1 : -1) * Math.PI / 2 + (rng() - 0.5) * (50 * Math.PI / 180);
-    const dist = (10 + rng() * 12) * scale;
+    const dist = (spread ? spread.vert[0] + rng() * (spread.vert[1] - spread.vert[0]) : 10 + rng() * 12) * scale;
     yaw = view.yaw + Math.cos(ang) * dist;
     pitch = clamp(view.pitch + Math.sin(ang) * dist, -30, 30);
   } else {
     const ang = (rng() < 0.5 ? 0 : Math.PI) + (rng() - 0.5) * (100 * Math.PI / 180);
-    const dist = (12 + rng() * 24) * scale;
+    const dist = (spread ? bandDist(rng, spread.bands) : 12 + rng() * 24) * scale;
     yaw = view.yaw + Math.cos(ang) * dist;
     // Mirror rather than clamp when the target would leave the play band, so a player already looking
     // up or down doesn't get a squashed, mostly vertical target.
@@ -163,7 +171,7 @@ export function newFlickTarget(view, rng = Math.random, vertical = false, scale 
     pitch = clamp(view.pitch + dp, -30, 30);
   }
   const dy = yaw - view.yaw, dp = pitch - view.pitch, D = Math.hypot(dy, dp);
-  const r = (1.8 + rng() * 1.2) * scale * size;
+  const r = (spread ? spread.r[0] + rng() * (spread.r[1] - spread.r[0]) : 1.8 + rng() * 1.2) * scale * size;
   return {
     yaw, pitch, r, W: 2 * r, D, sy: view.yaw, sp: view.pitch, ux: dy / D, uy: dp / D, ang: trueAngle, sc: scale,
     maxProj: 0, segs: 0, active: false, shots: 0, t: 0, hit: false, overshoot: false, first: null
@@ -239,6 +247,8 @@ function finish(T, view, why) {
 // A params object may also carry `size` (radius multiplier) for the calibration's play styles.
 export const TRACK_V1 = { lo: 18, span: 50, segLo: 0.6, segSpan: 1.1, rev: null, ang: false };
 export const TRACK_V2 = { lo: 10, span: 30, segLo: 0.8, segSpan: 1.2, rev: 0.35, ang: true };
+// Hard practice: a quicker strafer that changes direction more often.
+export const TRACK_HARD = { lo: 14, span: 36, segLo: 0.6, segSpan: 1.0, rev: 0.45, ang: true };
 export function makeTrack(warm = 0, scale = 1, P = TRACK_V1) {
   return {
     t: 0, warm, scale, P, r: 2.6 * scale * (P.size ?? 1), T: 0, errSum: 0, chunks: [], chunk: { sum: 0, time: 0 },

@@ -53,7 +53,15 @@
           </div>
           <div class="actions">
             <button class="btn primary" id="ch-daily" type="button">Play the daily range</button>
-            <button class="btn" id="ch-practice" type="button">Practice</button>
+            <span class="practice-pick">
+              <button class="btn" id="ch-practice" type="button">Practice</button>
+              <label for="ch-level" class="sr-only">Practice level</label>
+              <select id="ch-level">
+                <option value="p">Standard</option>
+                <option value="h">Hard</option>
+                <option value="w">Warm-up</option>
+              </select>
+            </span>
             <span class="code-entry">
               <label for="ch-code" class="sr-only">Challenge code</label>
               <input id="ch-code" type="text" inputmode="text" autocomplete="off" spellcheck="false" placeholder="Code" maxlength="18">

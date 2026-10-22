@@ -441,3 +441,5 @@ pre#copytext { font: 12px/1.5 var(--mono); background: rgba(8, 16, 23, 0.6); bor
 .tip-dialog-head { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
 .tip-dialog iframe { width: 100%; height: min(640px, calc(100vh - 180px)); border: 0; border-radius: 6px; background: #f9f9f9; }
 .tip-dialog a { color: var(--sun); }
+.practice-pick { display: inline-flex; gap: 0; align-items: stretch; }
+.practice-pick select { min-height: 0; padding-top: 0; padding-bottom: 0; width: auto; border-left: 0; }
