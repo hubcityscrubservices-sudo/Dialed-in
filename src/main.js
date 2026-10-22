@@ -8,7 +8,7 @@ import { emptyReach, recordReach, coverage, stickReport, outerFromReach, hardwar
 import { clamp, pct } from './util.js';
 import { buildExport } from './export.js';
 import { DT, hashSeed, dailyCode, practiceCode, isCode, quantize, createChallenge, step as chStep, summary as chSummary,
-  newRecording, record, encodeReplay } from './challenge.js';
+  newRecording, record, encodeReplay, V3_FROM } from './challenge.js';
 import { reportCard } from './report.js';
 import { makeWorld, paintSky, paintTerrain, paintCompass, paintDrone, paintOffscreen, trailPoint, paintTrail,
   noteFlash, paintFx, paintCrosshair, paintFigure, paintLens, paintCountdown } from './scenery.js';
@@ -2385,6 +2385,7 @@ function wireBoard(c, sum) {
 
 // The setup screen's leaderboard: today's daily range or all time, on the tabs last picked.
 let leaderTab = 'all', leaderPeriod = 'today';
+const fmtDay = d => new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 function showLeader() {
   const root = $('#p-leader');
   root.hidden = !boardsOn();
@@ -2392,7 +2393,7 @@ function showLeader() {
   const ever = leaderPeriod === 'ever';
   $('#leader-title').textContent = ever ? 'All time' : `Today's daily range · ${dailyCode().slice(2)}`;
   $('#leader-note').textContent = ever
-    ? 'Each player\'s best daily range score ever, one row per player and input. Daily targets change every day but are built the same way, so scores compare fairly. Practice runs don\'t count.'
+    ? `Each player's best daily range score ever, one row per player and input. Daily targets change every day but are built the same way, so scores compare fairly. It counts dailies from ${fmtDay(V3_FROM)}, when the current rules began (hold fire on moving targets); ${dailyCode() < 'd-' + V3_FROM ? "today's daily is on the old rules, so it shows under Today only" : 'earlier ones played differently'}. Practice runs don't count.`
     : 'Play the daily range above and press Submit score on the results screen to get on it. Practice runs get a fresh code each time, so their boards are only shared by passing the code along.';
   root.querySelectorAll('[data-period]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.period === leaderPeriod)));
   loadBoard(ever ? ALL_TIME : dailyCode(), leaderTab, root);
