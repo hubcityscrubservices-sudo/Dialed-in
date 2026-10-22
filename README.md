@@ -226,6 +226,11 @@ More data, two ways:
   move the curve; warm-up `t` runs within each sitting. Rounds re-centre on the current
   sensitivity, and a sitting only pools with the same response curve and aim assist.
 
+The results show a round goal: 20, with 15 marked as the least to trust. In simulated players the
+best guess is within about 5% after the first 7 rounds, while the range around it keeps narrowing
+to about 20 rounds and barely moves after. The note recommends spreading rounds over two or three
+days, which the per-sitting levels make safe to pool.
+
 ## Deep mode: other settings, tested blind
 
 After the sensitivity search, four rounds at the best speed cover every pairing of two response

@@ -372,7 +372,7 @@ function deepDone() {
   rec.turn = turnRec(c);
   rec.boost = c.boost; rec.boostRamp = c.boostRamp;
   result = { cfg: c, stats, rec, drift: session.drift, mouse: session.mouse, verify: null, segs: session.segs, pad: inp.name,
-    deep: { res, rounds: D.history.map(h => ({ sens: h.sens, rating: h.rating })), screen: rec.screen, prior: D.prior }, deepState: D };
+    deep: { res, rounds: D.history.map(h => ({ sens: h.sens, rating: h.rating })), screen: rec.screen, prior: D.prior, sittings: new Set(D.history.map(h => h.sitting)).size }, deepState: D };
   saveDeep(D, c);
   session = null;
   show('results');
@@ -773,16 +773,42 @@ function deepBlock(d, g, c) {
   const warm = res.warmup > 0.05
     ? `<p class="fine">You improved about ${pct(res.warmup)} from the first round to the last. The fit allows for that warm-up, so later rounds don't score higher just for coming later.</p>`
     : '';
-  const more = d.canMore ? `<div class="offer"><p>${res.verdict === 'unclear' ? 'Not sure yet? ' : ''}Play ${MORE} more rounds at and around your best guess (about 2 minutes). Every round so far still counts, so the answer only gets sharper. Your rounds are also saved, so a Deep run another day can add to them.</p><button class="btn${res.verdict === 'unclear' ? ' primary' : ''}" id="deep-more" type="button">Play ${MORE} more rounds</button></div>` : '';
+  const more = d.canMore ? `<div class="offer"><p>${res.verdict === 'unclear' ? 'Not sure yet? ' : ''}Play ${MORE} more rounds at and around your best guess (about 2 minutes). Every round so far still counts, so the answer only gets sharper. Your rounds are also saved, so a Deep run another day can add to them, which is even better.</p><button class="btn${res.verdict === 'unclear' ? ' primary' : ''}" id="deep-more" type="button">Play ${MORE} more rounds</button></div>` : '';
+  const goal = deepGoal(res.points.length, d.sittings || 1);
   const rows = res.points.map((p, i) => `<tr><td class="num">${p.round}</td><td class="num">${p.sens}${p.sens === c.sens ? ' (current)' : ''}</td><td class="num">${Math.round(p.y / res.top * 100)}%</td><td>${feelLabel(d.rounds[i].rating)}</td></tr>`).join('');
   return `<div class="verdict ${res.verdict === 'matters' ? 'better' : ''}">
     <div style="display:grid;gap:4px"><p class="eyebrow">Deep search · ${res.points.length} rounds${d.prior ? ` (${d.prior} from earlier sittings)` : ''}</p><h3>${head}</h3>
       <p>Each dot is one round's score at that sensitivity. The line is the fitted trend, and the shaded band is the range that scores within the noise of your best.</p></div>
+    ${goal}
     ${deepChart(res, c, g)}
     ${warm}
     ${screenTable(d.screen, g)}
     <div class="table-wrap"><table><thead><tr><th>Round</th><th>${g.sens.label}</th><th>Score vs best</th><th>Felt</th></tr></thead><tbody>${rows}</tbody></table></div>
     ${more}
+  </div>`;
+}
+
+// Round count goal. In simulated players the best-speed range keeps narrowing to about 20 rounds and
+// barely moves after that; 15 is the least to trust it.
+const DEEP_GOAL = { min: 15, solid: 20 };
+function deepGoal(n, sittings) {
+  const left = Math.max(0, DEEP_GOAL.solid - n);
+  const head = n >= DEEP_GOAL.solid ? 'Goal reached' : n >= DEEP_GOAL.min ? `Solid enough · ${left} more for the goal` : `${left} more rounds to the goal`;
+  const why = n >= DEEP_GOAL.solid
+    ? 'More rounds now change the answer very little. If it still says unclear, sensitivity likely just isn\'t what limits your aim.'
+    : n >= DEEP_GOAL.min
+      ? `${DEEP_GOAL.min} rounds is enough to trust the best speed; ${DEEP_GOAL.solid} narrows the range a little more.`
+      : `The best guess is usually close after the first search, but the range around it keeps narrowing up to about ${DEEP_GOAL.solid} rounds. ${DEEP_GOAL.min} is the least to trust it.`;
+  const days = sittings > 1
+    ? `This answer pools ${sittings} sittings, which is the best way to get there.`
+    : 'Best spread over two or three days rather than one long sitting: you play fresher, late rounds aren\'t dragged down by tiredness, and each day is scored against its own level, so the answer reflects how you play on any day, not just today. Run Deep again another day and keep "Add to my earlier search" ticked.';
+  const pct = v => Math.min(100, v / DEEP_GOAL.solid * 100).toFixed(1);
+  return `<div class="goal">
+    <div class="goal-head"><b>${Math.min(n, 99)} of ${DEEP_GOAL.solid} rounds</b><span>${head}</span></div>
+    <div class="goal-bar" role="progressbar" aria-valuemin="0" aria-valuemax="${DEEP_GOAL.solid}" aria-valuenow="${Math.min(n, DEEP_GOAL.solid)}" aria-label="Rounds toward the goal">
+      <i style="width:${pct(n)}%"></i><em style="left:${pct(DEEP_GOAL.min)}%" title="${DEEP_GOAL.min} rounds: enough to trust"></em>
+    </div>
+    <p class="fine">${why} ${days}</p>
   </div>`;
 }
 
