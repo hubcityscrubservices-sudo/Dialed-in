@@ -371,11 +371,12 @@ function recoilRow(g, c, r, row) {
   const rec = rr.rec;
   const sgn = x => Math.abs(x) < 0.01 ? 0 : Math.sign(x);
   const flick = g.vsens ? sgn(r.vsens - c.vsens) : sgn(r.vmult - 1), rc = sgn(rec.f - 1);
-  const flickVal = g.vsens ? String(r.vsens) : vRel(r.vmult), recoilVal = rec.vsens != null ? String(rec.vsens) : vRel(rec.f);
+  const flickVal = g.vsens ? String(r.vsens) : vRel(r.vmult), recoilVal = rec.vsens != null ? String(rec.vsens) : g.vsens ? String(c.vsens) : vRel(rec.f);
   const word = d => d > 0 ? 'higher' : d < 0 ? 'lower' : 'as it is';
   const lean = c.style === 'tracking' ? ` Your ${PLAYSTYLES.tracking.label} play style leans toward the flick result.`
     : c.style === 'flick' ? ` Your ${PLAYSTYLES.flick.label} play style leans toward the recoil result.` : '';
-  const choose = `Go with ${flickVal} if you fight mostly from the hip, ${recoilVal} if you fight mostly aimed in.${lean}`;
+  const say = v => v === 'Same' ? 'your current speed' : v;
+  const choose = `Go with ${say(flickVal)} if you fight mostly from the hip, ${say(recoilVal)} if you fight mostly aimed in.${lean}`;
   let tg, note;
   if (flick === rc) {
     tg = '<span class="tag">Agrees</span>';
@@ -387,7 +388,7 @@ function recoilRow(g, c, r, row) {
     tg = '<span class="tag">Partly agrees</span>';
     note = `The flick tests want vertical speed ${word(flick)}, recoil wants it ${word(rc)}. ${choose}`;
   }
-  return row('Recoil check (aimed in)', g.vsens ? c.vsens : 'Now', recoilVal === 'Same' ? 'Same' : recoilVal, tg, `${recoilText(rr)} ${note}`);
+  return row('Recoil check (aimed in)', g.vsens ? c.vsens : 'Now', recoilVal, tg, `${recoilText(rr)} ${note}`);
 }
 
 // Picks a finished Deep search back up for MORE extra rounds, keeping every round and check so far.
