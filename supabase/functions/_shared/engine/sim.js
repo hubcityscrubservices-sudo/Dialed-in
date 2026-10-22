@@ -31,7 +31,9 @@ export function verticalRate(game, settings) {
 // Aiming down sights multiplies both axes by adsMult and uses the game's zoom look boost if it has one.
 export function steer(view, input, settings, game, dt, minDz = 0) {
   if (game.device === 'mouse') return steerMouse(view, input, settings, game, dt);
-  const rate = game.sens.rate(settings.sens);
+  // kTurn scales the profile's estimated turn speed to the player's measured one (the spin-timer check).
+  const kt = settings.kTurn ?? 1;
+  const rate = game.sens.rate(settings.sens) * kt;
   const curve = (game.curve.fn && game.curve.fn[settings.curve]) || CURVE_EXP[settings.curve];
   const [sx, sy, mag] = shape(input.rx, input.ry, Math.max(settings.dz, minDz), curve, settings.outer ?? 1);
   let boost = 1, vboost = 1;
@@ -45,7 +47,7 @@ export function steer(view, input, settings, game, dt, minDz = 0) {
     vboost = 1 + ((b.vmult ?? 1) - 1) * ramp;
   }
   const ads = settings.adsMult ?? 1;
-  const vy = sx * rate * boost * ads, vp = -sy * verticalRate(game, settings) * vboost * ads;
+  const vy = sx * rate * boost * ads, vp = -sy * verticalRate(game, settings) * kt * vboost * ads;
   view.yaw += vy * dt;
   view.pitch = clamp(view.pitch + vp * dt, -40, 40);
   return { vy, vp, mag };

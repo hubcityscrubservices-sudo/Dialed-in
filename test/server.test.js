@@ -147,3 +147,24 @@ test('input type must match the game, and mouse runs need their degrees per coun
   const padWithDpc = await handleSubmit(body(code, padRun, { settings: { ...settings, dpc: 0.02 } }), db, NOW);
   assert.equal(padWithDpc.status, 400);
 });
+
+test('a measured turn speed (kTurn) replays and is range-checked', async () => {
+  const code = 'd-2026-10-21';
+  const fast = { ...settings, kTurn: 1.3 };
+  const st = createChallenge(code, 'arc', fast), rec = newRecording(), rng = mulberry32(3);
+  while (!st.done) {
+    const it = st.item, tgt = it.kind === 'track' ? it.TR.tgt : it.T;
+    const ey = tgt.yaw - st.view.yaw, ep = tgt.pitch - st.view.pitch;
+    const rx = quantize(Math.max(-1, Math.min(1, ey * 0.15 + (rng() - 0.5) * 0.05)));
+    const ry = quantize(Math.max(-1, Math.min(1, -ep * 0.15 + (rng() - 0.5) * 0.05)));
+    const r = it.kind === 'track' ? it.TR.r : it.T.r;
+    const fire = it.kind !== 'track' && Math.hypot(ey, ep) < r * 0.8 && !st.prevFire;
+    record(rec, rx, ry, fire); step(st, rx, ry, fire);
+  }
+  const r = { score: summary(st).score, replay: encodeReplay(rec) };
+  const ok = await handleSubmit(body(code, r, { settings: fast }), memoryDb(), NOW);
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  // Without the factor the same inputs turn slower and score differently, so it can't be dropped or swapped.
+  assert.equal((await handleSubmit(body(code, r), memoryDb(), NOW)).status, 422);
+  assert.equal((await handleSubmit(body(code, r, { settings: { ...settings, kTurn: 9 } }), memoryDb(), NOW)).status, 400);
+});

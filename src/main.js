@@ -35,7 +35,7 @@ const MODE_HINT = { quick: 'About 3 minutes', verify: 'About 5 minutes', deep: '
 
 const adsDefaults = g => Object.fromEntries(adsSpecs(g).map(sp => [sp.key, sp.def]));
 const boostDefaults = g => g.boost && g.boost.setting ? { boost: g.boost.setting.def, boostRamp: g.boost.rampSetting.def } : { boost: undefined, boostRamp: undefined };
-const cfg = { game: 'arc', style: 'balanced', mode: 'verify', sens: GAMES.arc.sens.def, vsens: GAMES.arc.vsens.def, ads: adsDefaults(GAMES.arc), ...boostDefaults(GAMES.arc), curve: 'mid', dz: 0.10, fov: GAMES.arc.fov.def, device: 'pad', dpi: 800, cm0: 30 };
+const cfg = { game: 'arc', style: 'balanced', mode: 'verify', sens: GAMES.arc.sens.def, vsens: GAMES.arc.vsens.def, ads: adsDefaults(GAMES.arc), ...boostDefaults(GAMES.arc), curve: GAMES.arc.curve.def, dz: GAMES.arc.dz.def, fov: GAMES.arc.fov.def, device: 'pad', dpi: 800, cm0: 30 };
 let screen = 'setup';  // setup | test | results
 let session = null;    // { segs, i, phase, countLeft, drift }
 let result = null;     // { cfg, stats, rec, drift, verify }
@@ -50,7 +50,10 @@ const isMouse = () => cfg.device === 'mouse';
 // so turning moves the screen exactly as much as it does in their game.
 const hfovFor = id => { const F = GAMES[id].fov; return hfov169(id === cfg.game && !F.fixed ? cfg.fov : F.def, F.type); };
 const seg = () => session && session.segs[session.i];
-const settingsOf = c => ({ sens: c.sens, vsens: c.vsens, vmult: c.vmult ?? 1, curve: c.curve, dz: c.dz, outer: c.outer ?? 1, boost: c.boost, boostRamp: c.boostRamp });
+// The measured turn-speed factor belongs to the player's game, not to a setting under test, so every
+// settings object takes it from cfg (and leaves it out at 1, so uncalibrated runs are unchanged).
+const turnK = () => cfg.kTurn && cfg.kTurn !== 1 && game().device !== 'mouse' ? { kTurn: cfg.kTurn } : {};
+const settingsOf = c => ({ sens: c.sens, vsens: c.vsens, vmult: c.vmult ?? 1, curve: c.curve, dz: c.dz, outer: c.outer ?? 1, boost: c.boost, boostRamp: c.boostRamp, ...turnK() });
 
 /* ---------- session plans ---------- */
 
@@ -178,7 +181,7 @@ function deepStep() {
   }
   const k = D.history.length + 1;
   const round = { x: next.x, sens: next.sens };
-  const settings = { sens: next.sens, ...verticalFor(next.sens), curve: cfg.curve, dz: checkedDz(), outer: checkedOuter() };
+  const settings = { sens: next.sens, ...verticalFor(next.sens), curve: cfg.curve, dz: checkedDz(), outer: checkedOuter(), ...turnK() };
   // The search always plays DEEP.minRounds; it adds up to two more only when the best speed is still unclear.
   const title = k <= DEEP.minRounds ? `Round ${k} of ${DEEP.minRounds}` : `Extra round ${k - DEEP.minRounds} of up to ${DEEP.maxRounds - DEEP.minRounds}`;
   D.pending = round;
@@ -205,7 +208,7 @@ function screenSegments(D, best) {
   const vAt = f => g.vsens ? { vsens: nearestVsens(g.vsens.rate(vBase.vsens) * f) } : { vmult: vBase.vmult * f };
   D.screen = { best, curves: [cfg.curve, alt || cfg.curve], verts: [vAt(SCREEN.vLow), vAt(SCREEN.vHigh)], vBase };
   return screenPlan().flatMap((p, k) => {
-    const settings = { sens: best, ...D.screen.verts[p.vert], curve: D.screen.curves[p.curve], dz: checkedDz(), outer: checkedOuter(), boost: cfg.boost, boostRamp: cfg.boostRamp };
+    const settings = { sens: best, ...D.screen.verts[p.vert], curve: D.screen.curves[p.curve], dz: checkedDz(), outer: checkedOuter(), boost: cfg.boost, boostRamp: cfg.boostRamp, ...turnK() };
     const title = `Check ${k + 1} of 4`;
     return [
       { kind: 'flick', rail: 'screen', screen: p, counter: title, n: DEEP_ROUND.flicks, warm: DEEP_ROUND.warmFlicks, settings, intro: true, title,
@@ -992,6 +995,7 @@ function setGame(id) {
   cfg.ads = adsDefaults(g);
   Object.assign(cfg, boostDefaults(g));
   cfg.curve = g.curve.def; cfg.dz = g.dz.def;
+  cfg.spin = null; cfg.kTurn = 1; // a spin timing belongs to one game
 }
 
 function syncSetup() {
@@ -1009,6 +1013,35 @@ function syncSetup() {
     ? 'Hidden rounds at different sensitivities find your best speed, and how much it matters for you'
     : 'Hidden rounds find your best speed, then test curve and vertical speed blind to see which settings matter for you';
   $('#dpi-measure').textContent = mouseCheck && mouseCheck.cpcm ? 'Measure again' : 'Measure my DPI';
+  // Controller menu settings the range plays with: curve, deadzone, and the optional measured turn speed.
+  for (const id of ['#curve-field', '#dz-field', '#spin-field']) $(id).hidden = mouseGame;
+  if (!mouseGame) {
+    $('#curve-label').textContent = g.curve.label;
+    const cs = $('#curve'), seen = new Set();
+    cs.textContent = '';
+    for (const k of ['linear', 'mid', 'expo']) {
+      if (seen.has(g.curve[k])) continue;
+      seen.add(g.curve[k]);
+      const o = document.createElement('option'); o.value = k; o.textContent = g.curve[k]; cs.append(o);
+    }
+    cs.value = [...cs.options].some(o => o.value === cfg.curve) ? cfg.curve : g.curve.def;
+    $('#dz-label').textContent = g.dz.label;
+    const opts = DZ_OPTIONS[cfg.game], old = $('#dz');
+    let dzEl;
+    if (opts) {
+      dzEl = document.createElement('select');
+      for (const [label, v] of opts) { const o = document.createElement('option'); o.value = v; o.textContent = label; dzEl.append(o); }
+      dzEl.value = opts.reduce((a, b) => Math.abs(b[1] - cfg.dz) < Math.abs(a[1] - cfg.dz) ? b : a)[1];
+    } else {
+      dzEl = document.createElement('input');
+      Object.assign(dzEl, { type: 'number', inputMode: 'numeric', min: 0, max: 30, step: 1, value: Math.round(cfg.dz * 100) });
+    }
+    dzEl.id = 'dz';
+    old.replaceWith(dzEl);
+    $('#dz-help').textContent = opts ? 'As set in your game.' : `0 to 30, as set in your game. Default is ${Math.round(g.dz.def * 100)}.`;
+    $('#spin').value = cfg.spin || '';
+    spinHelp();
+  }
   const dev = document.querySelector(`input[name="device"][value="${cfg.device}"]`);
   if (dev) dev.checked = true;
   const s = $('#sens');
@@ -1101,10 +1134,42 @@ function readSetup() {
     if (Number.isFinite(b)) cfg.boost = clamp(b, g.boost.setting.min, g.boost.setting.max);
     if (Number.isFinite(rr)) cfg.boostRamp = clamp(rr, g.boost.rampSetting.min, g.boost.rampSetting.max);
   }
-  cfg.curve = g.curve.def;
-  cfg.dz = g.dz.def;
+  if (g.device === 'mouse') { cfg.curve = g.curve.def; cfg.dz = g.dz.def; cfg.spin = null; cfg.kTurn = 1; }
+  else {
+    cfg.curve = $('#curve').value in CURVE_KEYS ? $('#curve').value : g.curve.def;
+    const opts = DZ_OPTIONS[cfg.game];
+    const dz = Number($('#dz').value);
+    cfg.dz = opts ? (Number.isFinite(dz) ? dz : g.dz.def) : clamp(Number.isFinite(dz) ? dz / 100 : g.dz.def, 0, 0.3);
+    const spin = Number($('#spin').value);
+    cfg.spin = Number.isFinite(spin) && spin > 0 ? spin : null;
+    cfg.kTurn = spinK(g, cfg.sens, cfg.spin);
+  }
   cfg.outer = 1;
 }
+
+// Turn speed check: 5 full spins at full stick (boost off) in the player's own game. Returns the factor
+// that scales the profile's estimated turn speed to the measured one (1 when not measured).
+const CURVE_KEYS = { linear: 1, mid: 1, expo: 1 };
+const spinRate = secs => 1800 / secs;
+function spinK(g, sens, secs) {
+  if (!secs) return 1;
+  return +clamp(spinRate(secs) / g.sens.rate(sens), 0.25, 4).toFixed(4);
+}
+// Games whose deadzone menu is a list rather than a number.
+const DZ_OPTIONS = { apex: [['None', 0.04], ['Small', 0.10], ['Large', 0.16]] };
+function spinHelp() {
+  const g = game(), el = $('#spin-help');
+  const boost = g.boost && g.boost.setting ? `set ${g.boost.setting.label} to 0, ` : 'turn off any turning boost, ';
+  const how = `In your game, ${boost}push the right stick fully sideways and time 5 full spins on your phone. Then the range turns exactly as fast as your game.`;
+  const secs = Number($('#spin').value), sens = Number($('#sens').value) || cfg.sens;
+  if (!(secs > 0)) { el.textContent = how; return; }
+  const k = spinRate(secs) / g.sens.rate(sens);
+  el.textContent = k < 0.25 || k > 4
+    ? `That's ${Math.round(spinRate(secs))}°/s, far from what sensitivity ${sens} should give. Check the count of spins and the sensitivity above.`
+    : `Your game turns about ${Math.round(spinRate(secs))}°/s at full stick. The built-in estimate was ${Math.round(g.sens.rate(sens))}°/s, so the range will use yours.`;
+}
+$('#spin').addEventListener('input', spinHelp);
+$('#sens').addEventListener('input', spinHelp);
 
 $('#go').addEventListener('click', () => {
   readSetup();
@@ -1530,9 +1595,13 @@ function chalTick(dt, edge) {
   // short for a tick wait for the next one.
   c.mx = (c.mx || 0) + (inp.mx || 0); c.my = (c.my || 0) + (inp.my || 0);
   const i16 = v => clamp(Math.round(v), -32767, 32767);
+  // A press seen on a frame that runs no tick still reaches the next tick, so quick taps aren't lost.
+  c.fireSeen = c.fireSeen || !!inp.fire;
   while (c.acc >= DT && !c.st.done) {
     const mouseRun = inp.src === 'mouse';
-    const rx = mouseRun ? i16(c.mx) : quantize(inp.rx), ry = mouseRun ? i16(c.my) : quantize(inp.ry), fire = !!inp.fire;
+    const rx = mouseRun ? i16(c.mx) : quantize(inp.rx), ry = mouseRun ? i16(c.my) : quantize(inp.ry), fire = !!inp.fire || c.fireSeen;
+    c.fireSeen = false;
+    c.prevView = { yaw: c.st.view.yaw, pitch: c.st.view.pitch };
     if (mouseRun) { c.mx -= rx; c.my -= ry; }
     record(c.rec, rx, ry, fire);
     chStep(c.st, rx, ry, fire);
@@ -1546,13 +1615,23 @@ function chalTick(dt, edge) {
   if (c.st.done) endChallenge();
 }
 
+// The challenge steps at a fixed 60 Hz, which rarely lines up with the display's frames; drawing the
+// camera between the last two ticks keeps turns smooth instead of freezing and double-jumping.
+// Drawing only: the run itself (and its replay) is untouched.
+function smoothView(c) {
+  const v = c.st.view, p = c.prevView;
+  if (!p || c.phase !== 'run' || c.st.done) return v;
+  const a = clamp(c.acc / DT, 0, 1);
+  return { yaw: p.yaw + (v.yaw - p.yaw) * a, pitch: p.pitch + (v.pitch - p.pitch) * a };
+}
+
 function chalScene() {
   const c = chal, it = c.st.item, st = c.st;
   const now = performance.now(), dt = c.lastDraw ? Math.min(0.1, (now - c.lastDraw) / 1000) : 0;
   c.lastDraw = now;
   c.shown = (c.shown || 0) + (st.score - (c.shown || 0)) * Math.min(1, dt * 9);
   return {
-    view: st.view, zoom: 1, phase: c.phase === 'run' ? 'run' : c.phase, countLeft: c.countLeft, figure: true,
+    view: smoothView(c), zoom: 1, phase: c.phase === 'run' ? 'run' : c.phase, countLeft: c.countLeft, figure: true,
     worldKey: c.code, gameId: c.game, hfov: hfovFor(c.game),
     hud: { shown: c.shown, streak: st.streak, left: (st.ticks - st.tick) * DT, total: st.ticks * DT,
       label: c.duel ? `RUN ${c.duel.i + 1}/${DUEL.runs}` : null },

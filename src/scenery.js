@@ -280,11 +280,12 @@ export function paintCrosshair(ctx, cam, on) {
   ctx.restore();
 }
 
-// Over-the-shoulder silhouette for third-person games, rim-lit by the sun.
+// Over-the-shoulder silhouette for third-person games, rim-lit by the sun. Drawn see-through.
 export function paintFigure(ctx, cam, world) {
   const { W, H, d } = cam, p = world.pal;
   const fx = cam.cx - W * 0.17, base = H * 1.02;
   ctx.save();
+  ctx.globalAlpha = 0.55; // see-through, so a target behind the character can still be found
   ctx.fillStyle = '#060B10';
   ctx.beginPath();
   ctx.moveTo(fx - W * 0.13, base);

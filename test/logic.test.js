@@ -378,3 +378,14 @@ test('turn drill: slow without pushing all the way leaves boost alone; other gam
   const g = recommendTurn(turnStats([turnTrial(150, 1.2, 1.0, 1.8, 0), turnTrial(160, 1.3, 1.1, 1.9, 0)]), { ...cfg, game: 'fortnite' });
   assert.equal(g.verdict, 'more'); assert.equal(g.boost, undefined);
 });
+
+test('kTurn scales both axes of the stick turn rate', async () => {
+  const { steer, makeView } = await import('../src/sim.js');
+  const { GAMES } = await import('../src/games.js');
+  const s = { sens: 6, vsens: 6, curve: 'linear', dz: 0.05 };
+  const a = makeView(), b = makeView();
+  steer(a, { rx: 1, ry: -1 }, s, GAMES.cod, 0.1);
+  steer(b, { rx: 1, ry: -1 }, { ...s, kTurn: 1.5 }, GAMES.cod, 0.1);
+  assert.ok(Math.abs(b.yaw / a.yaw - 1.5) < 1e-9);
+  assert.ok(Math.abs(b.pitch / a.pitch - 1.5) < 1e-9);
+});

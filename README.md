@@ -80,6 +80,17 @@ of rates). The turn drill, ADS rounds and curve/vertical screening are controlle
 - **Challenge.** Mouse runs record raw counts per tick and carry their degrees per count, so the
   server replays them exactly and they go on the leaderboard like controller runs.
 
+## Controller feel
+
+- Setup asks for the response curve and deadzone you actually use, in the game's own terms, instead
+  of assuming the defaults.
+- **Turn speed check** (optional): with turning boost off, time 5 full spins at full stick in your game.
+  The range then turns at your measured speed rather than the built-in estimate (`kTurn`, a multiple of
+  the profile's rate, carried in challenge settings and range-checked by the server).
+- The challenge draws the camera between its 60 Hz steps, so turns don't stutter on displays that
+  aren't exactly 60 Hz, and a quick tap of fire between steps still counts. Drawing only; replays are unchanged.
+- The third-person character is drawn see-through so it can't hide a target.
+
 ## Field of view
 
 The range draws through a true perspective camera at the FOV you enter (src/camera.js), so a turn moves
