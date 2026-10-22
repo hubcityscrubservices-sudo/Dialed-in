@@ -10,6 +10,7 @@ import { buildExport } from './export.js';
 import { DT, hashSeed, dailyCode, practiceCode, isCode, quantize, createChallenge, step as chStep, summary as chSummary,
   newRecording, record, encodeReplay, V3_FROM } from './challenge.js';
 import { reportCard } from './report.js';
+import { RECOIL, makeRecoil, recoilStep, recoilSummary, recommendRecoil } from './recoil.js';
 import { makeWorld, paintSky, paintTerrain, paintCompass, paintDrone, paintOffscreen, trailPoint, paintTrail,
   noteFlash, paintFx, paintCrosshair, paintFigure, paintLens, paintCountdown, TRACK_BLUE } from './scenery.js';
 import { DUEL, duelPlan, duelCompare } from './duel.js';
@@ -34,7 +35,7 @@ const verticalSlot = i => i % 5 === 1 || i % 5 === 3;
 const VERIFY = { flicks: 7, warmFlicks: 1, trackSeconds: 9, warmSeconds: 1.5 };
 const DEEP_ROUND = { flicks: 8, warmFlicks: 1, trackSeconds: 8, warmSeconds: 1.5 };
 const DRIFT_SECONDS = 4, ROLL_SECONDS = 10, SQUEEZE_SECONDS = 8;
-const RAIL = { curve: 'Curve feel', setup: 'Setup', drift: 'Sticks', flick: 'Flicks', track: 'Tracking', deep: 'Search', screen: 'Screen', turn: 'Turns', ads: 'ADS', verify: 'Verify', results: 'Results' };
+const RAIL = { curve: 'Curve feel', recoil: 'Recoil', setup: 'Setup', drift: 'Sticks', flick: 'Flicks', track: 'Tracking', deep: 'Search', screen: 'Screen', turn: 'Turns', ads: 'ADS', verify: 'Verify', results: 'Results' };
 const ADS = { flicks: 8, seconds: 8, scopedFlicks: 6, scopedSeconds: 6 };
 const TURNS = 6;
 // How a round's speed felt, -2 (way too slow) to +2 (way too fast). Deep mode finds where the ratings
@@ -312,6 +313,49 @@ function curvePicked(k) {
   show('setup');
 }
 
+// Recoil check: aimed in at the game's first zoom, bursts of a generic climbing rifle (recoil.js).
+// The result shows in setup; on a game with a vertical setting it can be applied in one press.
+let recoilResult = null;
+function recoilSettings() {
+  const spec = adsSpecs(game())[0];
+  return { ...settingsOf(cfg), adsMult: cfg.ads[spec.key] ?? spec.def, zoomed: true };
+}
+function startRecoilCheck() {
+  readSetup();
+  result = null;
+  const spec = adsSpecs(game())[0];
+  session = { segs: [{ kind: 'recoil', rail: 'recoil', intro: true, zoom: spec.zoom, settings: recoilSettings(), counter: 'Recoil', title: 'Recoil check',
+    text: `Aimed in at ${spec.zoom}× with your ${spec.generic ? 'ADS' : spec.label.toLowerCase()} setting. Hold fire on the target and the view climbs like an automatic rifle: pull down to stay on it. Each burst stops after ${RECOIL.burst} seconds. Let go, aim at the next target and fire again. ${RECOIL.bursts} bursts, the first is warm-up. It's a generic rifle, not a real gun, and there's no aim assist.` }],
+    i: 0, phase: 'intro', countLeft: 0, drift: null, deep: null, mouse: mouseCheck, recoilCheck: true };
+  calibrate();
+  enter();
+}
+function recoilDone(R) {
+  const s = seg(), sum = recoilSummary(R);
+  recoilResult = sum ? { sum, rec: recommendRecoil(sum, game(), s.settings), game: cfg.game, vsens: cfg.vsens } : null;
+  session = null;
+  mouse.unlock();
+  syncSetup();
+  show('setup');
+  $('#recoil-field').scrollIntoView({ block: 'center' });
+}
+function recoilText(r) {
+  const g = game(), { sum, rec } = r, R = sum.r;
+  const where = Math.abs(sum.bias) < R * 0.5 ? 'You stayed on target while firing.'
+    : sum.bias > 0 ? `You sat about ${sum.bias.toFixed(1)}° above the target while firing (the target is ${(2 * R).toFixed(1)}° across).`
+    : `You pulled about ${(-sum.bias).toFixed(1)}° below the target while firing.`;
+  const pull = `Holding it steady takes about ${Math.round(rec.need * 100)}% of a full pull down with your settings${rec.need >= 1 ? ', more than the stick has' : ''}; you held about ${Math.round(rec.held * 100)}%.`;
+  const tips = [];
+  if (sum.early > R * 2) tips.push('The first kick carried you well up before you caught it: start pulling as you start firing.');
+  if (sum.wobble > R * 0.6) tips.push('Your crosshair bounced up and down while you pulled.');
+  if (sum.side > R) tips.push('The sideways wander pulled you off: small left and right corrections help.');
+  const vName = g.vsens ? g.vsens.label : 'vertical sensitivity';
+  const advice = rec.verdict === 'keep' ? 'Your vertical speed suits your pull-down, so keep it.'
+    : rec.vsens != null ? `Try ${vName} ${rec.vsens} (now ${r.vsens}): ${rec.verdict === 'raise' ? 'faster, so the pull you naturally hold is enough' : 'slower, so your pull lands where you aim'}. This also changes vertical speed outside aiming.`
+    : `Try ${rec.verdict === 'raise' ? 'raising' : 'lowering'} your vertical speed while aiming by about ${Math.round(Math.abs(rec.f - 1) * 100)}%, ${rec.verdict === 'raise' ? 'so the pull you naturally hold is enough' : 'so your pull lands where you aim'}, if your game has a setting for it.`;
+  return [where, pull, ...tips, advice].join(' ');
+}
+
 // Picks a finished Deep search back up for MORE extra rounds, keeping every round and check so far.
 function deepMore() {
   const D = result.deepState;
@@ -507,6 +551,8 @@ function startRun(s) {
   // Calibration always plays engine-2 targets: true-angle hits and the calmer strafing target.
   if (s.kind === 'flick') s.data = { list: [], cur: s.turn ? newTurnTarget(view, Math.random, 1, true) : newFlickTarget(view, Math.random, verticalSlot(0), 1 / (s.zoom || 1), true, styleRange().size), flash: null };
   if (s.kind === 'track') s.data = makeTrack(s.warm, 1 / (s.zoom || 1), styleTrack());
+  // The fire press that started the round shouldn't start a burst; the first one waits for a fresh press.
+  if (s.kind === 'recoil') { s.data = makeRecoil(); s.data.wait = true; }
   renderBrief(true);
 }
 function stop() {
@@ -600,6 +646,7 @@ function tick(dt, edge) {
   else if (s.kind === 'mcheck') tickMouseCheck(s);
   else if (s.kind === 'flick') tickFlick(s, dt, edge.fire);
   else if (s.kind === 'track') tickTrack(s, dt);
+  else if (s.kind === 'recoil') tickRecoil(s, dt);
 }
 
 function rate(v) { seg().data = v; advance(); }
@@ -704,6 +751,11 @@ function tickFlick(s, dt, fireEdge) {
   }
 }
 
+function tickRecoil(s, dt) {
+  steer(view, inp, s.settings, game(), dt);
+  if (recoilStep(s.data, view, !!inp.fire, inp.ry, dt) === 'done') recoilDone(s.data);
+}
+
 function tickTrack(s, dt) {
   const st = steer(view, inp, s.settings, game(), dt, 0, trackAim(s.data));
   trackStep(s.data, view, st.vy, dt);
@@ -739,6 +791,7 @@ function show(name) {
 
 function railKeys() {
   if (session && session.curveCheck) return ['setup', 'curve'];
+  if (session && session.recoilCheck) return ['setup', 'recoil'];
   const deep = !!((session && session.deep) || (result && result.deep) || (!session && !result && deepMode(cfg.mode)));
   let keys = deep ? ['setup', 'drift', 'deep', 'screen', 'turn', 'ads'] : ['setup', 'drift', 'flick', 'track', 'turn', 'ads'];
   // Mouse sessions have no screening, turn drill or ADS rounds, and skip the check once DPI is measured.
@@ -1304,7 +1357,13 @@ function syncSetup() {
     : 'Hidden rounds find your best speed, then test curve and vertical speed blind to see which settings matter for you';
   $('#dpi-measure').textContent = mouseCheck && mouseCheck.cpcm ? 'Measure again' : 'Measure my DPI';
   // Controller menu settings the range plays with: curve, deadzone, and the optional measured turn speed.
-  for (const id of ['#curve-field', '#aa-field', '#dz-field', '#spin-field', '#curvefeel-field']) $(id).hidden = mouseGame;
+  for (const id of ['#curve-field', '#aa-field', '#dz-field', '#spin-field', '#curvefeel-field', '#recoil-field']) $(id).hidden = mouseGame;
+  const rr = recoilResult && recoilResult.game === cfg.game ? recoilResult : null;
+  $('#recoil-status').textContent = !rr ? 'Not checked' : rr.rec.verdict === 'keep' ? 'Checked: keep your vertical speed' : `Checked: ${rr.rec.verdict} vertical speed`;
+  $('#recoil-result').hidden = !rr;
+  $('#recoil-result').textContent = rr ? recoilText(rr) : '';
+  $('#recoil-use').hidden = !(rr && rr.rec.vsens != null && rr.rec.vsens !== cfg.vsens);
+  if (rr && rr.rec.vsens != null) $('#recoil-use').textContent = `Use ${rr.rec.vsens}`;
   const ck = cfg.curveK || 1;
   $('#curvefeel-status').textContent = ck === 1 ? (cfg.curveChecked ? 'Matched: the standard model' : 'Not checked')
     : `Matched: ${ck > 1 ? 'softer' : 'quicker'} near center than the standard model (×${ck.toFixed(2)})`;
@@ -1533,6 +1592,8 @@ function spinHelp() {
 }
 $('#spin').addEventListener('input', spinHelp);
 $('#curvefeel-go').addEventListener('click', startCurveCheck);
+$('#recoil-go').addEventListener('click', startRecoilCheck);
+$('#recoil-use').addEventListener('click', () => { cfg.vsens = recoilResult.rec.vsens; $('#vsens').value = cfg.vsens; saveSetup(); syncSetup(); });
 $('#curvefeel-reset').addEventListener('click', () => { cfg.curveK = null; cfg.curveChecked = false; saveSetup(); syncSetup(); });
 $('#spin-how').addEventListener('click', e => {
   const guide = $('#spin-guide'), open = guide.hidden;
@@ -1671,12 +1732,13 @@ function drawArena() {
   drawScene(c, {
     view, zoom: s.zoom || 1, phase: P, countLeft: session.countLeft, worldKey: 'range-' + cfg.game, gameId: cfg.game,
     hfov: hfovFor(cfg.game),
-    flick: P === 'run' && s.kind === 'flick' ? s.data : null,
+    flick: P === 'run' && s.kind === 'flick' ? s.data : P === 'run' && s.kind === 'recoil' ? { cur: s.data.T, flash: null } : null,
     track: P === 'run' && s.kind === 'track' ? s.data : null,
     figure: s.kind !== 'drift' && s.kind !== 'mcheck',
     overlay: mousePaused(P) ? drawPaused
       : P === 'run' && s.kind === 'drift' ? (ctx, W, H, d) => drawDrift(ctx, s.data, W, H, d)
-      : P === 'run' && s.kind === 'mcheck' ? (ctx, W, H, d) => drawMouseCheck(ctx, s.data, W, H, d) : null
+      : P === 'run' && s.kind === 'mcheck' ? (ctx, W, H, d) => drawMouseCheck(ctx, s.data, W, H, d)
+      : P === 'run' && s.kind === 'recoil' ? (ctx, W, H) => drawRecoilCue(ctx, s.data, W, H) : null
   });
 }
 
@@ -1825,6 +1887,20 @@ function drawDrift(ctx, D, W, H, d) {
   const bw = W * 0.4, bh = 6 * d, bx = cx - bw / 2, by = cy + H * 0.12;
   ctx.fillStyle = tok('--arena-major'); ctx.fillRect(bx, by, bw, bh);
   ctx.fillStyle = tok('--target'); ctx.fillRect(bx, by, bw * clamp(D.t / DRIFT_SECONDS, 0, 1), bh);
+}
+
+// Recoil check cue: what to do now and which burst this is.
+function drawRecoilCue(ctx, R, W, H) {
+  const n = Math.min(R.bursts.length + 1, R.P.bursts);
+  const text = R.cur ? 'PULL DOWN' : R.wait ? 'LET GO' : 'AIM, THEN HOLD FIRE';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.font = `800 ${Math.round(H * 0.045)}px ${tok('--display')}`;
+  ctx.fillStyle = R.cur ? '#FFD34D' : '#F4F1E8';
+  ctx.fillText(text, W / 2, H * 0.08);
+  ctx.font = `500 ${Math.round(H * 0.03)}px ${tok('--mono')}`;
+  ctx.fillStyle = '#F4F1E8';
+  ctx.fillText(`Burst ${n} of ${R.P.bursts}${n <= R.P.warm ? ' (warm-up)' : ''}`, W / 2, H * 0.08 + H * 0.06);
+  if (R.cur) { ctx.fillStyle = '#FFD34D'; ctx.fillRect(W * 0.35, H * 0.2, W * 0.3 * Math.min(1, R.cur.t / R.P.burst), Math.max(3, H * 0.006)); }
 }
 
 function drawPaused(ctx, W, H, d) {

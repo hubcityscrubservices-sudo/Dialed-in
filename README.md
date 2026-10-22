@@ -243,6 +243,20 @@ reshapes the curve everywhere the range plays, the daily challenge included (the
 server accepts it in that range). Full push stays full speed. Like the turn speed check, it changes
 how faithful the range is, not what it recommends.
 
+## Recoil check
+
+Optional, controller only, about a minute (src/recoil.js). Aimed in at the game's first zoom with the
+player's multiplier, the player holds fire on a target for five 3-second bursts (the first is warm-up)
+while the view climbs like a generic automatic rifle: a 14°/s kick for 0.15 s, then 6°/s up, with a
+slow sideways wander. It is not any real gun and there is no aim assist. It measures how far above or
+below the target the player sat while firing, the bounce, the sideways gap, how far the first kick
+carried, and the stick pull held. The pull a perfect player needs follows from the climb, the vertical
+speed while aimed in and the curve. When the player clearly under-pulls with less than that (or
+over-pulls with more), vertical speed is rescaled (×0.75 to ×1.35) so their natural pull would have been
+right, and on games with a vertical setting the nearest menu value is offered with a one-press Use button.
+Sitting above the target despite enough pull is a late catch of the first kick, which a speed change won't fix,
+so it only gets a tip.
+
 ## Reaction time in the analysis
 
 A person reacts about 0.2 s late, so after every direction change even a perfect-speed player

@@ -27,6 +27,11 @@ export function shape(x, y, dz, curve, outer = 1, k = 1) {
   return [x / m * o, y / m * o, o];
 }
 
+// The response curve steer uses: the game's own shape for the slot, or an exponent (softer on engine 2).
+export function curveFor(game, settings) {
+  return (game.curve.fn && game.curve.fn[settings.curve]) || (settings.eng >= 2 ? CURVE_EXP2 : CURVE_EXP)[settings.curve];
+}
+
 // Vertical turn speed at full stick. Games with their own vertical setting use it; the rest turn
 // vertically at PITCH_SCALE of horizontal, times an optional relative adjustment.
 export function verticalRate(game, settings) {
@@ -48,7 +53,7 @@ export function steer(view, input, settings, game, dt, minDz = 0, aim = null) {
   // kTurn scales the profile's estimated turn speed to the player's measured one (the spin-timer check).
   const kt = settings.kTurn ?? 1;
   const rate = game.sens.rate(settings.sens) * kt;
-  const curve = (game.curve.fn && game.curve.fn[settings.curve]) || (e2 ? CURVE_EXP2 : CURVE_EXP)[settings.curve];
+  const curve = curveFor(game, settings);
   const dz = Math.max(settings.dz, minDz), outer = settings.outer ?? 1;
   const [sx, sy, mag] = shape(input.rx, input.ry, dz, curve, outer, settings.curveK ?? 1);
   // How far the stick is pushed past the deadzone, before the curve: what the player's thumb did.

@@ -186,6 +186,12 @@
             <div class="current-row"><span id="curvefeel-status">Not checked</span><button class="btn small" id="curvefeel-go" type="button">Check curve feel</button><button class="btn small" id="curvefeel-reset" type="button" hidden>Reset</button></div>
             <small>Optional, about a minute. Play three hidden versions of your response curve and pick the one that feels most like your game, so the range responds to small pushes the way it does. Best right after playing.</small>
           </div>
+          <div class="field" id="recoil-field">
+            <label>Recoil check</label>
+            <div class="current-row"><span id="recoil-status">Not checked</span><button class="btn small" id="recoil-go" type="button">Check recoil control</button><button class="btn small" id="recoil-use" type="button" hidden>Use it</button></div>
+            <small>Optional, about a minute. Aimed in, hold fire on a target while the view climbs like an automatic rifle and pull down to stay on it. Shows whether your vertical speed suits your pull-down.</small>
+            <p class="hint" id="recoil-result" hidden></p>
+          </div>
           <div class="field" id="dz-field">
             <label for="dz"><span id="dz-label">Deadzone</span></label>
             <input id="dz" type="number" inputmode="numeric" value="5" min="0" max="30" step="1">
