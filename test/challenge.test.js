@@ -12,6 +12,7 @@ function playBot(code, skill = 1, seed = 1) {
   const rec = newRecording();
   const rng = mulberry32(seed);
   while (!st.done) {
+    if (!st.item) { record(rec, 0, 0, false); step(st, 0, 0, false); continue; } // pause between targets
     const it = st.item;
     const tgt = it.kind === 'track' ? it.TR.tgt : it.T;
     const ey = tgt.yaw - st.view.yaw, ep = tgt.pitch - st.view.pitch;
@@ -78,4 +79,34 @@ test('hit points grow with difficulty, speed and streak', () => {
   assert.ok(hitPoints(T(30, 3, 0.5), 1) > hitPoints(T(10, 6, 0.5), 1));
   assert.ok(hitPoints(T(20, 4, 0.3), 1) > hitPoints(T(20, 4, 1.2), 1));
   assert.ok(Math.abs(hitPoints(T(20, 4, 0.5), 11) / hitPoints(T(20, 4, 0.5), 1) - (1 + CH.streakStep * CH.streakCap)) < 1e-9);
+});
+
+// Fixed scores for version-1 runs, from the engine as it was before version 2. Any change that makes
+// these drift would break verification of runs already on the leaderboard.
+test('version 1 rules replay exactly as before (dailies before V2_FROM)', () => {
+  const s = { sens: 80, vsens: 60, vmult: 1, curve: 'expo', dz: 0.05, outer: 1, boost: 55, boostRamp: 1.6 };
+  const cases = [['d-2026-10-21', 'arc', 0.15, s, 25313], ['d-2026-10-20', 'cod', 0.1, { sens: 6, vsens: 6, curve: 'mid', dz: 0.1 }, 24278],
+    ['d-2026-10-19', 'apex', 0.2, { sens: 3, curve: 'mid', dz: 0.1 }, 18799]];
+  for (const [code, game, k, set, want] of cases) {
+    const st = createChallenge(code, game, set), rng = mulberry32(7);
+    assert.equal(st.v, 1);
+    while (!st.done) {
+      const it = st.item, t = it.kind === 'track' ? it.TR.tgt : it.T;
+      const ey = t.yaw - st.view.yaw, ep = t.pitch - st.view.pitch;
+      const rx = quantize(Math.max(-1, Math.min(1, ey * k + (rng() - 0.5) * 0.1)));
+      const ry = quantize(Math.max(-1, Math.min(1, -ep * k + (rng() - 0.5) * 0.1)));
+      const r = it.kind === 'track' ? it.TR.r : it.T.r;
+      step(st, rx, ry, it.kind !== 'track' && Math.hypot(ey, ep) < r * 0.9 && !st.prevFire);
+    }
+    assert.equal(summary(st).score, want, `${code} ${game}`);
+  }
+});
+
+test('version 2: controller runs get aim assist and engine-2 rules; submitted values cannot change them', () => {
+  const pad = createChallenge('d-2026-10-22', 'arc', { sens: 80, curve: 'expo', dz: 0.05, aa: 0, eng: 1 });
+  assert.equal(pad.v, 2); assert.equal(pad.settings.aa, 1); assert.equal(pad.settings.eng, 2);
+  const old = createChallenge('d-2026-10-21', 'arc', { sens: 80, curve: 'expo', dz: 0.05, aa: 1, eng: 2 });
+  assert.equal(old.settings.aa, undefined); assert.equal(old.settings.eng, undefined);
+  const m = createChallenge('p-abcdef', 'm-cs2', { sens: 1, curve: 'linear', dz: 0, dpc: 0.022 });
+  assert.equal(m.settings.aa, undefined);
 });

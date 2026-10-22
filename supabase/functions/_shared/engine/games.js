@@ -1,6 +1,8 @@
 import { clamp } from './util.js';
 
 // Per-game models. Turn rates (degrees per second at full stick) are approximations.
+// `assist` is the console aim assist estimate (sim.js assistTurn): win = window as a multiple of the
+// target radius, slow = slowdown inside it, rot = share of a moving target's speed followed.
 // `fov.type` says how the game states its field of view: 'h169' horizontal on 16:9, 'h43' horizontal
 // on a 4:3 frame (Source-engine style), 'v' vertical. The range draws at the converted FOV.
 // `source` says how far the menu names and scales have been checked.
@@ -18,7 +20,8 @@ export const GAMES = {
       { key: 'adsLow', label: 'ADS sensitivity multiplier (low zoom)', zoom: 1.5, min: 0.5, max: 2, step: 0.01, def: 1, unit: 'x' },
       { key: 'adsHigh', label: 'ADS sensitivity multiplier (high zoom)', zoom: 4, min: 0.5, max: 2, step: 0.01, def: 1, unit: 'x' }
     ],
-    curve: { label: 'Aim response curve type', def: 'mid', linear: 'Linear', mid: 'Standard', expo: 'Dynamic' }
+    curve: { label: 'Aim response curve type', def: 'mid', linear: 'Linear', mid: 'Standard', expo: 'Dynamic' },
+    assist: { win: 2.0, slow: 0.35, rot: 0.35 }
   },
   fortnite: {
     name: 'Fortnite', camera: 'third', source: 'model',
@@ -26,7 +29,8 @@ export const GAMES = {
     sens: { label: 'Look sensitivity', min: 1, max: 100, step: 1, def: 45, rate: s => s * 6.4 },
     dz: { label: 'Right stick deadzone', def: 0.10, fmt: d => Math.round(d * 100) + '%' },
     moveDz: { label: 'Left stick deadzone', fmt: d => Math.round(d * 100) + '%' },
-    curve: { label: 'Look input curve', def: 'mid', linear: 'Linear', mid: 'Exponential', expo: 'Exponential' }
+    curve: { label: 'Look input curve', def: 'mid', linear: 'Linear', mid: 'Exponential', expo: 'Exponential' },
+    assist: { win: 2.0, slow: 0.35, rot: 0.35 }
   },
   apex: {
     name: 'Apex Legends', camera: 'first', source: 'model',
@@ -37,7 +41,8 @@ export const GAMES = {
     },
     dz: { label: 'Look deadzone', def: 0.10, fmt: d => d < 0.06 ? 'None' : d < 0.13 ? 'Small' : 'Large' },
     outer: { label: 'Outer threshold', fmt: r => Math.round((1 - r) * 100) + '%' },
-    curve: { label: 'Response curve', def: 'mid', linear: 'Linear', mid: 'Classic', expo: 'Steady' }
+    curve: { label: 'Response curve', def: 'mid', linear: 'Linear', mid: 'Classic', expo: 'Steady' },
+    assist: { win: 2.0, slow: 0.4, rot: 0.6 }
   },
   arc: {
     // Menu names, ranges and curve options from a player's PS5 Wireless Controller screen; defaults
@@ -66,6 +71,8 @@ export const GAMES = {
     },
     // Zoom Horizontal/Vertical Look Boost 55/30 with a 1.2 s ramp-up. The 200% slider top is estimated.
     zoomBoost: { label: 'Zoom Horizontal Look Boost', mult: 1.55, vmult: 1.3, ramp: 1.2 },
+    // ARC's aim assist slows the aim over targets and pulls toward them; its strength isn't published.
+    assist: { win: 2.0, slow: 0.4, rot: 0.4 },
     ads: [
       { key: 'zoom', label: 'Zoom Sensitivity Multiplier', zoom: 1.5, min: 0.01, max: 2, step: 0.01, def: 0.25, unit: '%', defKnown: false },
       { key: 'scoped', label: 'Scoped Zoom Sensitivity Multiplier', zoom: 4, min: 0.01, max: 2, step: 0.01, def: 0.5, unit: '%', defKnown: false }
@@ -76,7 +83,8 @@ export const GAMES = {
     fov: { label: 'Field of view (horizontal)', min: 50, max: 130, step: 1, def: 90, type: 'h169' },
     sens: { label: 'Stick sensitivity', min: 1, max: 100, step: 1, def: 50, rate: s => s * 6 },
     dz: { label: 'Right stick deadzone', def: 0.10, fmt: d => Math.round(d * 100) + '%' },
-    curve: { label: 'Response curve', def: 'mid', linear: 'Linear', mid: 'Default', expo: 'Exponential' }
+    curve: { label: 'Response curve', def: 'mid', linear: 'Linear', mid: 'Default', expo: 'Exponential' },
+    assist: { win: 2.0, slow: 0.35, rot: 0.35 }
   }
 };
 

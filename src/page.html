@@ -133,6 +133,16 @@
             <select id="curve"></select>
             <small>The curve set in your game's controller menu.</small>
           </div>
+          <div class="field" id="aa-field">
+            <label for="aa">Aim assist</label>
+            <select id="aa">
+              <option value="0">Off</option>
+              <option value="0.6">Low</option>
+              <option value="1" selected>Medium</option>
+              <option value="1.4">High</option>
+            </select>
+            <small>As you play. It slows your aim over targets and helps follow moving ones. No game publishes its strength, so these are estimates. Challenge runs always use Medium.</small>
+          </div>
           <div class="field" id="dpi-field" hidden>
             <label for="dpi">Mouse DPI</label>
             <input id="dpi" type="number" inputmode="numeric" value="800" min="100" max="32000" step="1">

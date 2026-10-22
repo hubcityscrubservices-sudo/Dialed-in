@@ -15,6 +15,7 @@ function run(code, k = 0.15, seed = 1) {
   const st = createChallenge(code, 'arc', settings);
   const rec = newRecording(), rng = mulberry32(seed);
   while (!st.done) {
+    if (!st.item) { record(rec, 0, 0, false); step(st, 0, 0, false); continue; } // pause between targets
     const it = st.item, tgt = it.kind === 'track' ? it.TR.tgt : it.T;
     const ey = tgt.yaw - st.view.yaw, ep = tgt.pitch - st.view.pitch;
     const rx = quantize(Math.max(-1, Math.min(1, ey * k + (rng() - 0.5) * 0.05)));
@@ -112,6 +113,7 @@ function mouseRun(code, dpc = 0.033) {
   const ms = { sens: 1.5, vmult: 1, curve: 'linear', dz: 0, outer: 1, dpc };
   const st = createChallenge(code, 'm-cs2', ms), rec = newRecording();
   while (!st.done) {
+    if (!st.item) { record(rec, 0, 0, false); step(st, 0, 0, false); continue; } // pause between targets
     const it = st.item, tgt = it.kind === 'track' ? it.TR.tgt : it.T;
     const ey = tgt.yaw - st.view.yaw, ep = tgt.pitch - st.view.pitch;
     const mx = Math.round(ey / dpc * 0.2), my = Math.round(-ep / dpc * 0.2);
@@ -153,6 +155,7 @@ test('a measured turn speed (kTurn) replays and is range-checked', async () => {
   const fast = { ...settings, kTurn: 1.3 };
   const st = createChallenge(code, 'arc', fast), rec = newRecording(), rng = mulberry32(3);
   while (!st.done) {
+    if (!st.item) { record(rec, 0, 0, false); step(st, 0, 0, false); continue; } // pause between targets
     const it = st.item, tgt = it.kind === 'track' ? it.TR.tgt : it.T;
     const ey = tgt.yaw - st.view.yaw, ep = tgt.pitch - st.view.pitch;
     const rx = quantize(Math.max(-1, Math.min(1, ey * 0.15 + (rng() - 0.5) * 0.05)));

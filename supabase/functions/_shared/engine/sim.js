@@ -2,6 +2,9 @@ import { clamp } from './util.js';
 
 // Curve slots, from most responsive near center to softest. A game can swap in its own shape per slot.
 export const CURVE_EXP = { linear: 1.0, mid: 1.8, expo: 2.5 };
+// Engine 2 softens the exponential slot: at 2.5, half a push gave only 15% of full speed, so small
+// corrections needed big pushes. No game publishes its exponent; 2.0 gives 22% at half a push.
+const CURVE_EXP2 = { ...CURVE_EXP, expo: 2.0 };
 export const PITCH_SCALE = 0.8; // vertical turn speed relative to horizontal
 export const FLICK_TIMEOUT = 4;
 const BOOST_DELAY = 0.15, BOOST_RAMP = 0.4;
@@ -29,28 +32,78 @@ export function verticalRate(game, settings) {
 
 // Turns the view for one frame. `settings` is { sens, vsens?, vmult?, curve, dz, outer?, adsMult?, zoomed? }.
 // Aiming down sights multiplies both axes by adsMult and uses the game's zoom look boost if it has one.
-export function steer(view, input, settings, game, dt, minDz = 0) {
+//
+// settings.eng = 2 turns on the engine-2 rules: a softer exponential curve, and look boost that
+// starts on a firm (not perfect) push, ignores tiny dips and has no extra delay. Without it the
+// original rules apply, so challenge runs recorded before engine 2 replay exactly.
+// aim = { yaw, pitch, r, vy?, vp? } is the target in play; with settings.aa (strength, 1 = medium)
+// and the game's assist profile it adds aim assist (see assistTurn).
+export function steer(view, input, settings, game, dt, minDz = 0, aim = null) {
   if (game.device === 'mouse') return steerMouse(view, input, settings, game, dt);
+  const e2 = settings.eng >= 2;
   // kTurn scales the profile's estimated turn speed to the player's measured one (the spin-timer check).
   const kt = settings.kTurn ?? 1;
   const rate = game.sens.rate(settings.sens) * kt;
-  const curve = (game.curve.fn && game.curve.fn[settings.curve]) || CURVE_EXP[settings.curve];
-  const [sx, sy, mag] = shape(input.rx, input.ry, Math.max(settings.dz, minDz), curve, settings.outer ?? 1);
+  const curve = (game.curve.fn && game.curve.fn[settings.curve]) || (e2 ? CURVE_EXP2 : CURVE_EXP)[settings.curve];
+  const dz = Math.max(settings.dz, minDz), outer = settings.outer ?? 1;
+  const [sx, sy, mag] = shape(input.rx, input.ry, dz, curve, outer);
   let boost = 1, vboost = 1;
   let b = settings.zoomed && game.zoomBoost ? game.zoomBoost : game.boost;
   // The player's own hip-fire boost values (percent extra speed, ramp-up seconds) override the profile's.
   if (b && !settings.zoomed && settings.boost != null) b = { ...b, mult: 1 + settings.boost / 100, ramp: settings.boostRamp ?? b.ramp };
   if (b) {
-    view.boostT = mag >= 0.95 ? view.boostT + dt : 0;
-    const ramp = clamp((view.boostT - BOOST_DELAY) / (b.ramp ?? BOOST_RAMP), 0, 1);
+    if (e2) {
+      // Push before the curve, so every curve boosts at the same stick position; dips under 0.1 s keep the ramp.
+      const push = Math.min(1, Math.max(0, (Math.hypot(input.rx, input.ry) - dz) / (outer - dz)));
+      if (push >= 0.9) { view.boostT += dt; view.dipT = 0; }
+      else { view.dipT = (view.dipT || 0) + dt; if (view.dipT > 0.1) view.boostT = 0; }
+    } else view.boostT = mag >= 0.95 ? view.boostT + dt : 0;
+    const ramp = clamp((view.boostT - (e2 ? 0 : BOOST_DELAY)) / (b.ramp ?? BOOST_RAMP), 0, 1);
     boost = 1 + (b.mult - 1) * ramp;
     vboost = 1 + ((b.vmult ?? 1) - 1) * ramp;
   }
   const ads = settings.adsMult ?? 1;
-  const vy = sx * rate * boost * ads, vp = -sy * verticalRate(game, settings) * kt * vboost * ads;
+  let vy = sx * rate * boost * ads, vp = -sy * verticalRate(game, settings) * kt * vboost * ads;
+  if (aim && settings.aa && game.assist) [vy, vp] = assistTurn(vy, vp, mag, view, aim, game.assist, settings.aa);
   view.yaw += vy * dt;
   view.pitch = clamp(view.pitch + vp * dt, -40, 40);
   return { vy, vp, mag };
+}
+
+/* ---------- aim assist ---------- */
+
+// Console-style aim assist. Inside a window around the target (win x its radius, easing in from the
+// edge) the turn slows by up to `slow`, and while the stick is in use the view also follows a
+// moving target at `rot` of its speed. Strengths aren't published by any studio; profiles hold
+// estimates, scaled by the player's strength setting (aa: 0.6 low, 1 medium, 1.4 high).
+// Only sim state goes in, so it is deterministic and replays exactly.
+export function assistWeight(e, r, win) {
+  const outer = r * win;
+  if (e <= r) return 1;
+  if (e >= outer) return 0;
+  const x = (outer - e) / (outer - r);
+  return x * x * (3 - 2 * x);
+}
+export function assistTurn(vy, vp, mag, view, aim, A, aa) {
+  const w = assistWeight(angleTo(view, aim), aim.r, A.win);
+  if (!w) return [vy, vp];
+  const f = Math.max(0.1, 1 - A.slow * aa * w);
+  vy *= f; vp *= f;
+  if (mag > 0) { vy += A.rot * aa * w * (aim.vy || 0); vp += A.rot * aa * w * (aim.vp || 0); }
+  return [vy, vp];
+}
+
+// The strafing target as an aim-assist target: where it is and how fast it moves.
+export function trackAim(TR) {
+  const g = TR.tgt;
+  return { yaw: g.yaw, pitch: g.pitch, r: TR.r, vy: g.v, vp: 3 * TR.scale * 1.3 * Math.cos(TR.t * 1.3) };
+}
+
+// True angle between the view and a target, in degrees: a sideways gap counts for less when looking
+// up or down, as it does on screen. (The original hit test used the plain yaw/pitch difference.)
+export function angleTo(view, t) {
+  const c = Math.cos(((view.pitch + t.pitch) / 2) * Math.PI / 180);
+  return Math.hypot((view.yaw - t.yaw) * c, view.pitch - t.pitch);
 }
 
 // Speed (degrees per second) that counts as a full push for a mouse, so flick segmentation and the
@@ -76,7 +129,8 @@ export function steerMouse(view, input, settings, game, dt) {
 // on whichever side has room. The rest sit left or right, up to 50 degrees off horizontal, so the
 // two groups never overlap when vertical aim is scored separately.
 // `scale` shrinks distance and size for aiming down sights at range (1 / zoom).
-export function newFlickTarget(view, rng = Math.random, vertical = false, scale = 1) {
+// `trueAngle` = use the true-angle hit test (engine 2).
+export function newFlickTarget(view, rng = Math.random, vertical = false, scale = 1, trueAngle = false) {
   let yaw, pitch;
   if (vertical) {
     const up = view.pitch > 5 ? false : view.pitch < -5 ? true : rng() < 0.5;
@@ -97,7 +151,7 @@ export function newFlickTarget(view, rng = Math.random, vertical = false, scale 
   const dy = yaw - view.yaw, dp = pitch - view.pitch, D = Math.hypot(dy, dp);
   const r = (1.8 + rng() * 1.2) * scale;
   return {
-    yaw, pitch, r, W: 2 * r, D, sy: view.yaw, sp: view.pitch, ux: dy / D, uy: dp / D,
+    yaw, pitch, r, W: 2 * r, D, sy: view.yaw, sp: view.pitch, ux: dy / D, uy: dp / D, ang: trueAngle,
     maxProj: 0, segs: 0, active: false, shots: 0, t: 0, hit: false, overshoot: false, first: null
   };
 }
@@ -105,13 +159,13 @@ export function newFlickTarget(view, rng = Math.random, vertical = false, scale 
 /* ---------- turn-around trials ---------- */
 
 // A target 90-170 degrees to one side, so the turn needs full stick (and look boost, where the game has it).
-export function newTurnTarget(view, rng = Math.random, side = 1) {
+export function newTurnTarget(view, rng = Math.random, side = 1, ang = false) {
   const yaw = view.yaw + side * (90 + rng() * 80);
   const pitch = clamp(view.pitch + (rng() - 0.5) * 10, -30, 30);
   const dy = yaw - view.yaw, dp = pitch - view.pitch, D = Math.hypot(dy, dp);
   const r = 3;
   return {
-    yaw, pitch, r, W: 2 * r, D, sy: view.yaw, sp: view.pitch, ux: dy / D, uy: dp / D,
+    yaw, pitch, r, W: 2 * r, D, sy: view.yaw, sp: view.pitch, ux: dy / D, uy: dp / D, ang,
     maxProj: 0, segs: 0, active: false, shots: 0, t: 0, hit: false, overshoot: false, first: null,
     turn: true, reachT: null, fullT: 0, stintT: 0, maxStint: 0
   };
@@ -143,7 +197,7 @@ export function flickStep(T, view, mag, fireEdge, dt) {
     T.shots++;
     // The first shot is the endpoint for Fitts' throughput.
     if (!T.first) T.first = { t: T.t, along: proj };
-    if (Math.hypot(view.yaw - T.yaw, view.pitch - T.pitch) <= T.r) { T.hit = true; return finish(T, view, 'hit'); }
+    if ((T.ang ? angleTo(view, T) : Math.hypot(view.yaw - T.yaw, view.pitch - T.pitch)) <= T.r) { T.hit = true; return finish(T, view, 'hit'); }
     return 'miss';
   }
   if (T.t >= FLICK_TIMEOUT) return finish(T, view, 'timeout');
@@ -160,9 +214,13 @@ function finish(T, view, why) {
 
 // `warm` seconds at the start are played but not scored.
 // `scale` (1 / zoom) shrinks the target and its movement for aiming down sights at range.
-export function makeTrack(warm = 0, scale = 1) {
+// Strafing target movement. V1 is the original (fast, frequent random reversals); V2 is calmer, about
+// a 4 m/s strafer at 6-25 m, reversing on about a third of its changes, and uses the true-angle test.
+export const TRACK_V1 = { lo: 18, span: 50, segLo: 0.6, segSpan: 1.1, rev: null, ang: false };
+export const TRACK_V2 = { lo: 10, span: 30, segLo: 0.8, segSpan: 1.2, rev: 0.35, ang: true };
+export function makeTrack(warm = 0, scale = 1, P = TRACK_V1) {
   return {
-    t: 0, warm, scale, r: 2.6 * scale, T: 0, errSum: 0, chunks: [], chunk: { sum: 0, time: 0 },
+    t: 0, warm, scale, P, r: 2.6 * scale, T: 0, errSum: 0, chunks: [], chunk: { sum: 0, time: 0 },
     on: 0, behind: 0, ahead: 0, near: 0, rev: 0, tRev: 0, last: 0,
     tgt: { yaw: 0, pitch: 0, v: 0, goal: 0, next: 0.4, on: false }
   };
@@ -171,15 +229,19 @@ export function makeTrack(warm = 0, scale = 1) {
 export function trackStep(TR, view, vy, dt, rng = Math.random) {
   const g = TR.tgt;
   TR.t += dt;
+  const P = TR.P || TRACK_V1;
   if (TR.t >= g.next) {
-    g.goal = (rng() < 0.5 ? -1 : 1) * (18 + rng() * 50) * TR.scale;
-    g.next = TR.t + 0.6 + rng() * 1.1;
+    // Same three draws in both versions: direction, speed, duration.
+    const d = rng();
+    const sign = P.rev == null ? (d < 0.5 ? -1 : 1) : (d < P.rev ? -1 : 1) * (Math.sign(g.v) || 1);
+    g.goal = sign * (P.lo + rng() * P.span) * TR.scale;
+    g.next = TR.t + P.segLo + rng() * P.segSpan;
   }
   const prevV = g.v;
   g.v += (g.goal - g.v) * Math.min(1, dt * 4);
   g.yaw += g.v * dt;
   g.pitch = (TR.pitch0 ?? 0) + 3 * TR.scale * Math.sin(TR.t * 1.3);
-  const ey = view.yaw - g.yaw, ep = view.pitch - g.pitch, e = Math.hypot(ey, ep);
+  const ey = view.yaw - g.yaw, ep = view.pitch - g.pitch, e = P.ang ? angleTo(view, g) : Math.hypot(ey, ep);
   g.on = e <= TR.r;
   if (TR.t <= TR.warm) return;
 

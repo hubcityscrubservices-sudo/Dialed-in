@@ -76,6 +76,7 @@ test('a mouse challenge run replays to the same score', () => {
   const st = createChallenge('p-mouse1', 'm-cs2', settings), rec = newRecording();
   let i = 0;
   while (!st.done) {
+    if (!st.item) { record(rec, 0, 0, false); step(st, 0, 0, false); continue; } // pause between targets
     const T = st.item.T || st.item.TR.tgt;
     const mx = Math.round((T.yaw - st.view.yaw) / (1.5 * 0.022) * 0.2), my = Math.round(-(T.pitch - st.view.pitch) / (1.5 * 0.022) * 0.2);
     const fire = i++ % 9 === 0;

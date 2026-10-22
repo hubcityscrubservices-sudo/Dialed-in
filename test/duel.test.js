@@ -13,6 +13,7 @@ function play(code, settings, { k = 0.05, react = 12, seed = 1, seconds = DUEL.s
   const rng = mulberry32(seed);
   let wait = 0, last = null;
   while (!st.done) {
+    if (!st.item) { step(st, 0, 0, false); continue; } // pause between targets
     const it = st.item, tgt = it.kind === 'track' ? it.TR.tgt : it.T;
     if (tgt !== last) { last = tgt; wait = react; }
     let rx = 0, ry = 0, fire = false;

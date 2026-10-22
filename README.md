@@ -95,6 +95,24 @@ of rates). The turn drill, ADS rounds and curve/vertical screening are controlle
   aren't exactly 60 Hz, and a quick tap of fire between steps still counts. Drawing only; replays are unchanged.
 - The third-person character is drawn see-through so it can't hide a target.
 
+## Aim assist and challenge rules (version 2)
+
+Console games aim with assist on, so the range does too (src/sim.js `assistTurn`): inside a window of
+twice the target's radius the turn slows (up to 35-40%), and while the stick is in use the view
+follows a moving target at a share of its speed. No studio publishes its strengths, so per-game values
+in games.js are estimates; setup offers Off / Low / Medium / High (default Medium) for calibration.
+
+Challenge rules are versioned by code (src/challenge.js `RULES`, `versionOf`): dailies before
+2026-10-22 are version 1 and replay exactly as before; everything since is version 2:
+- aim assist (medium) on every controller run, regardless of what the client sends;
+- pace judged against about 2 bits/s for sticks (thumbstick research) instead of mouse speed;
+- misses cost 10 (was 25), and the first near miss on a target keeps the streak;
+- a quarter-second pause between targets, fewer up-and-down targets (25%), 3.5 s timeout;
+- calmer strafing targets (10-40 deg/s, fewer reversals) and the true-angle hit test;
+- engine-2 stick rules: a softer Exponential curve (exponent 2.0) and look boost that starts at a
+  90% push, ignores dips under 0.1 s and has no extra delay.
+Calibration always uses version-2 targets and stick rules. The all-time board ranks version-2 dailies.
+
 ## Field of view
 
 The range draws through a true perspective camera at the FOV you enter (src/camera.js), so a turn moves

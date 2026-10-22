@@ -1,6 +1,6 @@
 import { GAMES, PLAYSTYLES, gameTitle, extraSetting, adsSpecs, fmtAds } from './games.js';
 import { makeCamera, hfov169 } from './camera.js';
-import { makeView, steer, newFlickTarget, flickStep, makeTrack, trackStep, newTurnTarget, turnStep } from './sim.js';
+import { makeView, steer, newFlickTarget, flickStep, makeTrack, trackStep, newTurnTarget, turnStep, trackAim, TRACK_V2 } from './sim.js';
 import { summarize, recommend, recommendVertical, recommendAds, turnStats, recommendTurn, driftDeadzone, settingsChanged } from './analysis.js';
 import { verifyPlan, verifyCompare, ratingSummary, sideOf } from './verify.js';
 import { DEEP, SCREEN, deepNext, deepAnalyze, shuffled, screenPlan, altCurve, screenAnalyze } from './deep.js';
@@ -35,7 +35,7 @@ const MODE_HINT = { quick: 'About 3 minutes', verify: 'About 5 minutes', deep: '
 
 const adsDefaults = g => Object.fromEntries(adsSpecs(g).map(sp => [sp.key, sp.def]));
 const boostDefaults = g => g.boost && g.boost.setting ? { boost: g.boost.setting.def, boostRamp: g.boost.rampSetting.def } : { boost: undefined, boostRamp: undefined };
-const cfg = { game: 'arc', style: 'balanced', mode: 'verify', sens: GAMES.arc.sens.def, vsens: GAMES.arc.vsens.def, ads: adsDefaults(GAMES.arc), ...boostDefaults(GAMES.arc), curve: GAMES.arc.curve.def, dz: GAMES.arc.dz.def, fov: GAMES.arc.fov.def, device: 'pad', dpi: 800, cm0: 30 };
+const cfg = { game: 'arc', style: 'balanced', mode: 'verify', sens: GAMES.arc.sens.def, vsens: GAMES.arc.vsens.def, ads: adsDefaults(GAMES.arc), ...boostDefaults(GAMES.arc), curve: GAMES.arc.curve.def, dz: GAMES.arc.dz.def, aa: 1, fov: GAMES.arc.fov.def, device: 'pad', dpi: 800, cm0: 30 };
 let screen = 'setup';  // setup | test | results
 let session = null;    // { segs, i, phase, countLeft, drift }
 let result = null;     // { cfg, stats, rec, drift, verify }
@@ -50,9 +50,13 @@ const isMouse = () => cfg.device === 'mouse';
 // so turning moves the screen exactly as much as it does in their game.
 const hfovFor = id => { const F = GAMES[id].fov; return hfov169(id === cfg.game && !F.fixed ? cfg.fov : F.def, F.type); };
 const seg = () => session && session.segs[session.i];
-// The measured turn-speed factor belongs to the player's game, not to a setting under test, so every
-// settings object takes it from cfg (and leaves it out at 1, so uncalibrated runs are unchanged).
-const turnK = () => cfg.kTurn && cfg.kTurn !== 1 && game().device !== 'mouse' ? { kTurn: cfg.kTurn } : {};
+// Things that belong to the player's game rather than to a setting under test, so every settings
+// object takes them from cfg: the engine-2 stick rules, aim assist strength (controllers) and the
+// measured turn-speed factor (left out at 1).
+const turnK = () => {
+  if (game().device === 'mouse') return { eng: 2 };
+  return { eng: 2, ...(cfg.aa ? { aa: cfg.aa } : {}), ...(cfg.kTurn && cfg.kTurn !== 1 ? { kTurn: cfg.kTurn } : {}) };
+};
 const settingsOf = c => ({ sens: c.sens, vsens: c.vsens, vmult: c.vmult ?? 1, curve: c.curve, dz: c.dz, outer: c.outer ?? 1, boost: c.boost, boostRamp: c.boostRamp, ...turnK() });
 
 /* ---------- session plans ---------- */
@@ -360,8 +364,9 @@ function startRun(s) {
   session.phase = 'run';
   if (s.kind === 'mcheck') { mouse.takeSwipes(); mouse.takeGaps(); s.data = { swipes: [], gaps: [], short: 0 }; }
   if (s.kind === 'drift') s.data = { part: 'rest', t: 0, r: 0, l: 0, lt: 0, rt: 0, warn: 0, reachR: emptyReach(), reachL: emptyReach(), maxLt: 0, maxRt: 0, lDown: false, rDown: false };
-  if (s.kind === 'flick') s.data = { list: [], cur: s.turn ? newTurnTarget(view, Math.random, 1) : newFlickTarget(view, Math.random, verticalSlot(0), 1 / (s.zoom || 1)), flash: null };
-  if (s.kind === 'track') s.data = makeTrack(s.warm, 1 / (s.zoom || 1));
+  // Calibration always plays engine-2 targets: true-angle hits and the calmer strafing target.
+  if (s.kind === 'flick') s.data = { list: [], cur: s.turn ? newTurnTarget(view, Math.random, 1, true) : newFlickTarget(view, Math.random, verticalSlot(0), 1 / (s.zoom || 1), true), flash: null };
+  if (s.kind === 'track') s.data = makeTrack(s.warm, 1 / (s.zoom || 1), TRACK_V2);
   renderBrief(true);
 }
 function stop() {
@@ -539,7 +544,7 @@ function finishMouseCheck(D) {
 
 function tickFlick(s, dt, fireEdge) {
   const F = s.data;
-  const st = steer(view, inp, s.settings, game(), dt);
+  const st = steer(view, inp, s.settings, game(), dt, 0, F.cur);
   if (F.flash) F.flash.t -= dt;
   if (s.turn) turnStep(F.cur, view, st.mag, dt);
   const out = flickStep(F.cur, view, st.mag, fireEdge, dt);
@@ -548,12 +553,12 @@ function tickFlick(s, dt, fireEdge) {
   if (out === 'hit' || out === 'timeout') {
     F.list.push(F.cur);
     if (F.list.length >= s.n) return advance();
-    F.cur = s.turn ? newTurnTarget(view, Math.random, F.list.length % 2 ? -1 : 1) : newFlickTarget(view, Math.random, verticalSlot(F.list.length), 1 / (s.zoom || 1));
+    F.cur = s.turn ? newTurnTarget(view, Math.random, F.list.length % 2 ? -1 : 1, true) : newFlickTarget(view, Math.random, verticalSlot(F.list.length), 1 / (s.zoom || 1), true);
   }
 }
 
 function tickTrack(s, dt) {
-  const st = steer(view, inp, s.settings, game(), dt);
+  const st = steer(view, inp, s.settings, game(), dt, 0, trackAim(s.data));
   trackStep(s.data, view, st.vy, dt);
   if (s.data.t >= s.warm + s.dur) advance();
 }
@@ -875,7 +880,7 @@ function renderResults() {
     <div style="display:grid;gap:6px">
       <p class="eyebrow">${gameTitle(g)} · ${PLAYSTYLES[c.style].label}${mouseGame ? ' · mouse' : ''}${g.camera === 'third' ? ' · third person' : ''}</p>
       <h2>Your settings for ${g.name}</h2>
-      <p class="lede">Set these in your game's ${mouseGame ? 'mouse' : 'controller'} settings, then play a private match or two before you judge them.${mouseGame && !g.yaw ? ` ${g.name === 'your game' ? 'This game' : g.name} has no published conversion, so the cm/360 figures scale from the ${c.cm0} cm you measured.` : ''}</p>
+      <p class="lede">Set these in your game's ${mouseGame ? 'mouse' : 'controller'} settings, then play a private match or two before you judge them.${mouseGame ? '' : ` Tested with aim assist ${({ 0: 'off', 0.6: 'on (low)', 1: 'on (medium)', 1.4: 'on (high)' })[c.aa ?? 1]}, like your game.`}${mouseGame && !g.yaw ? ` ${g.name === 'your game' ? 'This game' : g.name} has no published conversion, so the cm/360 figures scale from the ${c.cm0} cm you measured.` : ''}</p>
     </div>
     <div class="recs">
       ${mouseGame
@@ -1014,7 +1019,8 @@ function syncSetup() {
     : 'Hidden rounds find your best speed, then test curve and vertical speed blind to see which settings matter for you';
   $('#dpi-measure').textContent = mouseCheck && mouseCheck.cpcm ? 'Measure again' : 'Measure my DPI';
   // Controller menu settings the range plays with: curve, deadzone, and the optional measured turn speed.
-  for (const id of ['#curve-field', '#dz-field', '#spin-field']) $(id).hidden = mouseGame;
+  for (const id of ['#curve-field', '#aa-field', '#dz-field', '#spin-field']) $(id).hidden = mouseGame;
+  $('#aa').value = String(cfg.aa ?? 1);
   // Fine-tune holds whatever optional settings this game has; with none (a mouse game with a fixed
   // field of view) it isn't shown at all.
   const tune = [!mouseGame && 'turn speed check', !mouseGame && 'deadzone', !g.fov.fixed && 'field of view',
@@ -1147,6 +1153,8 @@ function readSetup() {
   }
   if (g.device === 'mouse') { cfg.curve = g.curve.def; cfg.dz = g.dz.def; cfg.spin = null; cfg.kTurn = 1; }
   else {
+    const aa = Number($('#aa').value);
+    cfg.aa = [0, 0.6, 1, 1.4].includes(aa) ? aa : 1;
     cfg.curve = $('#curve').value in CURVE_KEYS ? $('#curve').value : g.curve.def;
     const opts = DZ_OPTIONS[cfg.game];
     const dz = Number($('#dz').value);
@@ -1386,7 +1394,7 @@ function drawScene(c, sc) {
   };
   if (running && sc.flick) {
     noteFlash(w, sc.flick.flash, now);
-    drawTarget(sc.flick.cur, sc.flick.cur.r, { kind: sc.flick.cur.turn ? 'turn' : 'flick' });
+    if (sc.flick.cur) drawTarget(sc.flick.cur, sc.flick.cur.r, { kind: sc.flick.cur.turn ? 'turn' : 'flick' });
   }
   if (running && sc.track) {
     const pts = trailPoint(w, sc.track.tgt);
@@ -1686,8 +1694,9 @@ function chalScene() {
     worldKey: c.code, gameId: c.game, hfov: hfovFor(c.game),
     hud: { shown: c.shown, streak: st.streak, left: (st.ticks - st.tick) * DT, total: st.ticks * DT,
       label: c.duel ? `RUN ${c.duel.i + 1}/${DUEL.runs}` : null },
-    flick: it.kind !== 'track' ? { cur: it.T, flash: c.flash } : null,
-    track: it.kind === 'track' ? it.TR : null,
+    // Between targets (version 2) nothing is drawn, but the last hit's sparks still play.
+    flick: !it ? { cur: null, flash: c.flash } : it.kind !== 'track' ? { cur: it.T, flash: c.flash } : null,
+    track: it && it.kind === 'track' ? it.TR : null,
     // Points for the last hit or miss rise from beside the score counter, keeping the aim area clear.
     overlay: mousePaused(c.phase) ? drawPaused : c.pop && c.pop.t > 0 ? (ctx, W, H, d) => {
       ctx.globalAlpha = clamp(c.pop.t / 0.3, 0, 1);
@@ -1712,7 +1721,7 @@ function renderChalBrief(force) {
     : c.kind === 'daily' ? `Daily challenge · ${c.code.slice(2)}` : c.kind === 'practice' ? 'Practice challenge' : `Challenge ${c.code}`;
   $('#brief-text').textContent = c.phase === 'rate' ? 'Go with your gut. You can skip this.'
     : c.phase !== 'intro' ? (c.phase === 'count' ? 'Get ready.' : 'Go.')
-    : !c.duel ? '60 seconds. Hit each target fast for more points, and keep a streak going for a bonus. Missed shots cost points. Stay on the moving targets, no need to fire at those.'
+    : !c.duel ? `60 seconds. Hit each target fast for more points, and keep a streak going for a bonus. Missed shots cost points. Stay on the moving targets, no need to fire at those.${c.st.v >= 2 && !c.st.mouse ? ' Aim assist is on (medium) for every controller run.' : ''}`
     : di === 0 ? `${DUEL.runs} challenge runs of ${DUEL.seconds} seconds. Two use your old settings and two use the suggested ones, in a hidden order, and each pair plays the same targets.`
     : `Run ${di + 1} of ${DUEL.runs}. Same drill. The settings may have changed.`;
   const act = $('#brief-actions');
@@ -1884,7 +1893,7 @@ function renderChalEnd() {
       ${stat('Best streak', sum.bestStreak)}
       ${stat('On moving targets', sum.tracking == null ? '–' : pct(sum.tracking))}
     </div>
-    ${reportHtml(reportCard(c.st.log, { game: c.game, style: cfg.style }))}
+    ${reportHtml(reportCard(c.st.log, { game: c.game, style: cfg.style, v: c.st.v, mouse: c.st.mouse }))}
     <div class="share">
       <p>Share the code and anyone can play the exact same targets: <code>${c.code}</code></p>
       <pre id="copytext" hidden></pre>

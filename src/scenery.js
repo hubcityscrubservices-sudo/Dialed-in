@@ -189,7 +189,7 @@ export function paintDrone(ctx, x, y, R, cam, world, now, { kind = 'flick', lit 
   ctx.strokeStyle = hexA('#FFF1D6', 0.85); ctx.lineWidth = 2.2 * d; ctx.lineCap = 'round';
   for (let i = 0; i < 3; i++) {
     const a0 = spin + i * (Math.PI * 2 / 3);
-    ctx.beginPath(); ctx.arc(x, y, R * 1.08, a0, a0 + Math.PI * 0.42); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x, y, R * 0.97, a0, a0 + Math.PI * 0.42); ctx.stroke(); // the ring is the hit edge
   }
   ctx.lineCap = 'butt';
   // centre pip: the precise point to aim at

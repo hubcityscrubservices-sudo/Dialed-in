@@ -1,16 +1,16 @@
 import { isVertical, summarize, speedAdjust, turnStats, recommendTurn } from './analysis.js';
 import { mean, pct } from './util.js';
+import { parTime } from './challenge.js';
 
 // Report card for one challenge run: the score split by kind of target, plus settings hints. One
 // run is noisy, so a hint only appears when the gap is large and there were enough targets of that
 // kind to judge.
 export const REPORT = { minItems: 3, minHits: 4, slowRatio: 1.3, hitGap: 0.2, trackLean: 0.25, speedAdj: 0.1 };
 
-// Seconds a hit "should" take for its difficulty, the same yardstick the challenge scores against.
-const expected = T => 0.35 + 0.18 * Math.log2(T.D / T.W + 1);
 const sumPts = items => items.reduce((a, i) => a + i.pts, 0);
 
-function flickRow(items) {
+// expected(T) = seconds a hit "should" take, the same yardstick the challenge scored against.
+function flickRow(items, expected) {
   const n = items.length, hits = items.filter(i => i.T.hit);
   return {
     n, pts: sumPts(items),
@@ -30,7 +30,9 @@ function mergedTrack(items) {
 }
 
 // log = challenge st.log; c = { game, style }.
+// c = { game, style, v (rule version, default 1), mouse }
 export function reportCard(log, c) {
+  const expected = T => parTime(T, c.v ?? 1, !!c.mouse);
   const side = [], vert = [], turn = [], track = [];
   for (const it of log) {
     if (it.kind === 'track') track.push(it);
@@ -39,7 +41,7 @@ export function reportCard(log, c) {
   }
   const tr = mergedTrack(track);
   const rows = {
-    side: flickRow(side), vert: flickRow(vert), turn: flickRow(turn),
+    side: flickRow(side, expected), vert: flickRow(vert, expected), turn: flickRow(turn, expected),
     track: { n: track.length, pts: sumPts(track), on: tr.T ? tr.on / tr.T : null }
   };
   const hints = [];
