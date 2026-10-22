@@ -443,3 +443,17 @@ pre#copytext { font: 12px/1.5 var(--mono); background: rgba(8, 16, 23, 0.6); bor
 .tip-dialog a { color: var(--sun); }
 .practice-pick { display: inline-flex; gap: 0; align-items: stretch; }
 .practice-pick select { min-height: 0; padding-top: 0; padding-bottom: 0; width: auto; border-left: 0; }
+
+/* ---------- focus layout while testing ---------- */
+body.testing .shell { max-width: none; padding-inline: clamp(8px, 2vw, 28px); }
+body.testing .bench { grid-template-columns: minmax(0, 1fr); }
+body.testing .side, body.testing .site-foot { display: none; }
+body.testing.vpad-on .bench { grid-template-columns: minmax(0, 1fr) 300px; }
+body.testing.vpad-on .side { display: grid; }
+body.testing.vpad-on .side > :not(#vpad-panel) { display: none; }
+@media (max-width: 880px) { body.testing.vpad-on .bench { grid-template-columns: minmax(0, 1fr); } }
+/* The range takes the room the window has: full width, or as wide as the height allows at 16:9. */
+body.testing .arena-wrap { width: min(100%, calc((100vh - 275px) * 16 / 9)); min-width: min(100%, 640px); margin-inline: auto; }
+.fs-btn { justify-self: end; }
+#p-test:fullscreen { background: var(--bg); padding: 12px 18px; align-content: center; overflow: auto; }
+#p-test:fullscreen .arena-wrap { width: min(100%, calc((100vh - 150px) * 16 / 9)); margin-inline: auto; }

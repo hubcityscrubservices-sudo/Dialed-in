@@ -708,6 +708,11 @@ function show(name) {
   $('#p-test').hidden = name !== 'test';
   $('#p-results').hidden = name !== 'results';
   $('#p-chend').hidden = name !== 'chend';
+  // Focus layout while a test or challenge runs: the range fills the window and the side panels step
+  // aside, except the on-screen stick for players who aim with it.
+  document.body.classList.toggle('testing', name === 'test');
+  document.body.classList.toggle('vpad-on', inp.src === 'virtual' && !isMouse());
+  if (name !== 'test' && document.fullscreenElement) document.exitFullscreen().catch(() => {});
   // The step rail belongs to calibration; the warm-up challenge hides it.
   $('#steps').hidden = !!chal;
   if (!chal) renderRail();
@@ -2475,6 +2480,19 @@ function startCodeFromInput() {
 $('#ch-daily').addEventListener('click', () => startChallenge(dailyCode(), 'daily'));
 const LEVEL_KEY = 'dialed-in:level';
 try { const lv = localStorage.getItem(LEVEL_KEY); if (LEVEL_NAME[lv]) $('#ch-level').value = lv; } catch (e) { /* storage blocked: Standard */ }
+// Full screen: the test panel (brief, range and buttons) takes the whole display. F toggles it too.
+function toggleFullscreen() {
+  const el = $('#p-test');
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  else if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
+}
+$('#fs-btn').addEventListener('click', toggleFullscreen);
+document.addEventListener('fullscreenchange', () => {
+  const on = !!document.fullscreenElement;
+  $('#fs-btn').setAttribute('aria-pressed', String(on));
+  $('#fs-btn').textContent = on ? '⛶ Exit full screen' : '⛶ Full screen';
+});
+window.addEventListener('keydown', e => { if (e.key === 'f' && screen === 'test' && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) toggleFullscreen(); });
 $('#ch-level').addEventListener('change', e => { try { localStorage.setItem(LEVEL_KEY, e.target.value); } catch (err) { /* not remembered */ } });
 $('#ch-practice').addEventListener('click', () => startChallenge(practiceCode(Math.random, $('#ch-level').value), 'practice'));
 $('#ch-code-go').addEventListener('click', startCodeFromInput);
