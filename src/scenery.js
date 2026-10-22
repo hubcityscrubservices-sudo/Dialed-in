@@ -158,8 +158,10 @@ export function paintCompass(ctx, cam, world) {
     ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + (big ? 8 : 4) * d); ctx.stroke();
     if (big) ctx.fillText(names[hd], x, y - 3 * d);
   }
-  ctx.fillStyle = '#FF5E3A';
-  ctx.beginPath(); ctx.moveTo(cx, y + 11 * d); ctx.lineTo(cx - 5 * d, y + 18 * d); ctx.lineTo(cx + 5 * d, y + 18 * d); ctx.closePath(); ctx.fill();
+  // Your heading: a thin off-white needle with a dot, so it never reads as an (orange) target arrow.
+  ctx.strokeStyle = 'rgba(244,241,232,0.95)'; ctx.fillStyle = 'rgba(244,241,232,0.95)'; ctx.lineWidth = 2 * d; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(cx, y + 10 * d); ctx.lineTo(cx, y + 19 * d); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, y + 22 * d, 1.8 * d, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
 
