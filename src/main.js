@@ -2214,6 +2214,7 @@ function showChalGuide(c) {
   const rules = [
     ...(level ? [level] : []),
     `60 seconds. Each hit in a row adds 10% to the next, up to double points.`,
+    ...(P.even ? ['Every run deals the same mix of targets (near and far, big and small, strafers and turn-arounds) in a new order, so no day is luckier than another.'] : []),
     ...(P.precision ? ['Hits near the centre score more: bullseye ×1.5, inner ring ×1.2, edge ×1.'] : []),
     `A miss costs ${P.missPenalty} points${P.nearMiss ? '. Your first near miss on a target keeps the streak' : ' and ends the streak'}.`,
     P.holdFire ? `Moving targets score only while you're on them and ${mouse ? 'holding the button' : 'holding fire'}. Firing off them costs nothing.` : 'Moving targets score for every second you stay on them.',

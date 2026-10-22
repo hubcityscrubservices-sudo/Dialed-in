@@ -132,12 +132,13 @@ test('version 2 rules replay exactly as when they shipped', () => {
 });
 
 test('version 3: moving targets score only while firing on them, and firing off target costs nothing', () => {
-  // Hold-fire tracking is in every version from 3. With precision scoring: dailies and Standard (6), Warm-up (8), Hard (7).
-  assert.equal(createChallenge('d-2026-10-23', 'arc', settings).v, 6);
+  // Hold-fire tracking is in every version from 3. Today's daily has precision scoring (6); from the 23rd,
+  // dailies and Standard practice are also dealt evenly (9), Hard (10), Warm-up (11).
   assert.equal(createChallenge('d-2026-10-22', 'arc', settings).v, 6); // brought forward to the 22nd
-  assert.equal(createChallenge('p-k3x9q2', 'arc', settings).v, 6);
-  assert.equal(createChallenge('w-k3x9q2', 'arc', settings).v, 8);
-  assert.equal(createChallenge('h-k3x9q2', 'arc', settings).v, 7);
+  assert.equal(createChallenge('d-2026-10-23', 'arc', settings).v, 9);
+  assert.equal(createChallenge('p-k3x9q2', 'arc', settings).v, 9);
+  assert.equal(createChallenge('w-k3x9q2', 'arc', settings).v, 11);
+  assert.equal(createChallenge('h-k3x9q2', 'arc', settings).v, 10);
   // Follow every moving target perfectly, once without firing and once holding fire the whole time.
   const play = holdFire => {
     const st = createChallenge('d-2026-10-23', 'arc', settings);
@@ -198,4 +199,31 @@ test('precision versions pay more for hits near the centre; older versions have 
   assert.ok(edge.zones.edge > edge.hits * 0.8, JSON.stringify(edge.zones));
   assert.ok(centre.score > edge.score * 1.3, `${centre.score} vs ${edge.score}`);
   assert.equal(play(0, { v: 4 }).zones, null);
+});
+
+test('even dealing: every run gets the same mix of targets, so the same play scores about the same on any code', () => {
+  const play = (code, v) => {
+    const st = createChallenge(code, 'arc', settings, { v });
+    const n = { flick: 0, track: 0, turn: 0 };
+    let seen = null;
+    while (!st.done) {
+      const it = st.item;
+      if (!it) { step(st, 0, 0, false); continue; }
+      if (it !== seen) { seen = it; n[it.kind]++; }
+      const t = it.kind === 'track' ? it.TR.tgt : it.T;
+      const ey = t.yaw - st.view.yaw, ep = t.pitch - st.view.pitch;
+      const rx = quantize(Math.max(-1, Math.min(1, ey * 0.15))), ry = quantize(Math.max(-1, Math.min(1, -ep * 0.15)));
+      if (it.kind === 'track') step(st, rx, ry, true); else step(st, rx, ry, Math.hypot(ey, ep) < it.T.r * 0.8 && !st.prevFire);
+    }
+    return { score: summary(st).score, ...n };
+  };
+  const spread = v => {
+    const runs = Array.from({ length: 40 }, (_, i) => play('d-2026-11-x' + i, v)), s = runs.map(r => r.score);
+    const m = s.reduce((a, b) => a + b, 0) / s.length;
+    return { cv: Math.sqrt(s.reduce((a, b) => a + (b - m) ** 2, 0) / (s.length - 1)) / m, m, turns: runs.map(r => r.turn), strafers: runs.map(r => r.track) };
+  };
+  const old = spread(6), even = spread(9);
+  assert.ok(even.cv < old.cv / 2, `${old.cv.toFixed(3)} -> ${even.cv.toFixed(3)}`);
+  assert.ok(Math.abs(even.m / old.m - 1) < 0.1, `${old.m} vs ${even.m}`);
+  assert.ok(Math.max(...even.turns) - Math.min(...even.turns) <= 2 && Math.max(...even.strafers) - Math.min(...even.strafers) <= 2);
 });

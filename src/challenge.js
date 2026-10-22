@@ -1,5 +1,5 @@
 import { GAMES } from './games.js';
-import { makeView, steer, newFlickTarget, flickStep, makeTrack, trackStep, newTurnTarget, turnStep, angleTo, trackAim, TRACK_V1, TRACK_V2, TRACK_HARD } from './sim.js';
+import { makeView, steer, newFlickTarget, flickStep, makeTrack, trackStep, newTurnTarget, turnStep, angleTo, trackAim, trackScript, TRACK_V1, TRACK_V2, TRACK_HARD } from './sim.js';
 import { mulberry32, clamp } from './util.js';
 
 // Warm-up challenge: 60 seconds of flicks, short tracking bursts and turn-arounds, scored for speed
@@ -32,7 +32,15 @@ export const DT = 1 / CH.hz;
 // Versions 6, 7 and 8 are 4 (daily, Standard), 5 (Hard) and 3 (Warm-up) plus precision scoring: a hit on
 // a standing or turn-around target scores x1.5 in the bullseye (inner 25% of the radius) and x1.2 in the
 // inner ring (25-60%); the edge scores as before. Dailies from V6_FROM (brought forward to 2026-10-22).
-export const V2_FROM = '2026-10-22', V3_FROM = '2026-10-22', V4_FROM = '2026-10-22', V6_FROM = '2026-10-22';
+// Versions 9, 10 and 11 are 6 (daily, Standard), 7 (Hard) and 8 (Warm-up) dealt evenly: the same bot
+// scored ±21% between codes on random rolls (turn-arounds 0 to 17 a run). Target types come from a
+// shuffled deck (6 flicks, 1 strafer, 1 turn-around in every 8), flick distances, sizes and up-and-down
+// ones from decks matching the version's shares, and every strafer follows a scripted path with the same
+// number of direction changes. The same average layout, so scores stay comparable: a test bot's daily
+// average moved 1.4%. Removing luck does cut both ways on the strafer streak rule: a player under the
+// bar no longer gets the occasional easy strafer that kept the streak (the bot's Hard average fell about
+// 15% for that reason), and one over it now keeps it every time. Dailies from V9_FROM.
+export const V2_FROM = '2026-10-22', V3_FROM = '2026-10-22', V4_FROM = '2026-10-22', V6_FROM = '2026-10-22', V9_FROM = '2026-10-23';
 export const ZONES = [{ key: 'bull', within: 0.25, mult: 1.5 }, { key: 'inner', within: 0.6, mult: 1.2 }, { key: 'edge', within: Infinity, mult: 1 }];
 export const zoneOf = frac => ZONES.find(z => frac <= z.within);
 const R2 = { flickTimeout: 3.5, missPenalty: 10, vertShare: 0.25, gap: 15, nearMiss: true, track: TRACK_V2, ang: true, eng: 2 };
@@ -49,13 +57,41 @@ export const RULES = {
 RULES[6] = { ...RULES[4], precision: true };
 RULES[7] = { ...RULES[5], precision: true };
 RULES[8] = { ...RULES[3], precision: true };
+RULES[9] = { ...RULES[6], even: true };
+RULES[10] = { ...RULES[7], even: true };
+RULES[11] = { ...RULES[8], even: true };
 export const versionOf = code => {
-  if (code.startsWith('h-')) return 7;
-  if (code.startsWith('w-')) return 8;
-  if (!code.startsWith('d-')) return 6;
+  if (code.startsWith('h-')) return 10;
+  if (code.startsWith('w-')) return 11;
+  if (!code.startsWith('d-')) return 9;
   const day = code.slice(2);
-  return day < V2_FROM ? 1 : day < V3_FROM ? 2 : day < V4_FROM ? 3 : day < V6_FROM ? 4 : 6;
+  return day < V2_FROM ? 1 : day < V3_FROM ? 2 : day < V4_FROM ? 3 : day < V6_FROM ? 4 : day < V9_FROM ? 6 : 9;
 };
+
+// Even dealing (version 9 on): a deck per draw, reshuffled with the run's generator when it runs out.
+const DECKS = {
+  kind: () => ['flick', 'flick', 'flick', 'flick', 'flick', 'flick', 'track', 'turn'],
+  vert: P => Array.from({ length: Math.round(1 / P.vertShare) }, (_, i) => i === 0),
+  // Distance band per sideways flick, in the version's shares (out of 10); without bands, four even layers of 12-36.
+  band: P => P.spread ? P.spread.bands.flatMap(([lo, hi, share]) => Array(Math.round(share * 10)).fill([lo, hi]))
+    : [[12, 18], [18, 24], [24, 30], [30, 36]],
+  vband: P => { const [lo, hi] = P.spread ? P.spread.vert : [10, 22], m = (lo + hi) / 2; return [[lo, m], [m, hi]]; },
+  rband: P => { const [lo, hi] = P.spread ? P.spread.r : [1.8, 3]; return [0, 1, 2, 3].map(i => [lo + (hi - lo) * i / 4, lo + (hi - lo) * (i + 1) / 4]); }
+};
+function deal(st, name) {
+  const d = st.decks[name] || (st.decks[name] = []);
+  if (!d.length) {
+    d.push(...DECKS[name](st.P));
+    for (let i = d.length - 1; i > 0; i--) { const j = Math.floor(st.rng() * (i + 1)); [d[i], d[j]] = [d[j], d[i]]; }
+  }
+  return d.pop();
+}
+const within = (st, [lo, hi]) => lo + st.rng() * (hi - lo);
+function evenFlick(st) {
+  const vertical = deal(st, 'vert');
+  const d = within(st, deal(st, vertical ? 'vband' : 'band')), r = within(st, deal(st, 'rband'));
+  return newFlickTarget(st.view, st.rng, vertical, 1, st.P.ang, 1, { bands: [[d, d, 1]], vert: [d, d], r: [r, r] });
+}
 
 // Seconds a hit "should" take for its difficulty (Fitts' index of difficulty, ID). Version 1 used a
 // mouse-speed yardstick for everyone (about 3 bits/s); version 2 keeps that for mice and gives sticks
@@ -100,7 +136,7 @@ export function createChallenge(code, gameId, settings, opts = {}) {
     code, gameId, v, P, mouse, wait: 0, settings: s, rng: mulberry32(hashSeed(code)),
     ticks: Math.round((opts.seconds || CH.seconds) * CH.hz), log: [],
     tick: 0, view: makeView(), item: null, items: 0, prevFire: false, done: false,
-    score: 0, streak: 0, bestStreak: 0, hits: 0, shots: 0, timeouts: 0, hitTime: 0, zones: { bull: 0, inner: 0, edge: 0 },
+    score: 0, streak: 0, bestStreak: 0, hits: 0, shots: 0, timeouts: 0, hitTime: 0, zones: { bull: 0, inner: 0, edge: 0 }, decks: {},
     trackOn: 0, trackT: 0, trackFire: 0, trackFireOn: 0, events: []
   };
   nextItem(st);
@@ -111,12 +147,16 @@ export function createChallenge(code, gameId, settings, opts = {}) {
 // item in eight each. The first two items are always flicks.
 function nextItem(st) {
   st.items++;
-  const r = st.rng(), P = st.P;
-  const kind = st.items <= 2 ? 'flick' : r < 0.12 ? 'track' : r < 0.24 ? 'turn' : 'flick';
-  if (kind === 'flick') st.item = { kind, pts: 0, T: newFlickTarget(st.view, st.rng, st.rng() < P.vertShare, 1, P.ang, 1, P.spread || null) };
+  const P = st.P;
+  let kind;
+  if (P.even) kind = st.items <= 2 ? 'flick' : deal(st, 'kind');
+  else { const r = st.rng(); kind = st.items <= 2 ? 'flick' : r < 0.12 ? 'track' : r < 0.24 ? 'turn' : 'flick'; }
+  if (kind === 'flick') st.item = { kind, pts: 0, T: P.even ? evenFlick(st) : newFlickTarget(st.view, st.rng, st.rng() < P.vertShare, 1, P.ang, 1, P.spread || null) };
   else if (kind === 'turn') st.item = { kind, pts: 0, T: newTurnTarget(st.view, st.rng, st.rng() < 0.5 ? 1 : -1, P.ang) };
   else {
     const TR = makeTrack(0, 1, P.track);
+    // Even dealing: the strafer's own segment lengths and reversal share, scripted so each has the same count.
+    if (P.even) TR.script = trackScript(st.rng, CH.trackSeconds, P.track, { seg: [P.track.segLo, P.track.segLo + P.track.segSpan], revShare: P.track.rev, stopEvery: 0, burst: 1 });
     TR.tgt.yaw = st.view.yaw + (st.rng() < 0.5 ? -6 : 6);
     TR.pitch0 = clamp(st.view.pitch, -20, 20);
     TR.tgt.pitch = TR.pitch0;

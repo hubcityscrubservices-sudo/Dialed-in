@@ -64,7 +64,7 @@ export const GAMES = {
     // Menu names, ranges and curve options from a player's PS5 Wireless Controller screen; defaults
     // there are that player's values. The menu has no outer or trigger deadzone. Look Boost (55) is
     // modeled as +55% turn speed at full stick (Vertical Look Boost 15 as +15%), ramping up over 1.6 s.
-    // Vertical Sensitivity shares the horizontal scale. Both sensitivity sliders both inner deadzones (0 up) and both zoom multipliers move in steps of 5. Sinusoidal is modeled as an
+    // Vertical Sensitivity shares the horizontal scale. Both sensitivity sliders, both inner deadzones (0 up) and both zoom multipliers move in steps of 5. Sinusoidal is modeled as an
     // S-curve: softer than linear near center, quicker than exponential through the middle.
     name: 'ARC Raiders', camera: 'third', source: 'menu',
     // FOV slider 60-80 (confirmed by a player; default 70 per guides). Treated as vertical: at 60 the view

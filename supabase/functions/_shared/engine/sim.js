@@ -285,10 +285,11 @@ export const TRACK_HARD = { lo: 14, span: 36, segLo: 0.6, segSpan: 1.0, rev: 0.4
 // player's tracking error swing about ±27% between rounds, mostly from the number of reversals (0 to 4+).
 // Speeds run to 1.25x the old top speed (quick strafes) and a stop-and-go comes about every fifth change.
 export const SCRIPT = { seg: [0.7, 1.3], revShare: 0.5, stopEvery: 5, stopT: 0.45, burst: 1.25, start: 0.4 };
-export function trackScript(rng, seconds, P) {
-  const S = SCRIPT, span = Math.max(1, seconds - S.start);
+// opts overrides SCRIPT (the challenge's even rounds keep its own segment lengths and reversal share, no stops).
+export function trackScript(rng, seconds, P, opts = {}) {
+  const S = { ...SCRIPT, ...opts }, span = Math.max(1, seconds - S.start);
   const n = Math.max(3, Math.round(span / ((S.seg[0] + S.seg[1]) / 2)));
-  const stops = Math.floor(n / S.stopEvery), m = n - stops;
+  const stops = S.stopEvery ? Math.floor(n / S.stopEvery) : 0, m = n - stops;
   const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   const speeds = shuffle(Array.from({ length: m }, (_, i) => P.lo + P.span * S.burst * (i + 0.5) / m));
   const flips = shuffle(Array.from({ length: m - 1 }, (_, i) => i < Math.round(S.revShare * (m - 1))));

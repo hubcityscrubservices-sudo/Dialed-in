@@ -165,6 +165,16 @@ and 3 plus precision scoring. A standing-target hit is scored by how far the cro
 centre, as a share of the target's radius: bullseye (within 25%) ×1.5, inner ring (within 60%) ×1.2,
 edge ×1. The end screen shows the bullseye rate and where hits landed; the hit pop-up names the zone.
 
+Versions 9, 10 and 11 (dailies from 2026-10-23, and all practice: Standard 9, Hard 10, Warm-up 11) are 6,
+7 and 8 dealt evenly. With random rolls the same bot scored ±21% between codes (turn-arounds 0 to 17 a
+run, strafers 3 to 11). Now target types come from a shuffled deck of 8 (6 flicks, 1 strafer, 1
+turn-around), flick distance bands, sizes and up-and-down ones from decks in the version's shares, and
+every strafer is scripted with the same number of direction changes (sim.js trackScript, with the
+version's own segment lengths and no stops). The same bot: ±7%, with a daily average 1.4% lower, so
+scores stay comparable on the all-time board. Taking luck out cuts both ways on the strafer streak rule:
+a player under the bar no longer gets an occasional easy strafer (the bot's Hard average fell about 15%),
+and one over it keeps the streak every time.
+
 ## Field of view
 
 The range draws through a true perspective camera at the FOV you enter (src/camera.js), so a turn moves
