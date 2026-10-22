@@ -1092,12 +1092,12 @@ function renderResults() {
       ${(r.ads || []).map(a => a.spec.generic
         ? row('ADS sensitivity', 'Now', vRel(a.rel), tag(Math.round(a.rel * 100), 100) + '<span class="tag">If your game has it</span>', a.why)
         : row(a.spec.label, fmtAds(a.spec, a.cur), fmtAds(a.spec, a.next), tag(a.next, a.cur), a.why)).join('')}
-      ${turnRows(g, c, r.turn)}
-      ${mouseGame ? '' : row(g.dz.label, g.dz.fmt(c.dz), g.dz.fmt(r.dz), r.dzMeasured ? tag(r.dz, c.dz) : '<span class="tag">Not measured</span>', r.dzWhy)}
       ${mouseGame ? '' : row(g.curve.label, g.curve[c.curve], g.curve[r.curve], curveTag, r.curveWhy)}
+      ${mouseGame ? '' : row(g.dz.label, g.dz.fmt(c.dz), g.dz.fmt(r.dz), r.dzMeasured ? tag(r.dz, c.dz) : '<span class="tag">Not measured</span>', r.dzWhy)}
       ${hw.map(h => row(h.st.label, h.st.fmt(h.cur), h.st.fmt(h.next),
         (h.st.fmt(h.next) === h.st.fmt(h.cur) ? '<span class="tag">Keep</span>' : '<span class="tag up">Change</span>') + (h.st.known ? '' : '<span class="tag">If your game has it</span>'),
         h.why)).join('')}
+      ${turnRows(g, c, r.turn)}
     </div>
     ${deepHtml}
     ${verifyHtml}
@@ -1344,11 +1344,12 @@ function syncSetup() {
       dzEl.value = opts.reduce((a, b) => Math.abs(b[1] - cfg.dz) < Math.abs(a[1] - cfg.dz) ? b : a)[1];
     } else {
       dzEl = document.createElement('input');
-      Object.assign(dzEl, { type: 'number', inputMode: 'numeric', min: 0, max: 30, step: 1, value: Math.round(cfg.dz * 100) });
+      const st = Math.round((g.dz.step || 0.01) * 100);
+      Object.assign(dzEl, { type: 'number', inputMode: 'numeric', min: 0, max: 30, step: st, value: Math.round(cfg.dz * 100 / st) * st });
     }
     dzEl.id = 'dz';
     old.replaceWith(dzEl);
-    $('#dz-help').textContent = opts ? 'As set in your game.' : `0 to 30, as set in your game. Default is ${Math.round(g.dz.def * 100)}.`;
+    $('#dz-help').textContent = opts ? 'As set in your game.' : `0 to 30${g.dz.step ? ' in steps of ' + Math.round(g.dz.step * 100) : ''}, as set in your game. Default is ${Math.round(g.dz.def * 100)}.`;
     $('#spin').value = cfg.spin || '';
     loadPool(cfg.game);
     spinHelp();
@@ -1468,7 +1469,7 @@ function readSetup() {
     cfg.curve = $('#curve').value in CURVE_KEYS ? $('#curve').value : g.curve.def;
     const opts = DZ_OPTIONS[cfg.game];
     const dz = Number($('#dz').value);
-    cfg.dz = opts ? (Number.isFinite(dz) ? dz : g.dz.def) : clamp(Number.isFinite(dz) ? dz / 100 : g.dz.def, 0, 0.3);
+    cfg.dz = opts ? (Number.isFinite(dz) ? dz : g.dz.def) : snapTo(Number.isFinite(dz) ? dz / 100 : g.dz.def, { min: 0, max: 0.3, step: g.dz.step || 0.01 });
     const spin = Number($('#spin').value);
     cfg.spin = Number.isFinite(spin) && spin > 0 ? spin : null;
     cfg.kTurn = cfg.spin ? spinK(g, cfg.sens, cfg.spin) : (pooled[cfg.game] && pooled[cfg.game].k) || 1;

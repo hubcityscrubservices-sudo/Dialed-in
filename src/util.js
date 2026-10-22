@@ -42,6 +42,9 @@ export function quantile(sorted, q) {
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo);
 }
 
+// Rounds a deadzone up to the menu's step (ARC's move in 0.05s), so it still covers the drift.
+export const ceilStep = (x, step) => step ? +(Math.ceil(x / step - 1e-9) * step).toFixed(2) : x;
+
 // Every value a menu setting can take ({ min, max, step }), rounded to the step so fractional
 // steps (0.01, 0.001) don't pick up floating-point dust.
 export function* settingValues(sp) {

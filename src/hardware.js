@@ -1,4 +1,4 @@
-import { clamp, mean } from './util.js';
+import { clamp, mean, ceilStep } from './util.js';
 import { driftDeadzone } from './analysis.js';
 import { extraSetting } from './games.js';
 
@@ -62,7 +62,7 @@ export function hardwareRecs(check, g) {
   if (!check) return rows;
   const moveDz = extraSetting(g, 'moveDz'), outer = extraSetting(g, 'outer'), trigger = extraSetting(g, 'trigger');
   if (check.l != null && moveDz) {
-    const next = driftDeadzone(check.l);
+    const next = ceilStep(driftDeadzone(check.l), moveDz.step);
     rows.push({ key: 'moveDz', st: moveDz, cur: moveDz.def, next,
       why: `Your left stick drifts up to ${check.l.toFixed(2)} at rest. This is the smallest movement deadzone that stops your character creeping, so small pushes still register.` });
   }

@@ -1,5 +1,5 @@
 import { GAMES, PLAYSTYLES } from './games.js';
-import { clamp, mean, std, pct, settingValues } from './util.js';
+import { clamp, mean, std, pct, settingValues, ceilStep } from './util.js';
 
 const MIN_WE = 0.5; // degrees; keeps a perfect run from dividing by zero
 
@@ -92,7 +92,7 @@ export function recommend(s, c, drift) {
     curve = c.curve;
   }
 
-  let dz = drift ? drift.rec : c.dz;
+  let dz = drift ? ceilStep(drift.rec, g.dz.step) : c.dz;
   if (g.dz.fmt(dz) === g.dz.fmt(c.dz)) dz = c.dz;
   const dzWhy = !drift
     ? 'Not measured. Connect a controller and run the drift check to get a value.'
