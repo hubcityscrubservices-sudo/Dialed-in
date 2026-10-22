@@ -1251,14 +1251,19 @@ function saveSetup() {
     spin: cfg.spin, ads: cfg.ads, boost: cfg.boost, boostRamp: cfg.boostRamp, boostDelay: cfg.boostDelay, curveK: cfg.curveK, curveChecked: !!cfg.curveChecked, ...(cfg.game === 'cod' ? { scale: 2 } : {}) };
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(s)); } catch (e) { /* storage blocked: settings just aren't remembered */ }
 }
+// A value on the menu's own steps (ARC's sensitivity sliders move in 5s), within its range.
+function snapTo(x, sp) {
+  const dec = (String(sp.step).split('.')[1] || '').length;
+  return clamp(+(Math.round(x / sp.step) * sp.step).toFixed(dec), sp.min, sp.max);
+}
 // Saved values are only taken when they still fit the game's menu, so an old save can't break setup.
 function applySaved(g, v) {
   if (!v) return;
   const inRange = (x, sp) => typeof x === 'number' && sp && x >= sp.min && x <= sp.max;
   // Call of Duty moved from 1-20 to 0.10-4.00; settings saved on the old scale are converted.
   if (g === GAMES.cod && v.scale !== 2) { if (typeof v.sens === 'number') v.sens = codFromOld(v.sens); if (typeof v.vsens === 'number') v.vsens = codFromOld(v.vsens); }
-  if (inRange(v.sens, g.sens)) cfg.sens = v.sens;
-  if (g.vsens && inRange(v.vsens, g.vsens)) cfg.vsens = v.vsens;
+  if (inRange(v.sens, g.sens)) cfg.sens = snapTo(v.sens, g.sens);
+  if (g.vsens && inRange(v.vsens, g.vsens)) cfg.vsens = snapTo(v.vsens, g.vsens);
   if (!g.fov.fixed && inRange(v.fov, g.fov)) cfg.fov = v.fov;
   if (['linear', 'mid', 'expo'].includes(v.curve)) cfg.curve = v.curve;
   if (typeof v.dz === 'number' && v.dz >= 0 && v.dz <= 0.3) cfg.dz = v.dz;
@@ -1425,10 +1430,10 @@ document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener(
 function readSetup() {
   const g = game();
   const v = Number($('#sens').value);
-  cfg.sens = clamp(Number.isFinite(v) ? Math.round(v) : g.sens.def, g.sens.min, g.sens.max);
+  cfg.sens = snapTo(Number.isFinite(v) ? v : g.sens.def, g.sens);
   if (g.vsens) {
     const vv = Number($('#vsens').value);
-    cfg.vsens = clamp(Number.isFinite(vv) ? Math.round(vv) : g.vsens.def, g.vsens.min, g.vsens.max);
+    cfg.vsens = snapTo(Number.isFinite(vv) ? vv : g.vsens.def, g.vsens);
   }
   if (!g.fov.fixed) {
     const fv = Number($('#fov').value);

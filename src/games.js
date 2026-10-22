@@ -64,14 +64,14 @@ export const GAMES = {
     // Menu names, ranges and curve options from a player's PS5 Wireless Controller screen; defaults
     // there are that player's values. The menu has no outer or trigger deadzone. Look Boost (55) is
     // modeled as +55% turn speed at full stick (Vertical Look Boost 15 as +15%), ramping up over 1.6 s.
-    // Vertical Sensitivity shares the horizontal scale. Sinusoidal is modeled as an
+    // Vertical Sensitivity shares the horizontal scale. Both sensitivity sliders move in steps of 5. Sinusoidal is modeled as an
     // S-curve: softer than linear near center, quicker than exponential through the middle.
     name: 'ARC Raiders', camera: 'third', source: 'menu',
     // FOV slider 60-80 (confirmed by a player; default 70 per guides). Treated as vertical: at 60 the view
     // looks like a normal third-person camera (about 91 wide), not a zoomed one as a horizontal 60 would.
     fov: { label: 'Field of View', min: 60, max: 80, step: 1, def: 70, type: 'v' },
-    sens: { label: 'Horizontal Sensitivity', min: 1, max: 400, step: 1, def: 80, defKnown: false, rate: s => s * 2.6 },
-    vsens: { label: 'Vertical Sensitivity', min: 1, max: 400, step: 1, def: 60, defKnown: false, rate: s => s * 2.6 },
+    sens: { label: 'Horizontal Sensitivity', min: 5, max: 400, step: 5, def: 80, defKnown: false, rate: s => s * 2.6 },
+    vsens: { label: 'Vertical Sensitivity', min: 5, max: 400, step: 5, def: 60, defKnown: false, rate: s => s * 2.6 },
     dz: { label: 'Look Inner Deadzone', def: 0.05, fmt: d => String(Math.round(d * 100)) },
     moveDz: { label: 'Movement Inner Deadzone', def: 0.15, fmt: d => String(Math.round(d * 100)) },
     outer: null,
