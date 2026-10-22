@@ -2339,7 +2339,9 @@ async function loadBoard(code, input, root, limit = BOARD_PAGE) {
     box.innerHTML = rows.length
       ? `<table><thead><tr><th>#</th><th>Name</th>${all ? '<th>Input</th>' : ''}<th>Score</th><th>Accuracy</th><th>Streak</th><th>Game</th>${ever ? '<th>Day</th>' : ''}</tr></thead><tbody>${rows.map((r, i) =>
         `<tr><td class="num">${i + 1}</td><td>${esc(r.name)}</td>${all ? `<td><span class="input-tag ${esc(r.input)}">${esc(INPUT_LABEL[r.input] || r.input)}</span></td>` : ''}<td class="num">${r.score.toLocaleString('en-US')}</td><td class="num">${r.accuracy == null ? '–' : pct(r.accuracy)}</td><td class="num">${r.best_streak ?? '–'}</td><td>${esc(GAMES[r.game] ? gameTitle(GAMES[r.game]) : r.game)}</td>${ever ? `<td class="num">${esc(String(r.code).slice(2))}</td>` : ''}</tr>`).join('')}</tbody></table>`
-      : `<p class="fine">No ${all ? '' : INPUT_LABEL[input].toLowerCase() + ' '}scores yet. Be the first.</p>`;
+      : ever && dailyCode() < 'd-' + V3_FROM
+        ? `<p class="fine">The all-time board opens with the ${fmtDay(V3_FROM)} daily, the first on the current rules. Today's scores stay on today's board.</p>`
+        : `<p class="fine">No ${all ? '' : INPUT_LABEL[input].toLowerCase() + ' '}scores yet. Be the first.</p>`;
     // Expand when the top 10 is full (there may be more); collapse again from the top 25.
     const expanded = limit >= BOARD_MAX;
     if (expanded || rows.length >= limit) {
