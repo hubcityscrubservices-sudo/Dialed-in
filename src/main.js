@@ -11,7 +11,7 @@ import { DT, hashSeed, dailyCode, practiceCode, isCode, quantize, createChalleng
   newRecording, record, encodeReplay, V3_FROM } from './challenge.js';
 import { reportCard } from './report.js';
 import { makeWorld, paintSky, paintTerrain, paintCompass, paintDrone, paintOffscreen, trailPoint, paintTrail,
-  noteFlash, paintFx, paintCrosshair, paintFigure, paintLens, paintCountdown } from './scenery.js';
+  noteFlash, paintFx, paintCrosshair, paintFigure, paintLens, paintCountdown, TRACK_BLUE } from './scenery.js';
 import { DUEL, duelPlan, duelCompare } from './duel.js';
 import { createMouse, CARD_CM, SWIPES, MIN_SWIPE, analyzeSwipes, resolveDpi, pollingHz, calibrationK, cm360 } from './mouse.js';
 import { boardsOn, submitScore, fetchBoard, fetchAllTime, fetchAllTimeRank, fetchTiers, addTurnSample, fetchTurnSamples, playerId, savedName, saveName } from './leaderboard.js';
@@ -1658,7 +1658,7 @@ function drawScene(c, sc) {
       const ang = Math.atan2(-q.v, q.u || 1e-9);
       const reach = scopeR ? scopeR - 18 * d
         : Math.min((W / 2 - 28 * d) / Math.max(1e-6, Math.abs(Math.cos(ang))), (H / 2 - 28 * d) / Math.max(1e-6, Math.abs(Math.sin(ang))));
-      arrows.push([cx + Math.cos(ang) * reach, cy + Math.sin(ang) * reach, ang, Math.hypot(t.yaw - view.yaw, t.pitch - view.pitch)]);
+      arrows.push([cx + Math.cos(ang) * reach, cy + Math.sin(ang) * reach, ang, Math.hypot(t.yaw - view.yaw, t.pitch - view.pitch), opts.kind === 'track' ? TRACK_BLUE : undefined]);
       return;
     }
     ctx.save(); clipScope();
@@ -1672,14 +1672,14 @@ function drawScene(c, sc) {
   if (running && sc.track) {
     const pts = trailPoint(w, sc.track.tgt);
     ctx.save(); clipScope(); paintTrail(ctx, pts, sc.track.r * ppd, cam, sc.track.tgt.on); ctx.restore();
-    drawTarget(sc.track.tgt, sc.track.r, { kind: 'track', lit: sc.track.tgt.on });
+    drawTarget(sc.track.tgt, sc.track.r, { kind: 'track', lit: sc.track.tgt.on, hold: !!sc.hold });
   }
   ctx.save(); clipScope(); paintFx(ctx, cam, w, now, calm); ctx.restore();
 
   // Third-person games: the character sits left of the crosshair and blocks part of the view.
   if (GAMES[sc.gameId].camera === 'third' && sc.figure && zoom === 1) paintFigure(ctx, cam, w);
   paintLens(ctx, cam, zoom);
-  for (const a of arrows) paintOffscreen(ctx, ...a, cam);
+  for (const [ex, ey, ang, deg, col] of arrows) paintOffscreen(ctx, ex, ey, ang, deg, cam, col);
   if (zoom === 1 && P !== 'intro') paintCompass(ctx, cam, w);
   paintCrosshair(ctx, cam, running && sc.track && sc.track.tgt.on);
   if (sc.hud && running) paintChalHud(ctx, cam, sc.hud);
@@ -1974,6 +1974,7 @@ function chalScene() {
     // Between targets (version 2) nothing is drawn, but the last hit's sparks still play.
     flick: !it ? { cur: null, flash: c.flash } : it.kind !== 'track' ? { cur: it.T, flash: c.flash } : null,
     track: it && it.kind === 'track' ? it.TR : null,
+    hold: !!st.P.holdFire,
     // Points for the last hit or miss rise from beside the score counter, keeping the aim area clear.
     overlay: mousePaused(c.phase) ? drawPaused : c.pop && c.pop.t > 0 ? (ctx, W, H, d) => {
       ctx.globalAlpha = clamp(c.pop.t / 0.3, 0, 1);

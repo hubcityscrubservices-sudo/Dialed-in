@@ -163,10 +163,16 @@ export function paintCompass(ctx, cam, world) {
   ctx.restore();
 }
 
+// Moving targets are blue with strafe arrows and a full dashed ring, so they read as "track this"
+// from the moment they appear (they sit still for a moment before moving); green while you're on one.
+export const TRACK_BLUE = '#4FB6FF';
+
 // A target drone. kind: 'flick' | 'turn' | 'track'. lit = crosshair on it (tracking).
-export function paintDrone(ctx, x, y, R, cam, world, now, { kind = 'flick', lit = false, still = false } = {}) {
+// hold = a challenge moving target that scores only while fire is held: labelled HOLD.
+export function paintDrone(ctx, x, y, R, cam, world, now, { kind = 'flick', lit = false, still = false, hold = false } = {}) {
   const { d, H } = cam;
-  const core = lit ? '#6FE0A6' : '#FF6A3D';
+  const track = kind === 'track';
+  const core = lit ? '#6FE0A6' : track ? TRACK_BLUE : '#FF6A3D';
   if (kind === 'turn') { // a light pillar so the target can be found from far away
     const pg = ctx.createLinearGradient(0, 0, 0, y);
     pg.addColorStop(0, 'rgba(255,181,71,0)'); pg.addColorStop(1, 'rgba(255,181,71,0.55)');
@@ -180,16 +186,34 @@ export function paintDrone(ctx, x, y, R, cam, world, now, { kind = 'flick', lit 
   ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(x, y, R * 2.1, 0, Math.PI * 2); ctx.fill();
 
   const body = ctx.createRadialGradient(x - R * 0.25, y - R * 0.3, R * 0.05, x, y, R * 0.82);
-  body.addColorStop(0, '#FFF4DA'); body.addColorStop(0.35, lit ? '#B9F5D6' : '#FFB08A'); body.addColorStop(1, core);
+  body.addColorStop(0, '#FFF4DA'); body.addColorStop(0.35, lit ? '#B9F5D6' : track ? '#BFE4FF' : '#FFB08A'); body.addColorStop(1, core);
   ctx.fillStyle = body; ctx.beginPath(); ctx.arc(x, y, R * 0.8, 0, Math.PI * 2); ctx.fill();
   ctx.strokeStyle = 'rgba(10,8,8,0.55)'; ctx.lineWidth = 1.5 * d; ctx.stroke();
 
-  // spinning guard ring
+  // spinning guard ring (the ring is the hit edge): three arcs, or a full dashed ring on a moving target
   const spin = still ? 0 : now * 0.0021;
   ctx.strokeStyle = hexA('#FFF1D6', 0.85); ctx.lineWidth = 2.2 * d; ctx.lineCap = 'round';
-  for (let i = 0; i < 3; i++) {
-    const a0 = spin + i * (Math.PI * 2 / 3);
-    ctx.beginPath(); ctx.arc(x, y, R * 0.97, a0, a0 + Math.PI * 0.42); ctx.stroke(); // the ring is the hit edge
+  if (track) {
+    const seg = Math.PI * 2 * R * 0.97 / 12;
+    ctx.setLineDash([seg * 0.55, seg * 0.45]); ctx.lineDashOffset = -spin * R * 3;
+    ctx.beginPath(); ctx.arc(x, y, R * 0.97, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]); ctx.lineDashOffset = 0;
+    // strafe arrows either side
+    const a = Math.max(6 * d, R * 0.42), gap = R * 1.2;
+    ctx.fillStyle = hexA(core, 0.9);
+    for (const s of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(x + s * (gap + a), y); ctx.lineTo(x + s * gap, y - a * 0.8); ctx.lineTo(x + s * gap, y + a * 0.8); ctx.closePath(); ctx.fill();
+    }
+    if (hold) {
+      ctx.font = `700 ${Math.max(9, Math.round(10 * d))}px 'Martian Mono', monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.fillStyle = hexA(lit ? '#6FE0A6' : '#EAF6FF', 0.95);
+      ctx.fillText('HOLD', x, y + R * 1.25 + 4 * d);
+    }
+  } else {
+    for (let i = 0; i < 3; i++) {
+      const a0 = spin + i * (Math.PI * 2 / 3);
+      ctx.beginPath(); ctx.arc(x, y, R * 0.97, a0, a0 + Math.PI * 0.42); ctx.stroke();
+    }
   }
   ctx.lineCap = 'butt';
   // centre pip: the precise point to aim at
@@ -220,7 +244,7 @@ export function trailPoint(world, tgt) {
 }
 export function paintTrail(ctx, pts, R, cam, lit) {
   if (pts.length < 2) return;
-  const col = lit ? '#6FE0A6' : '#FF6A3D';
+  const col = lit ? '#6FE0A6' : TRACK_BLUE;
   for (let i = 1; i < pts.length; i++) {
     const t = i / pts.length;
     const a = onScreen(cam, pts[i - 1].yaw, pts[i - 1].pitch), b = onScreen(cam, pts[i].yaw, pts[i].pitch);
