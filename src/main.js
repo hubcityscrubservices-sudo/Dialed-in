@@ -353,21 +353,23 @@ function recoilDone(R) {
   show('setup');
   $('#recoil-field').scrollIntoView({ block: 'center' });
 }
+// One verdict sentence, then at most one tip. The pull-down percentages stay out: they read as noise.
 function recoilText(r) {
   const g = game(), { sum, rec } = r, R = sum.r;
-  const where = Math.abs(sum.bias) < R * 0.5 ? 'You stayed on target while firing.'
-    : sum.bias > 0 ? `You sat about ${sum.bias.toFixed(1)}° above the target while firing (the target is ${(2 * R).toFixed(1)}° across).`
-    : `You pulled about ${(-sum.bias).toFixed(1)}° below the target while firing.`;
-  const pull = `Holding it steady takes about ${Math.round(rec.need * 100)}% of a full pull down with your settings${rec.need >= 1 ? ', more than the stick has' : ''}; you held about ${Math.round(rec.held * 100)}%.`;
-  const tips = [];
-  if (sum.early > R * 2) tips.push('The first kick carried you well up before you caught it: start pulling as you start firing.');
-  if (sum.wobble > R * 0.6) tips.push('Your crosshair bounced up and down while you pulled.');
-  if (sum.side > R) tips.push('The sideways wander pulled you off: small left and right corrections help.');
-  const vName = g.vsens ? g.vsens.label : 'vertical sensitivity';
-  const advice = rec.verdict === 'keep' ? 'Your vertical speed suits your pull-down, so keep it.'
-    : rec.vsens != null ? `Try ${vName} ${rec.vsens} (now ${r.vsens}): ${rec.verdict === 'raise' ? 'faster, so the pull you naturally hold is enough' : 'slower, so your pull lands where you aim'}. This also changes vertical speed outside aiming.`
-    : `Try ${rec.verdict === 'raise' ? 'raising' : 'lowering'} your vertical speed while aiming by about ${Math.round(Math.abs(rec.f - 1) * 100)}%, ${rec.verdict === 'raise' ? 'so the pull you naturally hold is enough' : 'so your pull lands where you aim'}, if your game has a setting for it.`;
-  return [where, pull, ...tips, advice].join(' ');
+  const vName = g.vsens ? g.vsens.label : 'vertical speed';
+  const off = Math.abs(sum.bias).toFixed(1) + '°';
+  const to = rec.vsens != null ? `${vName} ${rec.vsens}` : `vertical speed ${rec.verdict === 'raise' ? '+' : '−'}${Math.round(Math.abs(rec.f - 1) * 100)}% while aimed in`;
+  let text, lateCatch = false;
+  if (rec.verdict === 'raise' && rec.need >= 1) text = `Even a full pull down can't hold the climb at this speed. Try ${to}.`;
+  else if (rec.verdict === 'raise') text = `You drifted about ${off} above the target: your pull-down was too light for this speed. Try ${to}, where your natural pull holds it.`;
+  else if (rec.verdict === 'lower') text = `You pulled about ${off} below the target. Try ${to}, where your natural pull lands on it.`;
+  else if (sum.bias > R * 0.5) { text = `You drifted about ${off} above the target, but your pull was strong enough: start pulling down as you start firing.`; lateCatch = true; }
+  else if (sum.bias < -R * 0.5) text = `You pulled about ${off} below the target. Your speed is fine, so ease off the pull a little.`;
+  else text = 'You stayed on target while firing, so your vertical speed suits your recoil control.';
+  const tip = !lateCatch && sum.early > R * 2 ? 'Tip: start pulling as you start firing.'
+    : sum.wobble > R * 0.6 ? 'Tip: your crosshair bounced, so pull more smoothly.'
+    : sum.side > R ? 'Tip: small left-right corrections help with the sideways wander.' : '';
+  return tip ? `${text} ${tip}` : text;
 }
 
 // The recoil check next to the flick tests' vertical suggestion: from Full dial-in, or a standalone check
@@ -380,22 +382,13 @@ function recoilRow(g, c, r, row) {
   const sgn = x => Math.abs(x) < 0.01 ? 0 : Math.sign(x);
   const flick = g.vsens ? sgn(r.vsens - c.vsens) : sgn(r.vmult - 1), rc = sgn(rec.f - 1);
   const flickVal = g.vsens ? String(r.vsens) : vRel(r.vmult), recoilVal = rec.vsens != null ? String(rec.vsens) : g.vsens ? String(c.vsens) : vRel(rec.f);
-  const word = d => d > 0 ? 'higher' : d < 0 ? 'lower' : 'as it is';
-  const lean = c.style === 'tracking' ? ` Your ${PLAYSTYLES.tracking.label} play style leans toward the flick result.`
-    : c.style === 'flick' ? ` Your ${PLAYSTYLES.flick.label} play style leans toward the recoil result.` : '';
   const say = v => v === 'Same' ? 'your current speed' : v;
-  const choose = `Go with ${say(flickVal)} if you fight mostly from the hip, ${say(recoilVal)} if you fight mostly aimed in.${lean}`;
+  const lean = c.style === 'tracking' ? ` Your ${PLAYSTYLES.tracking.label} style leans ${say(flickVal)}.` : c.style === 'flick' ? ` Your ${PLAYSTYLES.flick.label} style leans ${say(recoilVal)}.` : '';
+  const choose = `Flick tests say ${say(flickVal)}: pick ${say(flickVal)} if you mostly fight from the hip, ${say(recoilVal)} if mostly aimed in.${lean}`;
   let tg, note;
-  if (flick === rc) {
-    tg = '<span class="tag">Agrees</span>';
-    note = rc === 0 ? 'Agrees with the flick tests: keep your vertical speed.' : `Agrees with the flick tests: both want vertical speed ${word(rc)}, which backs the suggestion above.`;
-  } else if (flick && rc) {
-    tg = '<span class="tag down">Conflict</span>';
-    note = `Conflicts with the flick tests: they want vertical speed ${word(flick)}, recoil wants it ${word(rc)}. ${choose}`;
-  } else {
-    tg = '<span class="tag">Partly agrees</span>';
-    note = `The flick tests want vertical speed ${word(flick)}, recoil wants it ${word(rc)}. ${choose}`;
-  }
+  if (flick === rc) { tg = '<span class="tag">Agrees</span>'; note = 'Matches the flick tests.'; }
+  else if (flick && rc) { tg = '<span class="tag down">Conflict</span>'; note = choose; }
+  else { tg = '<span class="tag">Partly agrees</span>'; note = choose; }
   return row('Recoil check (aimed in)', g.vsens ? c.vsens : 'Now', recoilVal, tg, `${recoilText(rr)} ${note}`);
 }
 
