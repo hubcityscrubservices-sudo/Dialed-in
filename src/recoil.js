@@ -14,12 +14,13 @@ export const RECOIL = {
 };
 
 export function makeRecoil(rng = Math.random, P = RECOIL) {
-  const R = { P, rng, bursts: [], cur: null, T: { yaw: 0, pitch: 0, r: P.r }, wait: false, hv: 0, hvNext: 0 };
+  const R = { P, rng, bursts: [], tries: 0, cur: null, T: { yaw: 0, pitch: 0, r: P.r }, wait: false, hv: 0, hvNext: 0 };
   return R;
 }
 
 // One frame. fire = trigger held, ry = vertical stick (after the player's own pull). A burst starts on
-// a press and stops recoiling after P.burst seconds; releasing early ends it. Returns 'done' after the last burst.
+// a press and stops recoiling after P.burst seconds; releasing early ends it (and counts only past half
+// a burst). Returns 'burst' when one ends and 'done' after the last.
 export function recoilStep(R, view, fire, ry, dt) {
   const P = R.P;
   if (!R.cur) {
@@ -31,12 +32,14 @@ export function recoilStep(R, view, fire, ry, dt) {
   const B = R.cur;
   if (!fire || B.t >= P.burst) {
     if (B.t >= P.burst * 0.5) R.bursts.push(B);
+    R.tries++;
     R.cur = null;
     R.wait = fire;
     // The next target: a short re-aim away, so each burst starts from a fresh settle.
     const a = R.rng() * Math.PI * 2, d = 2 + R.rng() * 2;
     R.T = { yaw: view.yaw + Math.cos(a) * d, pitch: clamp(view.pitch + Math.sin(a) * d * 0.5, -25, 25), r: P.r };
-    return R.bursts.length >= P.bursts ? 'done' : 'burst';
+    // Bursts let go too early don't count; after three times the bursts' worth of tries it ends anyway.
+    return R.bursts.length >= P.bursts || R.tries >= P.bursts * 3 ? 'done' : 'burst';
   }
   B.t += dt;
   if (B.t >= R.hvNext) { R.hv = (R.rng() * 2 - 1) * P.side; R.hvNext = B.t + P.sideStep; }

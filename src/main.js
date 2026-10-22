@@ -244,7 +244,8 @@ function deepStep() {
     if (D.more) { session.segs.push({ kind: 'deepDone' }); return advance(); }
     const best = D.res && D.res.verdict !== 'flat' ? D.res.best.sens : cfg.sens;
     // Curve and vertical speed screening is about stick shaping; a mouse skips it.
-    session.segs.push(...(isMouse() ? [] : screenSegments(D, best)), ...(D.full ? turnSegments(FULL.turns) : turnSegments()), ...adsSegments(D.full ? FULL.adsScale : 1), { kind: 'deepDone' });
+    session.segs.push(...(isMouse() ? [] : screenSegments(D, best)), ...(D.full ? turnSegments(FULL.turns) : turnSegments()), ...adsSegments(D.full ? FULL.adsScale : 1),
+      ...(D.full && !isMouse() ? [recoilSeg()] : []), { kind: 'deepDone' });
     return advance();
   }
   const k = D.history.length - D.base + 1;
@@ -320,19 +321,24 @@ function recoilSettings() {
   const spec = adsSpecs(game())[0];
   return { ...settingsOf(cfg), adsMult: cfg.ads[spec.key] ?? spec.def, zoomed: true };
 }
+function recoilSeg() {
+  const spec = adsSpecs(game())[0];
+  return { kind: 'recoil', rail: 'recoil', intro: true, zoom: spec.zoom, settings: recoilSettings(), counter: 'Recoil', title: 'Recoil check',
+    text: `Aimed in at ${spec.zoom}× with your ${spec.generic ? 'ADS' : spec.label.toLowerCase()} setting. Hold fire on the target and the view climbs like an automatic rifle: pull down to stay on it. Each burst stops after ${RECOIL.burst} seconds. Let go, aim at the next target and fire again. ${RECOIL.bursts} bursts, the first is warm-up. It's a generic rifle, not a real gun, and there's no aim assist.` };
+}
 function startRecoilCheck() {
   readSetup();
   result = null;
-  const spec = adsSpecs(game())[0];
-  session = { segs: [{ kind: 'recoil', rail: 'recoil', intro: true, zoom: spec.zoom, settings: recoilSettings(), counter: 'Recoil', title: 'Recoil check',
-    text: `Aimed in at ${spec.zoom}× with your ${spec.generic ? 'ADS' : spec.label.toLowerCase()} setting. Hold fire on the target and the view climbs like an automatic rifle: pull down to stay on it. Each burst stops after ${RECOIL.burst} seconds. Let go, aim at the next target and fire again. ${RECOIL.bursts} bursts, the first is warm-up. It's a generic rifle, not a real gun, and there's no aim assist.` }],
-    i: 0, phase: 'intro', countLeft: 0, drift: null, deep: null, mouse: mouseCheck, recoilCheck: true };
+  session = { segs: [recoilSeg()], i: 0, phase: 'intro', countLeft: 0, drift: null, deep: null, mouse: mouseCheck, recoilCheck: true };
   calibrate();
   enter();
 }
+// Standalone, the result goes back to setup; inside Full dial-in it is kept for the results screen.
 function recoilDone(R) {
   const s = seg(), sum = recoilSummary(R);
-  recoilResult = sum ? { sum, rec: recommendRecoil(sum, game(), s.settings), game: cfg.game, vsens: cfg.vsens } : null;
+  const out = sum ? { sum, rec: recommendRecoil(sum, game(), s.settings), game: cfg.game, vsens: cfg.vsens } : null;
+  if (!session.recoilCheck) { session.recoil = out; if (out) recoilResult = out; return advance(); }
+  recoilResult = out;
   session = null;
   mouse.unlock();
   syncSetup();
@@ -354,6 +360,34 @@ function recoilText(r) {
     : rec.vsens != null ? `Try ${vName} ${rec.vsens} (now ${r.vsens}): ${rec.verdict === 'raise' ? 'faster, so the pull you naturally hold is enough' : 'slower, so your pull lands where you aim'}. This also changes vertical speed outside aiming.`
     : `Try ${rec.verdict === 'raise' ? 'raising' : 'lowering'} your vertical speed while aiming by about ${Math.round(Math.abs(rec.f - 1) * 100)}%, ${rec.verdict === 'raise' ? 'so the pull you naturally hold is enough' : 'so your pull lands where you aim'}, if your game has a setting for it.`;
   return [where, pull, ...tips, advice].join(' ');
+}
+
+// The recoil check next to the flick tests' vertical suggestion: from Full dial-in, or a standalone check
+// played at the same vertical setting. Agreement backs the vertical suggestion; a conflict is shown with
+// both values so the player can choose by how they fight (play style breaks the tie as a hint).
+function recoilRow(g, c, r, row) {
+  const rr = result.recoil || (recoilResult && recoilResult.game === c.game && recoilResult.vsens === c.vsens ? recoilResult : null);
+  if (!rr) return '';
+  const rec = rr.rec;
+  const sgn = x => Math.abs(x) < 0.01 ? 0 : Math.sign(x);
+  const flick = g.vsens ? sgn(r.vsens - c.vsens) : sgn(r.vmult - 1), rc = sgn(rec.f - 1);
+  const flickVal = g.vsens ? String(r.vsens) : vRel(r.vmult), recoilVal = rec.vsens != null ? String(rec.vsens) : vRel(rec.f);
+  const word = d => d > 0 ? 'higher' : d < 0 ? 'lower' : 'as it is';
+  const lean = c.style === 'tracking' ? ` Your ${PLAYSTYLES.tracking.label} play style leans toward the flick result.`
+    : c.style === 'flick' ? ` Your ${PLAYSTYLES.flick.label} play style leans toward the recoil result.` : '';
+  const choose = `Go with ${flickVal} if you fight mostly from the hip, ${recoilVal} if you fight mostly aimed in.${lean}`;
+  let tg, note;
+  if (flick === rc) {
+    tg = '<span class="tag">Agrees</span>';
+    note = rc === 0 ? 'Agrees with the flick tests: keep your vertical speed.' : `Agrees with the flick tests: both want vertical speed ${word(rc)}, which backs the suggestion above.`;
+  } else if (flick && rc) {
+    tg = '<span class="tag down">Conflict</span>';
+    note = `Conflicts with the flick tests: they want vertical speed ${word(flick)}, recoil wants it ${word(rc)}. ${choose}`;
+  } else {
+    tg = '<span class="tag">Partly agrees</span>';
+    note = `The flick tests want vertical speed ${word(flick)}, recoil wants it ${word(rc)}. ${choose}`;
+  }
+  return row('Recoil check (aimed in)', g.vsens ? c.vsens : 'Now', recoilVal === 'Same' ? 'Same' : recoilVal, tg, `${recoilText(rr)} ${note}`);
 }
 
 // Picks a finished Deep search back up for MORE extra rounds, keeping every round and check so far.
@@ -473,7 +507,7 @@ function deepDone() {
   rec.ads = adsRecs(c, rec.sens);
   rec.turn = turnRec(c);
   rec.boost = c.boost; rec.boostRamp = c.boostRamp; rec.boostDelay = c.boostDelay;
-  result = { cfg: c, stats, rec, drift: session.drift, mouse: session.mouse, verify: null, segs: session.segs, pad: inp.name,
+  result = { cfg: c, stats, rec, drift: session.drift, mouse: session.mouse, verify: null, segs: session.segs, pad: inp.name, recoil: session.recoil || null,
     deep: { res, feel: D.feel, rounds: D.history.map(h => ({ sens: h.sens, rating: h.feel ?? null })), screen: rec.screen, prior: D.prior, full: !!D.full, sittings: new Set(D.history.map(h => h.sitting)).size }, deepState: D };
   saveDeep(D, c);
   session = null;
@@ -794,6 +828,8 @@ function railKeys() {
   if (session && session.recoilCheck) return ['setup', 'recoil'];
   const deep = !!((session && session.deep) || (result && result.deep) || (!session && !result && deepMode(cfg.mode)));
   let keys = deep ? ['setup', 'drift', 'deep', 'screen', 'turn', 'ads'] : ['setup', 'drift', 'flick', 'track', 'turn', 'ads'];
+  const full = (session && session.deep && session.deep.full) || (result && result.deep && result.deep.full) || (!session && !result && cfg.mode === 'full');
+  if (full && !isMouse()) keys.push('recoil');
   // Mouse sessions have no screening, turn drill or ADS rounds, and skip the check once DPI is measured.
   if (isMouse()) keys = keys.filter(k => !['screen', 'turn', 'ads'].includes(k) && (k !== 'drift' || !(mouseCheck && mouseCheck.cpcm) || (session && session.segs.some(x => x.kind === 'mcheck'))));
   const verifying = (cfg.mode === 'verify' && !deep) || (result && result.verify) || (session && session.segs.some(s => s.rail === 'verify'));
@@ -846,6 +882,7 @@ function renderBrief(force) {
     const blocked = s.kind === 'drift' && noPad;
     if (!blocked) act.append(button(s.kind === 'drift' ? 'Start stick check' : s.kind === 'mcheck' ? 'Start mouse check' : s.kind === 'break' ? 'Continue' : 'Start', 'primary', begin));
     if (s.kind === 'drift') act.append(button('Skip', '', () => { session.drift = null; advance(); }));
+    if (s.kind === 'recoil' && !session.recoilCheck) act.append(button('Skip', '', () => { session.recoil = null; advance(); }));
     if (s.kind === 'mcheck') act.append(button('Skip, use the DPI I entered', '', () => advance()));
     if (isMouse() && !blocked) act.append(hint(mouse.locked ? 'Click to start. Esc lets the mouse go.' : 'The range captures your mouse. Esc lets it go.'));
     else if (!noPad && !blocked) act.append(hint('or press A / ✕'));
@@ -1142,6 +1179,7 @@ function renderResults() {
       ${mouseGame ? '' : g.vsens
         ? row(g.vsens.label, c.vsens, r.vsens, tag(r.vsens, c.vsens), r.vWhy)
         : row('Vertical sensitivity', 'Now', vRel(r.vmult), tag(Math.round(r.vmult * 100), 100) + '<span class="tag">If your game has it</span>', r.vWhy)}
+      ${mouseGame ? '' : recoilRow(g, c, r, row)}
       ${(r.ads || []).map(a => a.spec.generic
         ? row('ADS sensitivity', 'Now', vRel(a.rel), tag(Math.round(a.rel * 100), 100) + '<span class="tag">If your game has it</span>', a.why)
         : row(a.spec.label, fmtAds(a.spec, a.cur), fmtAds(a.spec, a.next), tag(a.next, a.cur), a.why)).join('')}

@@ -257,6 +257,13 @@ right, and on games with a vertical setting the nearest menu value is offered wi
 Sitting above the target despite enough pull is a late catch of the first kick, which a speed change won't fix,
 so it only gets a tip.
 
+Full dial-in plays it after the ADS drills (skippable), and the results show it as its own row next to
+the flick tests' vertical suggestion (a standalone check counts too, when it was played at the same
+vertical setting). When both point the same way it says they agree; otherwise it shows both values and
+lets the player choose: the flick result for fighting mostly from the hip, the recoil result for mostly
+aimed in, with the play style as a hint (Close range leans flick, Long range leans recoil). A burst let
+go before half its length doesn't count; after three bursts' worth of tries the check ends anyway.
+
 ## Reaction time in the analysis
 
 A person reacts about 0.2 s late, so after every direction change even a perfect-speed player
