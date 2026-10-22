@@ -1094,6 +1094,7 @@ function renderResults() {
     <div class="actions">
       <button class="btn" id="copy" type="button">Copy settings</button>
       <button class="btn" id="export" type="button">Copy test data</button>
+      <button class="btn primary" id="use-recs" type="button">Use these settings</button>
       <button class="btn" id="restart" type="button">Start over</button>
     </div>
     <pre id="copytext" hidden></pre>
@@ -1106,6 +1107,11 @@ function renderResults() {
   const vb = $('#verify');
   if (vb) vb.addEventListener('click', () => start(verifySegments(c, r), result.drift));
   wireChart();
+  $('#use-recs').addEventListener('click', e => {
+    useRecs(c, r);
+    e.currentTarget.textContent = 'Saved to setup';
+    e.currentTarget.disabled = true;
+  });
   $('#restart').addEventListener('click', () => { result = null; session = null; syncSetup(); show('setup'); });
   $('#export').addEventListener('click', e => {
     const data = buildExport({ cfg: c, drift: result.drift, rec: r, segs: result.segs || [], pad: result.pad, deep: result.deep, verify: v });
@@ -2049,6 +2055,20 @@ function leaveChallenge() { chal = null; mouse.unlock(); show(result ? 'results'
 /* settings duel */
 
 // A = the player's current settings, B = the suggested ones, including the turn drill's boost advice.
+// Copies the suggested settings into setup and saves them, so the daily range and the next session
+// play with them. The game's own menu still has to be changed by hand.
+function useRecs(c, r) {
+  const B = duelSettings(c, r).B;
+  for (const k of ['sens', 'vsens', 'vmult', 'curve', 'dz', 'outer', 'boost', 'boostRamp']) if (B[k] !== undefined) cfg[k] = B[k];
+  for (const a of r.ads || []) if (!a.spec.generic && a.next != null) cfg.ads[a.spec.key] = a.next;
+  // A spin timing belongs to the sensitivity it was timed at. Carry it to the new one (the same turn
+  // speed multiplier, so the time scales with the speed) rather than lose the player's measurement.
+  const g = GAMES[c.game];
+  if (cfg.spin && r.sens !== c.sens) cfg.spin = +(cfg.spin * g.sens.rate(c.sens) / g.sens.rate(r.sens)).toFixed(2);
+  saveSetup();
+  syncSetup();
+}
+
 function duelSettings(c, r) {
   const A = settingsOf(c);
   const B = { ...settingsOf(r),

@@ -116,6 +116,10 @@ values per game (sensitivity, curve, deadzone, field of view, aim assist, spin t
 plus the last device, game, play style, route, DPI and cm/360. Saved values are re-checked against the
 game's menu ranges when loaded. "Reset to defaults" forgets the current game's values.
 
+"Use these settings" on the results copies the suggestions into setup and saves them, so the
+daily range and later sessions play with them (the game's own menu is still changed by hand). A
+spin timing moves with the sensitivity, so the measured turn speed carries over.
+
 ## Play styles
 
 The play style (Close range / Balanced / Long range) weights flicks against tracking when the
