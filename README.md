@@ -63,6 +63,9 @@ Call of Duty uses the 0.10–4.00 stick scale from Black Ops 6 and Warzone (Seas
 new number reads as a speed multiplier, so turn speed is proportional to it, scaled so 1.65 turns
 like the old default of 6. Settings saved on the old 1–20 scale are converted with the community
 chart (1 = 0.60, 3 = 1.00, 6 = 1.65, 9 = 2.05, 15 = 3.00, 20 = 4.00).
+Modern Warfare III and MWII still use 1–20, so they are a separate choice, "Call of Duty (MW3 / MWII)":
+its values turn like their chart conversion (6 plays like 1.65) and results come back on 1–20.
+Black Ops 7 is listed with Black Ops 6 on the new scale (not yet checked against the game).
 
 ARC Raiders menu names, the sensitivity range (1–400) and the three response curves (Linear,
 Sinusoidal, Exponential) come from the PS5 Wireless Controller screen. The game has no outer or

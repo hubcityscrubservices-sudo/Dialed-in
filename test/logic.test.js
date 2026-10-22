@@ -446,3 +446,13 @@ test('Apex Advanced Look Controls: Turning Extra Yaw adds degrees per second aft
   assert.ok(Math.abs(last.vy - 300) < 1e-9);
   assert.equal(gameTitle(g), 'Apex Legends (Advanced Look Controls)');
 });
+
+test('Call of Duty MW3 / MWII keeps the 1-20 scale and turns like the converted new-scale value', () => {
+  const mw = GAMES['cod-mw'], bo = GAMES.cod;
+  assert.equal(mw.sens.max, 20);
+  assert.ok(Math.abs(mw.sens.rate(6) - bo.sens.rate(1.65)) < 1e-9);
+  assert.ok(Math.abs(mw.sens.rate(15) - bo.sens.rate(3)) < 1e-9);
+  assert.ok(mw.sens.rate(7) > mw.sens.rate(6));
+  assert.equal(gameTitle(mw), 'Call of Duty (MW3 / MWII)');
+  assert.equal(gameTitle(bo), 'Call of Duty (Black Ops 6/7, Warzone)');
+});

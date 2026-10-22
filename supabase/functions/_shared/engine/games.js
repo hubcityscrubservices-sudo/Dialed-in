@@ -24,7 +24,7 @@ export function codFromOld(old) {
 
 export const GAMES = {
   cod: {
-    name: 'Call of Duty', camera: 'first', source: 'model',
+    name: 'Call of Duty', variant: 'Black Ops 6/7, Warzone', camera: 'first', source: 'model',
     fov: { label: 'Field of view', min: 60, max: 120, step: 1, def: 80, type: 'h169' },
     sens: { label: 'Horizontal stick sensitivity', min: 0.1, max: 4, step: 0.01, def: 1.65, rate: s => s * COD_K },
     vsens: { label: 'Vertical stick sensitivity', min: 0.1, max: 4, step: 0.01, def: 1.65, rate: s => s * COD_K * 0.8 },
@@ -182,6 +182,13 @@ export const MOUSE_GAMES = {
     null, SENS('Mouse sensitivity', 0.01, 400, 0.01, 50)),
   'm-other': mouseGame({ name: 'your game', camera: 'first', source: 'model', fov: GAMES.other.fov },
     null, SENS('Mouse sensitivity', 0.01, 400, 0.01, 1))
+};
+// Modern Warfare III and MWII keep the old 1-20 stick scale. Same game feel and speeds as the newer
+// titles: a 1-20 value turns like its converted 0.10-4.00 value (the community chart above).
+GAMES['cod-mw'] = {
+  ...GAMES.cod, variant: 'MW3 / MWII',
+  sens: { ...GAMES.cod.sens, min: 1, max: 20, step: 1, def: 6, rate: s => codFromOld(s) * COD_K },
+  vsens: { ...GAMES.cod.vsens, min: 1, max: 20, step: 1, def: 6, rate: s => codFromOld(s) * COD_K * 0.8 }
 };
 Object.assign(GAMES, MOUSE_GAMES);
 

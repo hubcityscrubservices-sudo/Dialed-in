@@ -1079,7 +1079,7 @@ function renderAdsFields(g) {
 }
 
 // Controller games and mouse games share ids where the game is the same (arc / m-arc).
-const PAD_LIST = ['arc', 'cod', 'fortnite', 'fortnite-adv', 'apex', 'apex-alc', 'other'];
+const PAD_LIST = ['arc', 'cod', 'cod-mw', 'fortnite', 'fortnite-adv', 'apex', 'apex-alc', 'other'];
 const MOUSE_LIST = ['m-arc', 'm-cs2', 'm-valorant', 'm-apex', 'm-cod', 'm-ow2', 'm-fortnite', 'm-other'];
 function fillGames() {
   const sel = $('#game'), ids = isMouse() ? MOUSE_LIST : PAD_LIST;
@@ -1279,7 +1279,7 @@ $('#curve').addEventListener('change', () => { readSetup(); syncSetup(); });
 $('#aa').addEventListener('change', () => { readSetup(); syncSetup(); });
 document.querySelectorAll('input[name="device"]').forEach(r => r.addEventListener('change', e => {
   cfg.device = e.target.value;
-  const same = cfg.device === 'mouse' ? 'm-' + cfg.game.replace(/-(alc|adv)$/, '') : cfg.game.replace(/^m-/, '');
+  const same = cfg.device === 'mouse' ? 'm-' + cfg.game.replace(/-(alc|adv|mw)$/, '') : cfg.game.replace(/^m-/, '');
   setGame(GAMES[same] && (cfg.device === 'mouse') === (GAMES[same].device === 'mouse') ? same : (cfg.device === 'mouse' ? 'm-arc' : 'arc'));
   syncSetup(); renderRail(); renderWarmBests();
 }));
