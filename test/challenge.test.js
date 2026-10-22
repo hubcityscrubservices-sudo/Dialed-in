@@ -103,7 +103,7 @@ test('version 1 rules replay exactly as before (dailies before V2_FROM)', () => 
 });
 
 test('version 2: controller runs get aim assist and engine-2 rules; submitted values cannot change them', () => {
-  const pad = createChallenge('d-2026-10-22', 'arc', { sens: 80, curve: 'expo', dz: 0.05, aa: 0, eng: 1 });
+  const pad = createChallenge('d-2026-10-22', 'arc', { sens: 80, curve: 'expo', dz: 0.05, aa: 0, eng: 1 }, { v: 2 });
   assert.equal(pad.v, 2); assert.equal(pad.settings.aa, 1); assert.equal(pad.settings.eng, 2);
   const old = createChallenge('d-2026-10-21', 'arc', { sens: 80, curve: 'expo', dz: 0.05, aa: 1, eng: 2 });
   assert.equal(old.settings.aa, undefined); assert.equal(old.settings.eng, undefined);
@@ -111,12 +111,12 @@ test('version 2: controller runs get aim assist and engine-2 rules; submitted va
   assert.equal(m.settings.aa, undefined);
 });
 
-// Version-2 dailies (2026-10-22) must also keep replaying exactly, now that version 3 exists.
+// Version 2 (the 2026-10-22 rules before version 3 was brought forward) must keep replaying exactly.
 test('version 2 rules replay exactly as when they shipped', () => {
   const s = { sens: 80, vsens: 60, vmult: 1, curve: 'expo', dz: 0.05, outer: 1, boost: 55, boostRamp: 1.6 };
   const cases = [['arc', 0.15, s, 18326], ['cod', 0.1, { sens: 1.65, vsens: 1.65, curve: 'mid', dz: 0.1 }, 15363], ['apex', 0.2, { sens: 3, curve: 'mid', dz: 0.1 }, 18828]];
   for (const [game, k, set, want] of cases) {
-    const st = createChallenge('d-2026-10-22', game, set), rng = mulberry32(7);
+    const st = createChallenge('d-2026-10-22', game, set, { v: 2 }), rng = mulberry32(7);
     assert.equal(st.v, 2);
     while (!st.done) {
       const it = st.item; if (!it) { step(st, 0, 0, false); continue; }
@@ -133,6 +133,7 @@ test('version 2 rules replay exactly as when they shipped', () => {
 
 test('version 3: moving targets score only while firing on them, and firing off target costs nothing', () => {
   assert.equal(createChallenge('d-2026-10-23', 'arc', settings).v, 3);
+  assert.equal(createChallenge('d-2026-10-22', 'arc', settings).v, 3); // brought forward to the 22nd
   assert.equal(createChallenge('p-k3x9q2', 'arc', settings).v, 3);
   // Follow every moving target perfectly, once without firing and once holding fire the whole time.
   const play = holdFire => {

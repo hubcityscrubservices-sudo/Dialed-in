@@ -22,7 +22,9 @@ export const DT = 1 / CH.hz;
 // Version 3 (dailies from V3_FROM, and all practice runs): moving targets score only while you hold
 // fire on them, like an automatic weapon on a strafing enemy. Firing off target costs nothing; a
 // moving target keeps the streak when at least trackKeep of the firing time was on it.
-export const V2_FROM = '2026-10-22', V3_FROM = '2026-10-23';
+// Version 3 was brought forward to the 2026-10-22 daily, the day version 2 shipped, so no daily code
+// maps to version 2 any more. Its rules stay (version 3 builds on them) and tests reach them with opts.v.
+export const V2_FROM = '2026-10-22', V3_FROM = '2026-10-22';
 const R2 = { flickTimeout: 3.5, missPenalty: 10, vertShare: 0.25, gap: 15, nearMiss: true, track: TRACK_V2, ang: true, eng: 2 };
 export const RULES = {
   1: { flickTimeout: 3, missPenalty: 25, vertShare: 0.4, gap: 0, nearMiss: false, track: TRACK_V1, ang: false, eng: 1 },
@@ -65,10 +67,10 @@ export const quantize = v => clamp(Math.round(v * 1000), -1000, 1000);
 
 /* ---------- engine ---------- */
 
-// opts.seconds shortens the run (the settings duel uses 30 s runs). st.log keeps every finished
-// target with its points, for the report card.
+// opts.seconds shortens the run (the settings duel uses 30 s runs). opts.v forces a rule version
+// (tests only; the server never passes it). st.log keeps every finished target with its points, for the report card.
 export function createChallenge(code, gameId, settings, opts = {}) {
-  const v = versionOf(code), P = RULES[v], mouse = GAMES[gameId].device === 'mouse';
+  const v = opts.v ?? versionOf(code), P = RULES[v], mouse = GAMES[gameId].device === 'mouse';
   // Rule-set fields come from the version, never from the submitted settings.
   const s = { ...settings };
   delete s.eng; delete s.aa;
