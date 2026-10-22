@@ -119,7 +119,12 @@ Challenge rules are versioned by code (src/challenge.js `RULES`, `versionOf`): d
 - calmer strafing targets (10-40 deg/s, fewer reversals) and the true-angle hit test;
 - engine-2 stick rules: a softer Exponential curve (exponent 2.0) and look boost that starts at a
   90% push, ignores dips under 0.1 s and has no extra delay.
-Calibration always uses version-2 targets and stick rules. The all-time board ranks version-2 dailies.
+Version 3 (dailies from 2026-10-23, and all practice runs) adds hold-to-fire tracking: moving targets
+score 60 points a second only while you are on them and holding fire; firing off target costs nothing,
+and a moving target keeps the streak when at least 70% of the firing time was on it. The end screen
+shows "Moving targets hit" (share of firing time on target).
+Calibration always uses version-2 targets and stick rules (tracking there is follow-only). The
+all-time board ranks version-3 dailies.
 
 ## Field of view
 

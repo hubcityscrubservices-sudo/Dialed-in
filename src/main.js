@@ -1733,7 +1733,7 @@ function renderChalBrief(force) {
     : c.kind === 'daily' ? `Daily challenge · ${c.code.slice(2)}` : c.kind === 'practice' ? 'Practice challenge' : `Challenge ${c.code}`;
   $('#brief-text').textContent = c.phase === 'rate' ? 'Go with your gut. You can skip this.'
     : c.phase !== 'intro' ? (c.phase === 'count' ? 'Get ready.' : 'Go.')
-    : !c.duel ? `60 seconds. Hit each target fast for more points, and keep a streak going for a bonus. Missed shots cost points. Stay on the moving targets, no need to fire at those.${c.st.v >= 2 && !c.st.mouse ? ' Aim assist is on (medium) for every controller run.' : ''}`
+    : !c.duel ? `60 seconds. Hit each target fast for more points, and keep a streak going for a bonus. Missed shots cost points. ${c.st.P.holdFire ? 'On the moving targets, hold fire while you stay on them: they score only while you are on target and firing, and missing costs nothing.' : 'Stay on the moving targets, no need to fire at those.'}${c.st.v >= 2 && !c.st.mouse ? ' Aim assist is on (medium) for every controller run.' : ''}`
     : di === 0 ? `${DUEL.runs} challenge runs of ${DUEL.seconds} seconds. Two use your old settings and two use the suggested ones, in a hidden order, and each pair plays the same targets.`
     : `Run ${di + 1} of ${DUEL.runs}. Same drill. The settings may have changed.`;
   const act = $('#brief-actions');
@@ -1903,7 +1903,9 @@ function renderChalEnd() {
       ${stat('Hits', sum.hits)}
       ${stat('Time per hit', sum.avgTime == null ? '–' : sum.avgTime.toFixed(2) + ' s')}
       ${stat('Best streak', sum.bestStreak)}
-      ${stat('On moving targets', sum.tracking == null ? '–' : pct(sum.tracking))}
+      ${c.st.P.holdFire
+        ? stat('Moving targets hit', sum.trackAcc == null ? '–' : pct(sum.trackAcc))
+        : stat('On moving targets', sum.tracking == null ? '–' : pct(sum.tracking))}
     </div>
     ${reportHtml(reportCard(c.st.log, { game: c.game, style: cfg.style, v: c.st.v, mouse: c.st.mouse }))}
     <div class="share">
@@ -1973,7 +1975,7 @@ function reportHtml({ rows, hints }) {
         ${row('Sideways flicks', rows.side, `${rate(rows.side.hitRate)} · ${pace(rows.side.pace)}`)}
         ${row('Up-and-down flicks', rows.vert, `${rate(rows.vert.hitRate)} · ${pace(rows.vert.pace)}`)}
         ${row('Turn-arounds', rows.turn, `${rate(rows.turn.hitRate)} · ${pace(rows.turn.pace)}`)}
-        ${row('Moving targets', rows.track, `${rate(rows.track.on)} on target`)}
+        ${row('Moving targets', rows.track, rows.track.fired ? `${rate(rows.track.fireAcc)} of firing on target` : `${rate(rows.track.on)} on target`)}
       </tbody>
     </table></div>
     ${hints.length

@@ -110,3 +110,51 @@ test('version 2: controller runs get aim assist and engine-2 rules; submitted va
   const m = createChallenge('p-abcdef', 'm-cs2', { sens: 1, curve: 'linear', dz: 0, dpc: 0.022 });
   assert.equal(m.settings.aa, undefined);
 });
+
+// Version-2 dailies (2026-10-22) must also keep replaying exactly, now that version 3 exists.
+test('version 2 rules replay exactly as when they shipped', () => {
+  const s = { sens: 80, vsens: 60, vmult: 1, curve: 'expo', dz: 0.05, outer: 1, boost: 55, boostRamp: 1.6 };
+  const cases = [['arc', 0.15, s, 18326], ['cod', 0.1, { sens: 6, vsens: 6, curve: 'mid', dz: 0.1 }, 15363], ['apex', 0.2, { sens: 3, curve: 'mid', dz: 0.1 }, 18828]];
+  for (const [game, k, set, want] of cases) {
+    const st = createChallenge('d-2026-10-22', game, set), rng = mulberry32(7);
+    assert.equal(st.v, 2);
+    while (!st.done) {
+      const it = st.item; if (!it) { step(st, 0, 0, false); continue; }
+      const t = it.kind === 'track' ? it.TR.tgt : it.T;
+      const ey = t.yaw - st.view.yaw, ep = t.pitch - st.view.pitch;
+      const rx = quantize(Math.max(-1, Math.min(1, ey * k + (rng() - 0.5) * 0.1)));
+      const ry = quantize(Math.max(-1, Math.min(1, -ep * k + (rng() - 0.5) * 0.1)));
+      const r = it.kind === 'track' ? it.TR.r : it.T.r;
+      step(st, rx, ry, it.kind !== 'track' && Math.hypot(ey, ep) < r * 0.9 && !st.prevFire);
+    }
+    assert.equal(summary(st).score, want, game);
+  }
+});
+
+test('version 3: moving targets score only while firing on them, and firing off target costs nothing', () => {
+  assert.equal(createChallenge('d-2026-10-23', 'arc', settings).v, 3);
+  assert.equal(createChallenge('p-k3x9q2', 'arc', settings).v, 3);
+  // Follow every moving target perfectly, once without firing and once holding fire the whole time.
+  const play = holdFire => {
+    const st = createChallenge('d-2026-10-23', 'arc', settings);
+    let trackPts = 0;
+    while (!st.done) {
+      const it = st.item;
+      if (!it) { step(st, 0, 0, false); continue; }
+      const t = it.kind === 'track' ? it.TR.tgt : it.T;
+      const ey = t.yaw - st.view.yaw, ep = t.pitch - st.view.pitch;
+      const rx = quantize(Math.max(-1, Math.min(1, ey * 0.15))), ry = quantize(Math.max(-1, Math.min(1, -ep * 0.15)));
+      const before = st.score;
+      if (it.kind === 'track') { step(st, rx, ry, holdFire); trackPts += st.score - before; }
+      else step(st, rx, ry, Math.hypot(ey, ep) < it.T.r * 0.8 && !st.prevFire);
+    }
+    return { st, trackPts, sum: summary(st) };
+  };
+  const quiet = play(false), firing = play(true);
+  assert.equal(quiet.trackPts, 0);
+  assert.equal(quiet.sum.trackAcc, null);
+  assert.ok(firing.trackPts > 0);
+  assert.ok(firing.sum.trackAcc > 0 && firing.sum.trackAcc <= 1);
+  // Holding fire while off target never takes points away.
+  assert.ok(firing.sum.score >= quiet.sum.score);
+});

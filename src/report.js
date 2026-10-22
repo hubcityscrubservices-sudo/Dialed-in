@@ -20,6 +20,12 @@ function flickRow(items, expected) {
   };
 }
 
+// Version 3 moving targets: share of firing time spent on target (null when never fired / before v3).
+function trackFiring(items) {
+  const fire = items.reduce((a, i) => a + (i.fire || 0), 0), fireOn = items.reduce((a, i) => a + (i.fireOn || 0), 0);
+  return { fireAcc: fire ? fireOn / fire : null, fired: fire > 0 };
+}
+
 function mergedTrack(items) {
   const m = { T: 0, errSum: 0, on: 0, behind: 0, ahead: 0, near: 0, rev: 0, tRev: 0, chunks: [] };
   for (const { TR } of items) {
@@ -42,7 +48,7 @@ export function reportCard(log, c) {
   const tr = mergedTrack(track);
   const rows = {
     side: flickRow(side, expected), vert: flickRow(vert, expected), turn: flickRow(turn, expected),
-    track: { n: track.length, pts: sumPts(track), on: tr.T ? tr.on / tr.T : null }
+    track: { n: track.length, pts: sumPts(track), on: tr.T ? tr.on / tr.T : null, ...trackFiring(track) }
   };
   const hints = [];
 

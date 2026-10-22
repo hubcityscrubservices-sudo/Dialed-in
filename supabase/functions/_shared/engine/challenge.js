@@ -19,12 +19,21 @@ export const DT = 1 / CH.hz;
 // based on thumbstick pointing research instead of mouse speed, a smaller miss penalty, a near miss
 // that keeps the streak, a short pause between targets, fewer up-and-down targets, calmer moving
 // targets, the true-angle hit test and the engine-2 stick rules (sim.js steer).
-export const V2_FROM = '2026-10-22';
+// Version 3 (dailies from V3_FROM, and all practice runs): moving targets score only while you hold
+// fire on them, like an automatic weapon on a strafing enemy. Firing off target costs nothing; a
+// moving target keeps the streak when at least trackKeep of the firing time was on it.
+export const V2_FROM = '2026-10-22', V3_FROM = '2026-10-23';
+const R2 = { flickTimeout: 3.5, missPenalty: 10, vertShare: 0.25, gap: 15, nearMiss: true, track: TRACK_V2, ang: true, eng: 2 };
 export const RULES = {
   1: { flickTimeout: 3, missPenalty: 25, vertShare: 0.4, gap: 0, nearMiss: false, track: TRACK_V1, ang: false, eng: 1 },
-  2: { flickTimeout: 3.5, missPenalty: 10, vertShare: 0.25, gap: 15, nearMiss: true, track: TRACK_V2, ang: true, eng: 2 }
+  2: R2,
+  3: { ...R2, holdFire: true, trackKeep: 0.7 }
 };
-export const versionOf = code => code.startsWith('d-') && code.slice(2) < V2_FROM ? 1 : 2;
+export const versionOf = code => {
+  if (!code.startsWith('d-')) return 3;
+  const day = code.slice(2);
+  return day < V2_FROM ? 1 : day < V3_FROM ? 2 : 3;
+};
 
 // Seconds a hit "should" take for its difficulty (Fitts' index of difficulty, ID). Version 1 used a
 // mouse-speed yardstick for everyone (about 3 bits/s); version 2 keeps that for mice and gives sticks
@@ -69,7 +78,7 @@ export function createChallenge(code, gameId, settings, opts = {}) {
     ticks: Math.round((opts.seconds || CH.seconds) * CH.hz), log: [],
     tick: 0, view: makeView(), item: null, items: 0, prevFire: false, done: false,
     score: 0, streak: 0, bestStreak: 0, hits: 0, shots: 0, timeouts: 0, hitTime: 0,
-    trackOn: 0, trackT: 0, events: []
+    trackOn: 0, trackT: 0, trackFire: 0, trackFireOn: 0, events: []
   };
   nextItem(st);
   return st;
@@ -121,8 +130,17 @@ export function step(st, rx, ry, fire) {
   if (it.kind === 'track') {
     trackStep(it.TR, st.view, s.vy, DT, st.rng);
     st.trackT += DT;
-    if (it.TR.tgt.on) { st.trackOn += DT; st.score += CH.trackPerSecond * DT; it.pts += CH.trackPerSecond * DT; }
-    if (it.TR.t >= CH.trackSeconds - 1e-9) { st.log.push(it); st.events.push({ type: 'trackEnd' }); after(st); }
+    const on = it.TR.tgt.on;
+    if (on) st.trackOn += DT;
+    if (st.P.holdFire) {
+      // Points only while firing on target; the item keeps its own firing tally for the streak and report.
+      if (fire) { st.trackFire += DT; it.fire = (it.fire || 0) + DT; }
+      if (fire && on) { st.trackFireOn += DT; it.fireOn = (it.fireOn || 0) + DT; st.score += CH.trackPerSecond * DT; it.pts += CH.trackPerSecond * DT; }
+    } else if (on) { st.score += CH.trackPerSecond * DT; it.pts += CH.trackPerSecond * DT; }
+    if (it.TR.t >= CH.trackSeconds - 1e-9) {
+      if (st.P.holdFire && !(it.fire >= 0.5 && it.fireOn / it.fire >= st.P.trackKeep)) st.streak = 0;
+      st.log.push(it); st.events.push({ type: 'trackEnd' }); after(st);
+    }
   } else {
     const T = it.T;
     if (it.kind === 'turn') turnStep(T, st.view, s.mag, DT);
@@ -170,7 +188,9 @@ export function summary(st) {
     accuracy: st.shots ? st.hits / st.shots : 0,
     avgTime: st.hits ? st.hitTime / st.hits : null,
     bestStreak: st.bestStreak,
-    tracking: st.trackT ? st.trackOn / st.trackT : null
+    tracking: st.trackT ? st.trackOn / st.trackT : null,
+    // Version 3: share of firing time on the moving targets (null before version 3 or if never fired).
+    trackAcc: st.P.holdFire && st.trackFire ? st.trackFireOn / st.trackFire : null
   };
 }
 
