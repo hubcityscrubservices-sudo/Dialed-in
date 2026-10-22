@@ -278,6 +278,27 @@ hides small pushes), only when it starts outside the target, and overshoot is ju
 fixed 2.4° past the target (× zoom) rather than the target's own radius, so bigger close-range
 targets don't hide it. None of this changes challenge scores.
 
+## Calibration drills: even rounds, harder where settings matter
+
+Calibration (not the challenge) plays scripted rounds so every round of the same length is equally hard
+but still unpredictable (src/sim.js trackScript, flickPlan):
+- Tracking: the same number of segments, direction reversals (half of all changes), stop-and-go pauses
+  (about one in five changes) and the same set of speeds (up to 1.25x the old top speed), shuffled, with
+  a random starting side. Speed changes are snappier (accel 7, was 4), the target bobs more (±4.5°, was ±3)
+  and is 15% smaller. In simulation, a player with fixed settings saw tracking error swing about ±27%
+  between random rounds, mostly from the number of reversals (0 to 6; a round with none was twice as easy
+  as one with four). Scripted rounds: ±10%, 3-4 reversals every time. With a thumb model (push
+  saturates, wobble grows with the push), a speed 1.5x off the best showed up 5x more clearly against
+  that noise (signal to noise 0.09 to 0.48).
+- Flicks: each round gets one target from each distance layer (sideways 12-58°, up and down 10-26°) and
+  each size layer (radius 1.5-3.0°), shuffled. Far targets punish a speed that's too slow and small ones
+  one that's too fast. Warm-up targets sit in the middle.
+- Scoring: a round's flicks are first-shot throughput (50%), settle rate (30%: bits per second to the
+  crosshair's final entry onto the target before the hit, so circling, overshooting and corrections cost,
+  plus 0.25 s per missed shot) and path efficiency (20%: straight distance over the path taken). Deep,
+  the blind screening and Verify all use it. Deep saves are version 2; rounds saved before this were
+  played on the easier drills and aren't pooled with new ones.
+
 ## Deep mode
 
 Each round is scored as speed and accuracy combined (flick throughput and tracking error, each

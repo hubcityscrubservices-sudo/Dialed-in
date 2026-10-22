@@ -16,6 +16,31 @@ export function flickThroughput(trials) {
   return Math.log2(De / We + 1) / MT;
 }
 
+// Settle rate: Fitts bits per second to land on a target for good, timed to the crosshair's final entry
+// onto it before the hit (circling, overshooting and corrections all push that later), plus ACQ_MISS
+// seconds per missed shot. A target never hit counts its full time. Needs calibration trials (lastIn).
+const ACQ_MISS = 0.25;
+export function acquireRate(trials) {
+  if (trials.length < 3 || trials.some(t => !('path' in t))) return null;
+  return mean(trials.map(t => {
+    const misses = Math.max(0, (t.shots || 0) - (t.hit ? 1 : 0));
+    const time = (t.hit && t.lastIn != null ? t.lastIn : t.t) + ACQ_MISS * misses;
+    return Math.log2(t.D / t.W + 1) / Math.max(0.1, time);
+  }));
+}
+// Path efficiency: straight-line distance over the path the crosshair actually took, on hit targets (1 = direct).
+export function pathEfficiency(trials) {
+  const hits = trials.filter(t => t.hit && t.path > 0);
+  if (hits.length < 3 || trials.some(t => !('path' in t))) return null;
+  return mean(hits.map(t => Math.min(1, t.D / t.path)));
+}
+// A round's flick measures. Rounds and blind tests weigh first-shot throughput with settle rate and path
+// efficiency when every side has them (rounds saved before these existed have throughput only).
+export const FLICK_PARTS = { tp: 0.5, acq: 0.3, eff: 0.2 };
+export function flickParts(trials) {
+  return { tp: flickThroughput(trials), acq: acquireRate(trials), eff: pathEfficiency(trials) };
+}
+
 export function trackError(chunks) {
   return chunks.length ? mean(chunks) : null;
 }

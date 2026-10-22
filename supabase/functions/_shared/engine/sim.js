@@ -113,7 +113,8 @@ export function assistTurn(vy, vp, mag, view, aim, A, aa) {
 // The strafing target as an aim-assist target: where it is and how fast it moves.
 export function trackAim(TR) {
   const g = TR.tgt;
-  return { yaw: g.yaw, pitch: g.pitch, r: TR.r, vy: g.v, vp: 3 * TR.scale * 1.3 * Math.cos(TR.t * 1.3) };
+  const P = TR.P || TRACK_V1, a = P.vAmp ?? 3, f = P.vFreq ?? 1.3;
+  return { yaw: g.yaw, pitch: g.pitch, r: TR.r, vy: g.v, vp: a * TR.scale * f * Math.cos(TR.t * f) };
 }
 
 // True angle between the view and a target, in degrees: a sideways gap counts for less when looking
@@ -157,6 +158,21 @@ function bandDist(rng, bands) {
   const [lo, hi] = bands[bands.length - 1];
   return lo + rng() * (hi - lo);
 }
+// Calibration flick rounds: every round gets the same layered mix of distances and sizes, shuffled, so
+// rounds are equally hard but not predictable. Sideways 12-58 degrees (far ones punish a speed that's too
+// slow), up-and-down 10-26, radius 1.5-3.0 (small ones punish one that's too fast). warm targets come
+// first at a middling distance and size. Each entry is a `spread` for newFlickTarget.
+export const FLICK_PLAN = { side: [12, 58], vert: [10, 26], r: [1.5, 3], warm: { d: 25, r: 2.2 } };
+export function flickPlan(rng, n, warm, isVert) {
+  const F = FLICK_PLAN, shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  const strata = (k, [lo, hi]) => shuffle(Array.from({ length: k }, (_, i) => lo + (hi - lo) * (i + rng()) / k));
+  const idx = Array.from({ length: n - warm }, (_, i) => i + warm);
+  const nv = idx.filter(isVert).length;
+  const side = strata(idx.length - nv, F.side), vert = strata(nv, F.vert), rs = strata(idx.length, F.r);
+  const one = (d, r) => ({ bands: [[d, d, 1]], vert: [d, d], r: [r, r] });
+  return [...Array.from({ length: Math.min(warm, n) }, () => one(F.warm.d, F.warm.r)), ...idx.map((i, k) => one(isVert(i) ? vert.pop() : side.pop(), rs[k]))];
+}
+
 export function newFlickTarget(view, rng = Math.random, vertical = false, scale = 1, trueAngle = false, size = 1, spread = null) {
   let yaw, pitch;
   if (vertical) {
@@ -218,6 +234,15 @@ function along(T, view) {
 // onto a target you're already on isn't stopping short.
 export function flickStep(T, view, push, fireEdge, dt) {
   T.t += dt;
+  // Path travelled (yaw/pitch, like D) and when the crosshair last came onto the target: circling,
+  // overshooting and corrections all show up as a longer path and a later final entry. Recorded for
+  // calibration scoring; the challenge score doesn't read them.
+  const pv = T.pv || { yaw: T.sy, pitch: T.sp };
+  T.path = (T.path || 0) + Math.hypot(view.yaw - pv.yaw, view.pitch - pv.pitch);
+  T.pv = { yaw: view.yaw, pitch: view.pitch };
+  const inNow = (T.ang ? angleTo(view, T) : Math.hypot(view.yaw - T.yaw, view.pitch - T.pitch)) <= T.r;
+  if (inNow && !T.inside) T.lastIn = T.t;
+  T.inside = inNow;
   const proj = along(T, view);
   T.maxProj = Math.max(T.maxProj, proj);
   const act = push > 0.12;
@@ -254,6 +279,35 @@ export const TRACK_V1 = { lo: 18, span: 50, segLo: 0.6, segSpan: 1.1, rev: null,
 export const TRACK_V2 = { lo: 10, span: 30, segLo: 0.8, segSpan: 1.2, rev: 0.35, ang: true };
 // Hard practice: a quicker strafer that changes direction more often.
 export const TRACK_HARD = { lo: 14, span: 36, segLo: 0.6, segSpan: 1.0, rev: 0.45, ang: true };
+// Calibration rounds (not the challenge) play scripted paths so every round of the same length is
+// equally hard: the same number of segments, direction reversals, stops and the same set of speeds,
+// in a shuffled order with a random starting side. In simulation the random paths made the same
+// player's tracking error swing about ±27% between rounds, mostly from the number of reversals (0 to 4+).
+// Speeds run to 1.25x the old top speed (quick strafes) and a stop-and-go comes about every fifth change.
+export const SCRIPT = { seg: [0.7, 1.3], revShare: 0.5, stopEvery: 5, stopT: 0.45, burst: 1.25, start: 0.4 };
+export function trackScript(rng, seconds, P) {
+  const S = SCRIPT, span = Math.max(1, seconds - S.start);
+  const n = Math.max(3, Math.round(span / ((S.seg[0] + S.seg[1]) / 2)));
+  const stops = Math.floor(n / S.stopEvery), m = n - stops;
+  const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  const speeds = shuffle(Array.from({ length: m }, (_, i) => P.lo + P.span * S.burst * (i + 0.5) / m));
+  const flips = shuffle(Array.from({ length: m - 1 }, (_, i) => i < Math.round(S.revShare * (m - 1))));
+  // Stops sit between moving segments, never first.
+  const stopAt = new Set(shuffle(Array.from({ length: m - 1 }, (_, i) => i + 1)).slice(0, stops));
+  let dir = rng() < 0.5 ? -1 : 1;
+  const segs = [];
+  for (let i = 0; i < m; i++) {
+    if (i > 0) { if (flips[i - 1]) dir = -dir; if (stopAt.has(i)) segs.push({ goal: 0, dur: S.stopT }); }
+    segs.push({ goal: dir * speeds[i], dur: 0 });
+  }
+  // Moving segments share the rest of the time in a spread of lengths, shuffled.
+  const moving = segs.filter(s => s.goal !== 0), rest = span + 0.5 - stops * S.stopT;
+  const lens = shuffle(moving.map((_, i) => S.seg[0] + (S.seg[1] - S.seg[0]) * (i + 0.5) / moving.length));
+  const k = rest / lens.reduce((a, b) => a + b, 0);
+  moving.forEach((s, i) => { s.dur = lens[i] * k; });
+  return segs;
+}
+
 export function makeTrack(warm = 0, scale = 1, P = TRACK_V1) {
   return {
     t: 0, warm, scale, P, r: 2.6 * scale * (P.size ?? 1), T: 0, errSum: 0, chunks: [], chunk: { sum: 0, time: 0 },
@@ -282,7 +336,12 @@ export function trackStep(TR, view, vy, dt, rng = Math.random) {
   const g = TR.tgt;
   TR.t += dt;
   const P = TR.P || TRACK_V1;
-  if (TR.t >= g.next) {
+  if (TR.t >= g.next && TR.script) {
+    // A scripted round (calibration): the next segment of a path with fixed difficulty (trackScript).
+    const sg = TR.script[Math.min(TR.si = (TR.si ?? -1) + 1, TR.script.length - 1)];
+    g.goal = sg.goal * TR.scale;
+    g.next = TR.si >= TR.script.length - 1 ? Infinity : TR.t + sg.dur;
+  } else if (TR.t >= g.next) {
     // Same three draws in both versions: direction, speed, duration.
     const d = rng();
     const sign = P.rev == null ? (d < 0.5 ? -1 : 1) : (d < P.rev ? -1 : 1) * (Math.sign(g.v) || 1);
@@ -290,9 +349,9 @@ export function trackStep(TR, view, vy, dt, rng = Math.random) {
     g.next = TR.t + P.segLo + rng() * P.segSpan;
   }
   const prevV = g.v;
-  g.v += (g.goal - g.v) * Math.min(1, dt * 4);
+  g.v += (g.goal - g.v) * Math.min(1, dt * (P.accel ?? 4));
   g.yaw += g.v * dt;
-  g.pitch = (TR.pitch0 ?? 0) + 3 * TR.scale * Math.sin(TR.t * 1.3);
+  g.pitch = (TR.pitch0 ?? 0) + (P.vAmp ?? 3) * TR.scale * Math.sin(TR.t * (P.vFreq ?? 1.3));
   const ey = view.yaw - g.yaw, ep = view.pitch - g.pitch, e = P.ang ? angleTo(view, g) : Math.hypot(ey, ep);
   g.on = e <= TR.r;
   const ry = refStep(TR, view, dt);

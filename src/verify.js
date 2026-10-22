@@ -1,4 +1,4 @@
-import { flickThroughput, trackError } from './analysis.js';
+import { flickParts, FLICK_PARTS, trackError } from './analysis.js';
 import { mean, resample, quantile } from './util.js';
 
 // Blind A/B check: A = the player's current settings, B = the suggested ones.
@@ -64,10 +64,12 @@ const relDiff = (better, worse) => (better + worse) > 0 ? (better - worse) / ((b
 
 // Relative improvement of B over A; positive is better for B.
 function scoreDelta(a, b, w) {
-  const tpA = flickThroughput(a.flicks), tpB = flickThroughput(b.flicks);
+  const fa = flickParts(a.flicks), fb = flickParts(b.flicks);
   const eA = trackError(a.chunks), eB = trackError(b.chunks);
-  if (tpA == null || tpB == null || eA == null || eB == null) return null;
-  const flick = relDiff(tpB, tpA);
+  if (fa.tp == null || fb.tp == null || eA == null || eB == null) return null;
+  // First-shot throughput, with settle rate and path efficiency when both sides have them.
+  const P = FLICK_PARTS, all = [fa, fb].every(f => f.acq != null && f.eff != null);
+  const flick = all ? P.tp * relDiff(fb.tp, fa.tp) + P.acq * relDiff(fb.acq, fa.acq) + P.eff * relDiff(fb.eff, fa.eff) : relDiff(fb.tp, fa.tp);
   const track = relDiff(eA, eB); // lower error is better
   return { flick, track, overall: w.wf * flick + w.wt * track };
 }

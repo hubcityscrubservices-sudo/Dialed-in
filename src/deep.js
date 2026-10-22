@@ -1,4 +1,4 @@
-import { flickThroughput, trackError, isVertical } from './analysis.js';
+import { flickParts, FLICK_PARTS, trackError, isVertical } from './analysis.js';
 import { verifyCompare, sideOf } from './verify.js';
 import { clamp, mean, resample, quantile, settingValues } from './util.js';
 
@@ -86,14 +86,19 @@ export function peakOf(fit, lo, hi) {
   return { x, edge };
 }
 
-// Speed and accuracy combined, each scaled to the session average so neither dominates.
+// Speed and accuracy combined, each scaled to the session average so neither dominates. Flicks are
+// first-shot throughput, plus settle rate and path efficiency when every round has them.
 export function roundScores(rounds, w) {
-  const tps = rounds.map(r => flickThroughput(r.flicks));
+  const fs = rounds.map(r => flickParts(r.flicks));
   const errs = rounds.map(r => trackError(r.chunks));
-  if (tps.some(v => v == null) || errs.some(v => v == null)) return null;
-  const tpRef = mean(tps), eRef = mean(errs);
-  if (!(tpRef > 0) || !(eRef > 0)) return null;
-  return rounds.map((r, i) => w.wf * tps[i] / tpRef + w.wt * eRef / Math.max(errs[i], eRef * 0.05));
+  if (fs.some(f => f.tp == null) || errs.some(v => v == null)) return null;
+  const all = fs.every(f => f.acq != null && f.eff != null);
+  const ref = k => mean(fs.map(f => f[k]));
+  const tpRef = ref('tp'), eRef = mean(errs), acqRef = all ? ref('acq') : 1, effRef = all ? ref('eff') : 1;
+  if (!(tpRef > 0) || !(eRef > 0) || !(acqRef > 0) || !(effRef > 0)) return null;
+  const P = FLICK_PARTS;
+  const flick = f => all ? P.tp * f.tp / tpRef + P.acq * f.acq / acqRef + P.eff * f.eff / effRef : f.tp / tpRef;
+  return rounds.map((r, i) => w.wf * flick(fs[i]) + w.wt * eRef / Math.max(errs[i], eRef * 0.05));
 }
 
 function orderTs(n) {

@@ -1,6 +1,6 @@
 import { GAMES, PLAYSTYLES, gameTitle, extraSetting, adsSpecs, fmtAds, codFromOld } from './games.js';
 import { makeCamera, hfov169 } from './camera.js';
-import { makeView, steer, newFlickTarget, flickStep, makeTrack, trackStep, newTurnTarget, turnStep, trackAim, TRACK_V2, CURVE_K } from './sim.js';
+import { makeView, steer, newFlickTarget, flickStep, makeTrack, trackStep, newTurnTarget, turnStep, trackAim, TRACK_V2, CURVE_K, trackScript, flickPlan } from './sim.js';
 import { summarize, recommend, recommendVertical, recommendAds, turnStats, recommendTurn, driftDeadzone, settingsChanged } from './analysis.js';
 import { verifyPlan, verifyCompare, ratingSummary, sideOf } from './verify.js';
 import { DEEP, SCREEN, MORE, FEEL, deepNext, deepAnalyze, feelPoint, shuffled, morePlan, screenPlan, altCurve, screenAnalyze } from './deep.js';
@@ -28,7 +28,11 @@ const STYLE_RANGE = {
   flick: { size: 0.9, speed: 0.85, flicks: 14, track: 10 }
 };
 const styleRange = () => STYLE_RANGE[cfg.style] || STYLE_RANGE.balanced;
-const styleTrack = () => { const R = styleRange(); return { ...TRACK_V2, lo: TRACK_V2.lo * R.speed, span: TRACK_V2.span * R.speed, size: R.size }; };
+// Calibration's strafing target: scripted paths (sim.js trackScript), snappier speed changes, more up and
+// down movement, and 15% smaller than the play style's base size, so settings separate more clearly.
+const styleTrack = () => { const R = styleRange(); return { ...TRACK_V2, lo: TRACK_V2.lo * R.speed, span: TRACK_V2.span * R.speed, size: R.size * 0.85, accel: 7, vAmp: 4.5, vFreq: 1.6 }; };
+// Each flick round's targets: the same layered mix of distances and sizes every round (sim.js flickPlan).
+const flickTarget = (s, F, k) => newFlickTarget(view, Math.random, verticalSlot(k), 1 / (s.zoom || 1), true, styleRange().size, F.plan[k]);
 const COUNT_WORDS = { 10: 'Ten', 12: 'Twelve', 14: 'Fourteen' };
 // Two of every five flick targets sit mostly above or below, to measure vertical aim.
 const verticalSlot = i => i % 5 === 1 || i % 5 === 3;
@@ -195,22 +199,25 @@ function deepSegments() {
 
 // Saved Deep rounds, per game, so a later sitting can add to them. Only what the sensitivity fit
 // reads is kept. A sitting counts only with the same curve and aim assist, which change how a speed feels.
-const DEEP_KEY = 'dialed-in:deep', DEEP_SITTINGS = 3;
+// Version 2: rounds from the harder, evened-out drills with settle and path measures. Earlier saves were
+// played on easier rounds and aren't pooled with these.
+const DEEP_KEY = 'dialed-in:deep', DEEP_SITTINGS = 3, DEEP_SAVE_V = 2;
 function loadDeepSaved() {
   try {
     const all = JSON.parse(localStorage.getItem(DEEP_KEY) || '{}'), e = all[cfg.game];
-    if (!e || !Array.isArray(e.rounds) || !e.rounds.length) return null;
+    if (!e || e.v !== DEEP_SAVE_V || !Array.isArray(e.rounds) || !e.rounds.length) return null;
     if (!isMouse() && (e.curve !== cfg.curve || e.aa !== (cfg.aa ?? 1))) return null;
     return e;
   } catch (err) { return null; }
 }
 function saveDeep(D, c) {
   const compact = h => ({ sens: h.sens, feel: h.feel ?? null, sitting: h.sitting,
-    flicks: h.flicks.map(f => ({ D: f.D, first: f.first ? { along: f.first.along, t: f.first.t } : null })), chunks: h.chunks });
+    flicks: h.flicks.map(f => ({ D: f.D, W: f.W, t: +f.t.toFixed(3), hit: f.hit, shots: f.shots, lastIn: f.lastIn ?? null, path: +(f.path || 0).toFixed(2),
+      first: f.first ? { along: f.first.along, t: f.first.t } : null })), chunks: h.chunks });
   const sittings = [...new Set(D.history.map(h => h.sitting))].slice(-DEEP_SITTINGS);
   try {
     const all = JSON.parse(localStorage.getItem(DEEP_KEY) || '{}');
-    all[c.game] = { curve: c.curve, aa: c.aa ?? 1, rounds: D.history.filter(h => sittings.includes(h.sitting)).map(compact) };
+    all[c.game] = { v: DEEP_SAVE_V, curve: c.curve, aa: c.aa ?? 1, rounds: D.history.filter(h => sittings.includes(h.sitting)).map(compact) };
     localStorage.setItem(DEEP_KEY, JSON.stringify(all));
   } catch (err) { /* storage full or blocked: the next sitting just starts fresh */ }
 }
@@ -585,8 +592,11 @@ function startRun(s) {
   if (s.kind === 'mcheck') { mouse.takeSwipes(); mouse.takeGaps(); s.data = { swipes: [], gaps: [], short: 0 }; }
   if (s.kind === 'drift') s.data = { part: 'rest', t: 0, r: 0, l: 0, lt: 0, rt: 0, warn: 0, reachR: emptyReach(), reachL: emptyReach(), maxLt: 0, maxRt: 0, lDown: false, rDown: false };
   // Calibration always plays engine-2 targets: true-angle hits and the calmer strafing target.
-  if (s.kind === 'flick') s.data = { list: [], cur: s.turn ? newTurnTarget(view, Math.random, 1, true) : newFlickTarget(view, Math.random, verticalSlot(0), 1 / (s.zoom || 1), true, styleRange().size), flash: null };
-  if (s.kind === 'track') s.data = makeTrack(s.warm, 1 / (s.zoom || 1), styleTrack());
+  if (s.kind === 'flick') {
+    s.data = { list: [], plan: s.turn ? null : flickPlan(Math.random, s.n, s.warm || 0, verticalSlot), flash: null };
+    s.data.cur = s.turn ? newTurnTarget(view, Math.random, 1, true) : flickTarget(s, s.data, 0);
+  }
+  if (s.kind === 'track') { s.data = makeTrack(s.warm, 1 / (s.zoom || 1), styleTrack()); s.data.script = trackScript(Math.random, (s.warm || 0) + s.dur, s.data.P); }
   // The fire press that started the round shouldn't start a burst; the first one waits for a fresh press.
   if (s.kind === 'recoil') { s.data = makeRecoil(); s.data.wait = true; }
   renderBrief(true);
@@ -783,7 +793,7 @@ function tickFlick(s, dt, fireEdge) {
   if (out === 'hit' || out === 'timeout') {
     F.list.push(F.cur);
     if (F.list.length >= s.n) return advance();
-    F.cur = s.turn ? newTurnTarget(view, Math.random, F.list.length % 2 ? -1 : 1, true) : newFlickTarget(view, Math.random, verticalSlot(F.list.length), 1 / (s.zoom || 1), true, styleRange().size);
+    F.cur = s.turn ? newTurnTarget(view, Math.random, F.list.length % 2 ? -1 : 1, true) : flickTarget(s, F, F.list.length);
   }
 }
 
