@@ -2215,7 +2215,8 @@ function endChallenge() {
   show('chend');
 }
 
-const shareLink = code => /\.github\.io$/.test(location.hostname) ? `${location.origin}${location.pathname}#${code}` : null;
+// Shared links point at the public site: the custom domain, or the github.io address before it.
+const shareLink = code => /(^|\.)dialedinaim\.com$|\.github\.io$/.test(location.hostname) ? `${location.origin}${location.pathname}#${code}` : null;
 
 function renderChalEnd() {
   const c = chal, { sum, best } = c.result, g = GAMES[c.game];
