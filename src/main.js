@@ -1211,7 +1211,6 @@ function renderResults() {
       <button class="btn" id="restart" type="button">Start over</button>
     </div>
     <pre id="copytext" hidden></pre>
-    ${tipHtml('Dialed in? If this helped, you can buy me a coffee.')}
     <p class="fine">Prototype. ${mouseGame ? 'Mouse turns use each game\'s published degrees per count (or your own cm/360), so they match the game closely; how a target feels to hit still differs from a real match.' : 'Turn speeds come from a simplified model of each game, so treat these numbers as a close starting point rather than an exact match.'}${sourceNote} Flick throughput combines speed and accuracy into one score (higher is better). Copy test data puts every measurement from this run on your clipboard, to paste back for tuning.</p>`;
 
   const du = $('#duel');
@@ -1246,7 +1245,6 @@ function renderResults() {
 // donation panel in a dialog, so nobody leaves the page. The panel loads only when opened.
 const TIP_URL = 'https://ko-fi.com/dialedinaim';
 const TIP_EMBED = TIP_URL + '/?hidefeed=true&widget=true&embed=true&preview=true';
-const tipHtml = text => `<div class="tip"><span>${text}</span><button class="btn small tip-open" type="button">☕ Donate</button></div>`;
 function openTip() {
   const dlg = $('#tip-dialog'), frame = $('#tip-frame');
   if (!frame.src) frame.src = TIP_EMBED;
@@ -2327,7 +2325,6 @@ function renderDuelEnd() {
       ${result ? '<button class="btn primary" id="duel-back" type="button">Back to your settings</button>' : ''}
       <button class="btn" id="ch-back" type="button">Back to setup</button>
     </div>
-    ${tipHtml('Dialed in? If this helped, you can buy me a coffee.')}
     <p class="fine">The verdict uses the same rule as Verify: speed and accuracy on every target, resampled by run, with a winner only at 90% odds and a 15% difference.</p>`;
   const db = $('#duel-back');
   if (db) db.addEventListener('click', () => { chal = null; show('results'); });
@@ -2437,7 +2434,6 @@ function renderChalEnd() {
       <button class="btn" id="ch-share" type="button">Copy result</button>
       <button class="btn" id="ch-back" type="button">Back to setup</button>
     </div>
-    ${tipHtml('Enjoying the daily range? You can buy me a coffee to keep it running.')}
     ${boardsOn() ? `<div class="board" id="board">
       <div style="display:grid;gap:4px"><h3 class="sub">Leaderboard · ${c.code}</h3>
         <p class="fine">You played with ${c.src === 'pad' ? 'a controller' : c.src === 'mouse' ? 'a mouse' : 'the on-screen stick'}, so your run goes on the <b>${INPUT_LABEL[c.src].toLowerCase()}</b> board and the combined one. The board is set by what you played with; the tabs below only change which board you're looking at. Every run is replayed on the server before it counts.</p></div>
