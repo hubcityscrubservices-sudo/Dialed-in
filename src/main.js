@@ -17,7 +17,18 @@ import { createMouse, CARD_CM, SWIPES, MIN_SWIPE, analyzeSwipes, resolveDpi, pol
 import { boardsOn, submitScore, fetchBoard, fetchAllTime, addTurnSample, fetchTurnSamples, playerId, savedName, saveName } from './leaderboard.js';
 
 const $ = s => document.querySelector(s);
-const QUICK = { flicks: 12, trackSeconds: 15 };
+// Calibration targets follow the play style: a closer fight means bigger targets that strafe across
+// the screen faster, and a different mix of flicks and tracking in the Quick test. Long range keeps
+// roughly the original sizes, slightly smaller. The challenge doesn't use these: it's the same mix
+// for everyone.
+const STYLE_RANGE = {
+  tracking: { size: 1.35, speed: 1.25, flicks: 10, track: 20 },
+  balanced: { size: 1.15, speed: 1.1, flicks: 12, track: 15 },
+  flick: { size: 0.9, speed: 0.85, flicks: 14, track: 10 }
+};
+const styleRange = () => STYLE_RANGE[cfg.style] || STYLE_RANGE.balanced;
+const styleTrack = () => { const R = styleRange(); return { ...TRACK_V2, lo: TRACK_V2.lo * R.speed, span: TRACK_V2.span * R.speed, size: R.size }; };
+const COUNT_WORDS = { 10: 'Ten', 12: 'Twelve', 14: 'Fourteen' };
 // Two of every five flick targets sit mostly above or below, to measure vertical aim.
 const verticalSlot = i => i % 5 === 1 || i % 5 === 3;
 const VERIFY = { flicks: 7, warmFlicks: 1, trackSeconds: 9, warmSeconds: 1.5 };
@@ -89,10 +100,10 @@ function quickSegments() {
   const s = settingsOf(cfg);
   return [
     ...checkSteps(),
-    { kind: 'flick', rail: 'flick', tag: 'quick', n: QUICK.flicks, warm: 0, settings: s, intro: true, title: 'Flick test',
-      text: `Twelve targets appear one at a time, some above or below you. Snap to each ${aimWith()}. Go at the speed you would in a real fight.` },
-    { kind: 'track', rail: 'track', tag: 'quick', dur: QUICK.trackSeconds, warm: 0, settings: s, intro: true, title: 'Tracking test',
-      text: 'Keep the crosshair on the strafing target for 15 seconds. No need to fire.' },
+    { kind: 'flick', rail: 'flick', tag: 'quick', n: styleRange().flicks, warm: 0, settings: s, intro: true, title: 'Flick test',
+      text: `${COUNT_WORDS[styleRange().flicks] || styleRange().flicks} targets appear one at a time, some above or below you. Snap to each ${aimWith()}. Go at the speed you would in a real fight.` },
+    { kind: 'track', rail: 'track', tag: 'quick', dur: styleRange().track, warm: 0, settings: s, intro: true, title: 'Tracking test',
+      text: `Keep the crosshair on the strafing target for ${styleRange().track} seconds. No need to fire.` },
     ...turnSegments(),
     ...adsSegments(),
     { kind: 'analyze' }
@@ -365,8 +376,8 @@ function startRun(s) {
   if (s.kind === 'mcheck') { mouse.takeSwipes(); mouse.takeGaps(); s.data = { swipes: [], gaps: [], short: 0 }; }
   if (s.kind === 'drift') s.data = { part: 'rest', t: 0, r: 0, l: 0, lt: 0, rt: 0, warn: 0, reachR: emptyReach(), reachL: emptyReach(), maxLt: 0, maxRt: 0, lDown: false, rDown: false };
   // Calibration always plays engine-2 targets: true-angle hits and the calmer strafing target.
-  if (s.kind === 'flick') s.data = { list: [], cur: s.turn ? newTurnTarget(view, Math.random, 1, true) : newFlickTarget(view, Math.random, verticalSlot(0), 1 / (s.zoom || 1), true), flash: null };
-  if (s.kind === 'track') s.data = makeTrack(s.warm, 1 / (s.zoom || 1), TRACK_V2);
+  if (s.kind === 'flick') s.data = { list: [], cur: s.turn ? newTurnTarget(view, Math.random, 1, true) : newFlickTarget(view, Math.random, verticalSlot(0), 1 / (s.zoom || 1), true, styleRange().size), flash: null };
+  if (s.kind === 'track') s.data = makeTrack(s.warm, 1 / (s.zoom || 1), styleTrack());
   renderBrief(true);
 }
 function stop() {
@@ -553,7 +564,7 @@ function tickFlick(s, dt, fireEdge) {
   if (out === 'hit' || out === 'timeout') {
     F.list.push(F.cur);
     if (F.list.length >= s.n) return advance();
-    F.cur = s.turn ? newTurnTarget(view, Math.random, F.list.length % 2 ? -1 : 1, true) : newFlickTarget(view, Math.random, verticalSlot(F.list.length), 1 / (s.zoom || 1), true);
+    F.cur = s.turn ? newTurnTarget(view, Math.random, F.list.length % 2 ? -1 : 1, true) : newFlickTarget(view, Math.random, verticalSlot(F.list.length), 1 / (s.zoom || 1), true, styleRange().size);
   }
 }
 

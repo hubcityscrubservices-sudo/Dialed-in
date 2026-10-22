@@ -129,8 +129,9 @@ export function steerMouse(view, input, settings, game, dt) {
 // on whichever side has room. The rest sit left or right, up to 50 degrees off horizontal, so the
 // two groups never overlap when vertical aim is scored separately.
 // `scale` shrinks distance and size for aiming down sights at range (1 / zoom).
-// `trueAngle` = use the true-angle hit test (engine 2).
-export function newFlickTarget(view, rng = Math.random, vertical = false, scale = 1, trueAngle = false) {
+// `trueAngle` = use the true-angle hit test (engine 2). `size` scales the target's radius only (the
+// calibration's play styles: closer enemies look bigger); the challenge always uses 1.
+export function newFlickTarget(view, rng = Math.random, vertical = false, scale = 1, trueAngle = false, size = 1) {
   let yaw, pitch;
   if (vertical) {
     const up = view.pitch > 5 ? false : view.pitch < -5 ? true : rng() < 0.5;
@@ -149,7 +150,7 @@ export function newFlickTarget(view, rng = Math.random, vertical = false, scale 
     pitch = clamp(view.pitch + dp, -30, 30);
   }
   const dy = yaw - view.yaw, dp = pitch - view.pitch, D = Math.hypot(dy, dp);
-  const r = (1.8 + rng() * 1.2) * scale;
+  const r = (1.8 + rng() * 1.2) * scale * size;
   return {
     yaw, pitch, r, W: 2 * r, D, sy: view.yaw, sp: view.pitch, ux: dy / D, uy: dp / D, ang: trueAngle,
     maxProj: 0, segs: 0, active: false, shots: 0, t: 0, hit: false, overshoot: false, first: null
@@ -216,11 +217,12 @@ function finish(T, view, why) {
 // `scale` (1 / zoom) shrinks the target and its movement for aiming down sights at range.
 // Strafing target movement. V1 is the original (fast, frequent random reversals); V2 is calmer, about
 // a 4 m/s strafer at 6-25 m, reversing on about a third of its changes, and uses the true-angle test.
+// A params object may also carry `size` (radius multiplier) for the calibration's play styles.
 export const TRACK_V1 = { lo: 18, span: 50, segLo: 0.6, segSpan: 1.1, rev: null, ang: false };
 export const TRACK_V2 = { lo: 10, span: 30, segLo: 0.8, segSpan: 1.2, rev: 0.35, ang: true };
 export function makeTrack(warm = 0, scale = 1, P = TRACK_V1) {
   return {
-    t: 0, warm, scale, P, r: 2.6 * scale, T: 0, errSum: 0, chunks: [], chunk: { sum: 0, time: 0 },
+    t: 0, warm, scale, P, r: 2.6 * scale * (P.size ?? 1), T: 0, errSum: 0, chunks: [], chunk: { sum: 0, time: 0 },
     on: 0, behind: 0, ahead: 0, near: 0, rev: 0, tRev: 0, last: 0,
     tgt: { yaw: 0, pitch: 0, v: 0, goal: 0, next: 0.4, on: false }
   };

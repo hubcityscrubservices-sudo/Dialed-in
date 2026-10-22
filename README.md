@@ -95,6 +95,14 @@ of rates). The turn drill, ADS rounds and curve/vertical screening are controlle
   aren't exactly 60 Hz, and a quick tap of fire between steps still counts. Drawing only; replays are unchanged.
 - The third-person character is drawn see-through so it can't hide a target.
 
+## Play styles
+
+The play style (Close range / Balanced / Long range) weights flicks against tracking when the
+results are judged (35/65, 50/50, 65/35), and it also shapes the calibration targets
+(src/main.js `STYLE_RANGE`): close range has targets 35% bigger whose strafing is 25% faster, with
+10 flicks and 20 s of tracking in Quick; balanced 15% bigger and 10% faster (12 flicks, 15 s); long
+range 10% smaller and 15% slower (14 flicks, 10 s). The challenge is the same mix for everyone.
+
 ## Aim assist and challenge rules (version 2)
 
 Console games aim with assist on, so the range does too (src/sim.js `assistTurn`): inside a window of
