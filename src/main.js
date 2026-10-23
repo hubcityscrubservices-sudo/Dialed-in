@@ -1496,7 +1496,6 @@ function syncSetup() {
   if (!g.ads) notes.push('ADS is tested at a zoom-matched speed and suggested as a relative change.');
   if (g.source === 'guides') notes.push('Menu names come from player guides and still need checking against the game.');
   $('#game-note').textContent = notes.join(' ');
-  if (cfg.mode === 'full') $('#route-more').open = true;
   for (const name of ['style', 'mode']) {
     const radio = document.querySelector(`input[name="${name}"][value="${cfg[name]}"]`);
     if (radio) radio.checked = true;
