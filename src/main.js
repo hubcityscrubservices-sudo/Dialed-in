@@ -839,7 +839,8 @@ function show(name) {
   document.body.classList.toggle('vpad-on', inp.src === 'virtual' && !isMouse());
   if (name !== 'test' && document.fullscreenElement) document.exitFullscreen().catch(() => {});
   // The step rail belongs to calibration; the warm-up challenge hides it.
-  $('#steps').hidden = !!chal;
+  $('#steps').hidden = !!chal || name === 'setup';
+  document.body.classList.toggle('on-setup', name === 'setup');
   if (!chal) renderRail();
   if (name === 'setup') { renderWarmBests(); showLeader(); }
   else $('#p-leader').hidden = true;
@@ -1276,6 +1277,8 @@ function openTip() {
   if (dlg.showModal) dlg.showModal(); else window.open(TIP_URL, '_blank', 'noopener');
 }
 document.addEventListener('click', e => { if (e.target.closest('.tip-open')) openTip(); });
+// The gear badge opens the controller check on the setup screen, where the side panels are tucked away.
+$('#pill').addEventListener('click', () => { document.body.classList.toggle('show-gear'); });
 $('#tip-close').addEventListener('click', () => $('#tip-dialog').close());
 $('#tip-dialog').addEventListener('click', e => { if (e.target === e.currentTarget) e.currentTarget.close(); });
 
@@ -1439,10 +1442,7 @@ function syncSetup() {
   for (const [v, label] of opts) { const o = document.createElement('option'); o.value = v; o.textContent = label; aaSel.append(o); }
   if (!opts.some(([v]) => v === cfg.aa)) cfg.aa = 1;
   aaSel.value = String(cfg.aa);
-  $('#aa-help').textContent = (opts.length === 2
-    ? `On or off, as in ${g.name === 'your game' ? 'your game' : g.name}. On slows your aim over targets and helps follow moving ones. `
-    : 'As set in your game. It slows your aim over targets and helps follow moving ones. ')
-    + 'No game publishes its strength, so the range uses an estimate. Challenge runs always have it on.';
+  $('#aa-help').textContent = opts.length === 2 ? `On or off, as in ${g.name === 'your game' ? 'your game' : g.name}.` : 'As set in your game.';
   // Fine-tune holds whatever optional settings this game has; with none (a mouse game with a fixed
   // field of view) it isn't shown at all.
   const tune = [!mouseGame && 'turn speed check', !mouseGame && 'deadzone', !g.fov.fixed && 'field of view',
@@ -1487,7 +1487,7 @@ function syncSetup() {
   $('#sens-range').textContent = mouseGame
     ? `Enter the value from your game's mouse settings.${g.yaw ? '' : ' The range uses it with the distance below.'}`
     : g.sens.defKnown === false
-    ? `${g.sens.min} to ${g.sens.max}. Enter the value from your controller menu.`
+    ? `${g.sens.min} to ${g.sens.max}, from your controller menu.`
     : `${g.sens.min} to ${g.sens.max}. Default is ${g.sens.def}. Not sure? Leave the default.`;
   const vf = $('#vsens-field');
   vf.hidden = !g.vsens;
@@ -1497,7 +1497,7 @@ function syncSetup() {
     vs.min = g.vsens.min; vs.max = g.vsens.max; vs.step = g.vsens.step;
     vs.value = cfg.vsens;
     $('#vsens-range').textContent = g.vsens.defKnown === false
-      ? `${g.vsens.min} to ${g.vsens.max}. Enter the value from your controller menu.`
+      ? `${g.vsens.min} to ${g.vsens.max}, from your controller menu.`
       : `${g.vsens.min} to ${g.vsens.max}. Default is ${g.vsens.def}.`;
   }
   const F = g.fov, ff = $('#fov-field');
@@ -2662,18 +2662,22 @@ async function showAllTimeStanding(c, score, status) {
 // The setup screen's leaderboard: today's daily range or all time, on the tabs last picked.
 let leaderTab = 'all', leaderPeriod = 'today';
 const fmtDay = d => new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+let leaderOpen = false;
 function showLeader() {
   const root = $('#p-leader');
-  root.hidden = !boardsOn();
+  root.hidden = !boardsOn() || !leaderOpen;
+  $('#leader-toggle').hidden = !boardsOn();
+  $('#leader-toggle').setAttribute('aria-expanded', String(leaderOpen));
   if (root.hidden) return;
   const ever = leaderPeriod === 'ever';
-  $('#leader-title').textContent = ever ? 'All time' : `Today's daily range · ${dailyCode().slice(2)}`;
+  $('#leader-title').textContent = ever ? 'All time' : `Today's daily challenge · ${dailyCode().slice(2)}`;
   $('#leader-note').textContent = ever
-    ? `Each player's best daily range score ever, one row per player and input. Daily targets change every day but are built the same way, so scores compare fairly. It counts dailies from ${fmtDay(V3_FROM)}, when the current rules began (hold fire on moving targets); ${dailyCode() < 'd-' + V3_FROM ? "today's daily is on the old rules, so it shows under Today only" : 'earlier ones played differently'}. Practice runs don't count.`
-    : 'Play the daily range above and press Submit score on the results screen to get on it. Practice runs get a fresh code each time, so their boards are only shared by passing the code along.';
+    ? `Each player's best daily challenge score ever, one row per player and input. Daily targets change every day but are built the same way, so scores compare fairly. It counts dailies from ${fmtDay(V3_FROM)}, when the current rules began (hold fire on moving targets); ${dailyCode() < 'd-' + V3_FROM ? "today's daily is on the old rules, so it shows under Today only" : 'earlier ones played differently'}. Practice runs don't count.`
+    : 'Play today\'s challenge and post your score from the results screen to get on it.';
   root.querySelectorAll('[data-period]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.period === leaderPeriod)));
   loadBoard(ever ? ALL_TIME : dailyCode(), leaderTab, root);
 }
+$('#leader-toggle').addEventListener('click', () => { leaderOpen = !leaderOpen; showLeader(); if (leaderOpen) $('#p-leader').scrollIntoView({ behavior: 'smooth', block: 'start' }); });
 $('#p-leader').querySelectorAll('.board-tabs [data-board]').forEach(b => b.addEventListener('click', () => { leaderTab = b.dataset.board; showLeader(); }));
 $('#p-leader').querySelectorAll('[data-period]').forEach(b => b.addEventListener('click', () => { leaderPeriod = b.dataset.period; showLeader(); }));
 
