@@ -328,7 +328,13 @@ pre#copytext { font: 12px/1.5 var(--mono); background: rgba(8, 16, 23, 0.6); bor
 .hints { margin: 0; padding-left: 20px; display: grid; gap: 8px; font-size: 14.5px; }
 .hints li::marker { color: var(--ember); content: "▸  "; }
 .board { display: grid; gap: 12px; }
-.board input { width: 22ch; max-width: 100%; }
+.board input, .post-score input { width: 22ch; max-width: 100%; }
+/* Posting a challenge score: right under the score, so it's the obvious next step. */
+.post-score { display: grid; gap: 10px; padding: 16px 18px; border: 1px solid var(--ember); background: rgba(255, 94, 58, 0.08); }
+.post-head { display: grid; gap: 4px; }
+.post-head a { color: var(--sun); }
+.post-head b { font: 700 18px var(--display); text-transform: uppercase; letter-spacing: .04em; }
+.post-score .actions { margin: 0; }
 
 .sub { font-size: 22px; text-transform: uppercase; letter-spacing: .03em; }
 

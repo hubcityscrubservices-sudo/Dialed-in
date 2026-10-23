@@ -2411,6 +2411,16 @@ function renderChalEnd() {
       <p class="lede">${best.prev == null ? 'Your first score on this ' + (c.kind === 'practice' ? 'practice board.' : 'challenge.')
         : best.isBest ? `Up from ${best.prev.toLocaleString('en-US')}.` : `Your best here is ${best.prev.toLocaleString('en-US')}.`}</p>
     </div>
+    ${boardsOn() ? `<div class="post-score" id="post-score">
+      <div class="post-head"><b>Post ${sum.score.toLocaleString('en-US')} to the ${c.kind === 'daily' ? "daily" : 'practice'} leaderboard</b>
+        <span class="fine">Your run is replayed on the server to check it, then goes on the ${INPUT_LABEL[c.src].toLowerCase()} board. <a href="#board">See the board</a></span></div>
+      <div class="actions">
+        <label for="board-name" class="sr-only">Name on the leaderboard</label>
+        <input id="board-name" type="text" maxlength="20" autocomplete="nickname" placeholder="Your name" value="">
+        <button class="btn primary" id="board-submit" type="button">Post my score</button>
+      </div>
+      <p class="hint" id="board-status" role="status"></p>
+    </div>` : ''}
     ${medalHtml(sum.score, c.src === 'mouse')}
     <div class="ch-stats">
       ${stat('Accuracy', pct(sum.accuracy))}
@@ -2440,12 +2450,6 @@ function renderChalEnd() {
         ${['all', 'pad', 'mouse', ...(c.src === 'virtual' ? ['virtual'] : [])].map(k =>
           `<button type="button" role="tab" data-board="${k}" aria-selected="${k === c.src}">${k === 'all' ? 'All inputs' : INPUT_LABEL[k]}${k === c.src ? ' (yours)' : ''}</button>`).join('')}
       </div>
-      <div class="actions">
-        <label for="board-name" class="sr-only">Name on the leaderboard</label>
-        <input id="board-name" type="text" maxlength="20" autocomplete="nickname" placeholder="Your name" value="">
-        <button class="btn primary" id="board-submit" type="button">Submit score</button>
-      </div>
-      <p class="hint" id="board-status" role="status"></p>
       <div class="table-wrap board-table"><p class="fine">Loading the board…</p></div>
     </div>` : '<p class="fine">Scores are kept in this browser for now. Every run is recorded so its score can be checked once leaderboards open.</p>'}`;
   $('#ch-again').addEventListener('click', () => startChallenge(c.kind === 'practice' ? practiceCode(Math.random, c.code[0]) : c.code, c.kind));
@@ -2569,6 +2573,7 @@ function wireBoard(c, sum) {
   let shown = c.src;
   const root = $('#board');
   loadBoard(c.code, shown, root);
+  nameEl.addEventListener('keydown', e => { if (e.key === 'Enter') $('#board-submit').click(); });
   root.querySelectorAll('.board-tabs [data-board]').forEach(b => b.addEventListener('click', () => { shown = b.dataset.board; loadBoard(c.code, shown, root); }));
   $('#board-submit').addEventListener('click', async e => {
     const btn = e.currentTarget, status = $('#board-status');
@@ -2589,7 +2594,8 @@ function wireBoard(c, sum) {
       status.textContent = res.saved
         ? `Verified and saved. You're ${where}.`
         : `Verified. Your best here is still ${res.best.toLocaleString('en-US')}: ${where}.`;
-      btn.textContent = 'Submitted';
+      btn.textContent = 'Posted';
+      logEvent('submit');
       loadBoard(c.code, shown, root);
       showAllTimeStanding(c, sum.score, status);
     } catch (err) {
