@@ -253,6 +253,18 @@ reshapes the curve everywhere the range plays, the daily challenge included (the
 server accepts it in that range). Full push stays full speed. Like the turn speed check, it changes
 how faithful the range is, not what it recommends.
 
+## Fine aim
+
+Every controller route (after tracking in Quick and Verify, after the blind screening in Deep and Full)
+plays 13 small targets just off the crosshair: 1-4° away, radius 0.5-1.0°, one from each distance and size
+layer, the first a warm-up (sim.js finePlan). Small nudges use the first part of the stick's travel, where
+response curves differ; in simulation the drill showed a curve change about 50x more clearly than the long
+flicks (signal to noise 2.1 vs 0.04) and deadzone changes somewhat more clearly. Its result decides the curve
+suggestion (analysis.js fineStats, recommend): going past at least 35% of the small targets (more often than
+stopping short) means a softer center, stopping short on 40% or more means a quicker one, and otherwise the
+current curve is kept. Stopping short also backs up a smaller deadzone when the drift check allows one. The
+results table shows its settle time and both rates. In Deep and Full the blind curve screening still has the final say.
+
 ## Recoil check
 
 Optional, controller only, about a minute (src/recoil.js). Aimed in at the game's first zoom with the

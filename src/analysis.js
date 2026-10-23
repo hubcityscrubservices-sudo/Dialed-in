@@ -67,6 +67,21 @@ export function summarize(flicks, track) {
   };
 }
 
+// Fine-aim round: settle time (the crosshair's final entry onto the target), went past it (further than
+// its radius beyond the centre along the way), and stopped short (missed, or three or more separate pushes).
+export function fineStats(trials) {
+  if (!trials || trials.length < 4) return null;
+  const n = trials.length, hits = trials.filter(t => t.hit && t.lastIn != null);
+  const over = trials.filter(t => t.maxProj - t.D > t.r).length / n;
+  return {
+    n, over,
+    under: trials.filter(t => !(t.maxProj - t.D > t.r) && (!t.hit || t.segs >= 3)).length / n,
+    settle: hits.length ? mean(hits.map(t => t.lastIn)) : null,
+    misses: mean(trials.map(t => Math.max(0, (t.shots || 0) - (t.hit ? 1 : 0))))
+  };
+}
+export const FINE = { over: 0.35, under: 0.4 };
+
 // c = { game, style, sens, curve, dz }. drift = { r, l, rec } or null.
 // Relative speed change the test results point to (+0.1 = 10% faster), weighted by playstyle.
 // Small signals round to zero so noise doesn't move a setting.
@@ -78,7 +93,9 @@ export function speedAdjust(s, style) {
   return Math.abs(adj) < 0.04 ? 0 : adj;
 }
 
-export function recommend(s, c, drift) {
+// fine = fineStats of the fine-aim drill, or null. When present it decides the curve: small nudges use the
+// first part of the stick's travel, where curves differ; the long flicks barely touch it.
+export function recommend(s, c, drift, fine = null) {
   const g = GAMES[c.game];
   const adj = speedAdjust(s, c.style);
   let sens = c.sens;
@@ -108,6 +125,12 @@ export function recommend(s, c, drift) {
     curve = 'linear';
     curveWhy = 'Your aim got moving late on small stick pushes. A linear curve responds sooner.';
   }
+  if (fine) {
+    const fineSays = `In the fine-aim test you went past ${pct(fine.over)} of the small targets and stopped short on ${pct(fine.under)}.`;
+    if (fine.over >= FINE.over && fine.over > fine.under) { curve = 'expo'; curveWhy = fineSays + ' Small nudges moved too far, so a curve with a softer center gives finer control.'; }
+    else if (fine.under >= FINE.under) { curve = 'linear'; curveWhy = fineSays + ' Small nudges barely moved the aim, so a curve that responds sooner near center helps.'; }
+    else if (curve === c.curve || curveWhy === keepWhy) { curve = c.curve; curveWhy = fineSays + ' Your small nudges landed well, so keep your current curve.'; }
+  }
   if (curve === c.curve && curveWhy !== keepWhy) {
     curveWhy += ` Your current ${g.curve[c.curve]} curve already does that, so keep it.`;
   }
@@ -124,7 +147,8 @@ export function recommend(s, c, drift) {
     : drift.r > 0.2
       ? `Your right stick drifts up to ${drift.r.toFixed(2)} at rest. That is high and the stick may be worn. This deadzone hides the drift but costs some fine control.`
       : `Your right stick drifts up to ${drift.r.toFixed(2)} at rest. This is the smallest deadzone that hides it, so small stick movements still register.`;
-  return { sens, curve, dz, sensWhy, curveWhy, dzWhy, dzMeasured: !!drift };
+  const dzMore = fine && dz < c.dz && fine.under >= FINE.under ? ' Your small nudges were slow to start in the fine-aim test, another sign the deadzone is bigger than you need.' : '';
+  return { sens, curve, dz, sensWhy, curveWhy, dzWhy: dzWhy + dzMore, dzMeasured: !!drift };
 }
 
 // A flick counts as vertical when most of its travel is up or down.

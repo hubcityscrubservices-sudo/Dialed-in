@@ -61,3 +61,29 @@ test('round scores use the new flick measures when every round has them', () => 
   const ys = roundScores([{ flicks: trials(0.7, 31), chunks: [2] }, { flicks: trials(0.95, 45), chunks: [2] }], w);
   assert.ok(ys[0] > ys[1], JSON.stringify(ys));
 });
+
+test('fine aim: small targets just off the crosshair, one from each distance and size layer', async () => {
+  const { finePlan, FINE_PLAN } = await import('../src/sim.js');
+  const plan = finePlan(mulberry32(3), 13, 1);
+  assert.equal(plan.length, 13);
+  assert.equal(plan[0].bands[0][0], FINE_PLAN.warm.d);
+  const ds = plan.slice(1).map(p => p.bands[0][0]).sort((a, b) => a - b), w = (FINE_PLAN.d[1] - FINE_PLAN.d[0]) / 12;
+  ds.forEach((d, i) => assert.ok(d >= FINE_PLAN.d[0] + w * i - 1e-9 && d <= FINE_PLAN.d[0] + w * (i + 1) + 1e-9));
+  assert.ok(plan.every(p => p.r[0] >= 0.5 && p.r[0] <= 1));
+});
+
+test('fine aim decides the curve: going past small targets softens it, stopping short quickens it', async () => {
+  const { fineStats, recommend, summarize } = await import('../src/analysis.js');
+  const T = o => ({ D: 2, r: 0.7, W: 1.4, t: 0.6, hit: true, shots: 1, lastIn: 0.5, segs: 1, maxProj: 2.2, path: 2.1, ...o });
+  const past = fineStats(Array.from({ length: 12 }, (_, i) => T(i < 6 ? { maxProj: 3.5 } : {})));
+  const short = fineStats(Array.from({ length: 12 }, (_, i) => T(i < 6 ? { segs: 4 } : {})));
+  const clean = fineStats(Array.from({ length: 12 }, () => T()));
+  assert.ok(past.over === 0.5 && short.under === 0.5 && clean.over === 0 && clean.under === 0);
+  const s = summarize([], { T: 0, on: 0, behind: 0, ahead: 0 });
+  const c = { game: 'arc', style: 'balanced', sens: 80, curve: 'mid', dz: 0.05 };
+  assert.equal(recommend(s, c, null, past).curve, 'expo');
+  assert.equal(recommend(s, c, null, short).curve, 'linear');
+  const keep = recommend(s, c, null, clean);
+  assert.equal(keep.curve, 'mid');
+  assert.match(keep.curveWhy, /fine-aim test/);
+});

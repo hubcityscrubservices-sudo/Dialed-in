@@ -1,7 +1,7 @@
 import { GAMES, PLAYSTYLES, gameTitle, extraSetting, adsSpecs, fmtAds, codFromOld } from './games.js';
 import { makeCamera, hfov169 } from './camera.js';
-import { makeView, steer, newFlickTarget, flickStep, makeTrack, trackStep, newTurnTarget, turnStep, trackAim, TRACK_V2, CURVE_K, trackScript, flickPlan } from './sim.js';
-import { summarize, recommend, recommendVertical, recommendAds, turnStats, recommendTurn, driftDeadzone, settingsChanged } from './analysis.js';
+import { makeView, steer, newFlickTarget, flickStep, makeTrack, trackStep, newTurnTarget, turnStep, trackAim, TRACK_V2, CURVE_K, trackScript, flickPlan, finePlan } from './sim.js';
+import { fineStats, summarize, recommend, recommendVertical, recommendAds, turnStats, recommendTurn, driftDeadzone, settingsChanged } from './analysis.js';
 import { verifyPlan, verifyCompare, ratingSummary, sideOf } from './verify.js';
 import { DEEP, SCREEN, MORE, FEEL, deepNext, deepAnalyze, feelPoint, shuffled, morePlan, screenPlan, altCurve, screenAnalyze } from './deep.js';
 import { emptyReach, recordReach, coverage, stickReport, outerFromReach, hardwareRecs } from './hardware.js';
@@ -32,14 +32,14 @@ const styleRange = () => STYLE_RANGE[cfg.style] || STYLE_RANGE.balanced;
 // down movement, and 15% smaller than the play style's base size, so settings separate more clearly.
 const styleTrack = () => { const R = styleRange(); return { ...TRACK_V2, lo: TRACK_V2.lo * R.speed, span: TRACK_V2.span * R.speed, size: R.size * 0.85, accel: 7, vAmp: 4.5, vFreq: 1.6 }; };
 // Each flick round's targets: the same layered mix of distances and sizes every round (sim.js flickPlan).
-const flickTarget = (s, F, k) => newFlickTarget(view, Math.random, verticalSlot(k), 1 / (s.zoom || 1), true, styleRange().size, F.plan[k]);
+const flickTarget = (s, F, k) => newFlickTarget(view, Math.random, verticalSlot(k), 1 / (s.zoom || 1), true, s.fine ? 1 : styleRange().size, F.plan[k]);
 const COUNT_WORDS = { 10: 'Ten', 12: 'Twelve', 14: 'Fourteen' };
 // Two of every five flick targets sit mostly above or below, to measure vertical aim.
 const verticalSlot = i => i % 5 === 1 || i % 5 === 3;
 const VERIFY = { flicks: 7, warmFlicks: 1, trackSeconds: 9, warmSeconds: 1.5 };
 const DEEP_ROUND = { flicks: 8, warmFlicks: 1, trackSeconds: 8, warmSeconds: 1.5 };
 const DRIFT_SECONDS = 4, ROLL_SECONDS = 10, SQUEEZE_SECONDS = 8;
-const RAIL = { curve: 'Curve feel', recoil: 'Recoil', setup: 'Setup', drift: 'Sticks', flick: 'Flicks', track: 'Tracking', deep: 'Search', screen: 'Screen', turn: 'Turns', ads: 'ADS', verify: 'Verify', results: 'Results' };
+const RAIL = { curve: 'Curve feel', recoil: 'Recoil', fine: 'Fine aim', setup: 'Setup', drift: 'Sticks', flick: 'Flicks', track: 'Tracking', deep: 'Search', screen: 'Screen', turn: 'Turns', ads: 'ADS', verify: 'Verify', results: 'Results' };
 const ADS = { flicks: 8, seconds: 8, scopedFlicks: 6, scopedSeconds: 6 };
 const TURNS = 6;
 // How a round's speed felt, -2 (way too slow) to +2 (way too fast). Deep mode finds where the ratings
@@ -115,6 +115,12 @@ const checkedDz = () => session.drift ? session.drift.rec : cfg.dz;
 const outerFor = check => check && check.reachR && extraSetting(game(), 'outer') ? outerFromReach(check.reachR.minReach) : 1;
 const checkedOuter = () => outerFor(session.drift);
 
+// Fine aim (controller only): small targets just off the crosshair. Its result decides the curve suggestion.
+const FINE_N = 12;
+const fineSeg = () => ({ kind: 'flick', rail: 'fine', fine: true, n: FINE_N + 1, warm: 1, settings: settingsOf(cfg), intro: true, title: 'Fine aim',
+  text: `${FINE_N + 1} small targets (the first is a warm-up) appear just off your crosshair. Nudge onto each one and fire. This shows how your curve and deadzone handle small adjustments.` });
+const fineOf = segs => { const f = segs.find(x => x.fine && x.data); return f ? fineStats(f.data.list.slice(f.warm)) : null; };
+
 function quickSegments() {
   const s = settingsOf(cfg);
   return [
@@ -123,6 +129,7 @@ function quickSegments() {
       text: `${COUNT_WORDS[styleRange().flicks] || styleRange().flicks} targets appear one at a time, some above or below you. Snap to each ${aimWith()}. Go at the speed you would in a real fight.` },
     { kind: 'track', rail: 'track', tag: 'quick', dur: styleRange().track, warm: 0, settings: s, intro: true, title: 'Tracking test',
       text: `Keep the crosshair on the strafing target for ${styleRange().track} seconds. No need to fire.` },
+    ...(isMouse() ? [] : [fineSeg()]),
     ...turnSegments(),
     ...adsSegments(),
     ...(isMouse() ? [] : [recoilSeg()]),
@@ -252,7 +259,7 @@ function deepStep() {
     if (D.more) { session.segs.push({ kind: 'deepDone' }); return advance(); }
     const best = D.res && D.res.verdict !== 'flat' ? D.res.best.sens : cfg.sens;
     // Curve and vertical speed screening is about stick shaping; a mouse skips it.
-    session.segs.push(...(isMouse() ? [] : screenSegments(D, best)), ...(D.full ? turnSegments(FULL.turns) : turnSegments()), ...adsSegments(D.full ? FULL.adsScale : 1),
+    session.segs.push(...(isMouse() ? [] : [...screenSegments(D, best), fineSeg()]), ...(D.full ? turnSegments(FULL.turns) : turnSegments()), ...adsSegments(D.full ? FULL.adsScale : 1),
       ...(isMouse() ? [] : [recoilSeg()]), { kind: 'deepDone' });
     return advance();
   }
@@ -501,7 +508,8 @@ function deepDone() {
   const base = now.filter(h => h.sens === c.sens);
   const from = base.length ? base : now;
   const stats = summarize(from.flatMap(h => h.flicks), from[0].track);
-  const rec = withHardware(recommend(stats, c, session.drift), session.drift);
+  stats.fine = fineOf(session.segs);
+  const rec = withHardware(recommend(stats, c, session.drift, stats.fine), session.drift);
   if (res) Object.assign(rec, deepPick(res, D.feel, c));
   // Every round scales vertical with horizontal, so the up/down vs side-to-side comparison holds across all of them.
   Object.assign(rec, verticalRec(now.flatMap(h => h.flicks), c, rec.sens));
@@ -586,7 +594,7 @@ function startRun(s) {
   if (s.kind === 'drift') s.data = { part: 'rest', t: 0, r: 0, l: 0, lt: 0, rt: 0, warn: 0, reachR: emptyReach(), reachL: emptyReach(), maxLt: 0, maxRt: 0, lDown: false, rDown: false };
   // Calibration always plays engine-2 targets: true-angle hits and the calmer strafing target.
   if (s.kind === 'flick') {
-    s.data = { list: [], plan: s.turn ? null : flickPlan(Math.random, s.n, s.warm || 0, verticalSlot), flash: null };
+    s.data = { list: [], plan: s.turn ? null : s.fine ? finePlan(Math.random, s.n, s.warm || 0) : flickPlan(Math.random, s.n, s.warm || 0, verticalSlot), flash: null };
     s.data.cur = s.turn ? newTurnTarget(view, Math.random, 1, true) : flickTarget(s, s.data, 0);
   }
   if (s.kind === 'track') { s.data = makeTrack(s.warm, 1 / (s.zoom || 1), styleTrack()); s.data.script = trackScript(Math.random, (s.warm || 0) + s.dur, s.data.P); }
@@ -617,7 +625,8 @@ function analyze() {
   const tr = session.segs.find(x => x.kind === 'track' && x.tag === 'quick').data;
   const c = { ...cfg };
   const stats = summarize(fl, tr);
-  const rec = withHardware(recommend(stats, c, session.drift), session.drift);
+  stats.fine = fineOf(session.segs);
+  const rec = withHardware(recommend(stats, c, session.drift, stats.fine), session.drift);
   Object.assign(rec, verticalRec(fl, c, rec.sens));
   rec.ads = adsRecs(c, rec.sens);
   rec.turn = turnRec(c);
@@ -832,10 +841,10 @@ function railKeys() {
   if (session && session.curveCheck) return ['setup', 'curve'];
   if (session && session.recoilCheck) return ['setup', 'recoil'];
   const deep = !!((session && session.deep) || (result && result.deep) || (!session && !result && deepMode(cfg.mode)));
-  let keys = deep ? ['setup', 'drift', 'deep', 'screen', 'turn', 'ads'] : ['setup', 'drift', 'flick', 'track', 'turn', 'ads'];
+  let keys = deep ? ['setup', 'drift', 'deep', 'screen', 'fine', 'turn', 'ads'] : ['setup', 'drift', 'flick', 'track', 'fine', 'turn', 'ads'];
   if (!isMouse()) keys.push('recoil');
   // Mouse sessions have no screening, turn drill or ADS rounds, and skip the check once DPI is measured.
-  if (isMouse()) keys = keys.filter(k => !['screen', 'turn', 'ads'].includes(k) && (k !== 'drift' || !(mouseCheck && mouseCheck.cpcm) || (session && session.segs.some(x => x.kind === 'mcheck'))));
+  if (isMouse()) keys = keys.filter(k => !['screen', 'fine', 'turn', 'ads'].includes(k) && (k !== 'drift' || !(mouseCheck && mouseCheck.cpcm) || (session && session.segs.some(x => x.kind === 'mcheck'))));
   const verifying = (cfg.mode === 'verify' && !deep) || (result && result.verify) || (session && session.segs.some(s => s.rail === 'verify'));
   if (verifying) keys.push('verify');
   keys.push('results');
@@ -1146,6 +1155,10 @@ function renderResults() {
     ['Trailing the target', pct(s.behind)],
     ['Ahead of the target', pct(s.ahead)],
     ['Extra corrections', s.jitter.toFixed(1) + '/s'],
+    ...(s.fine ? [
+      ['Fine aim: time to settle', s.fine.settle == null ? '–' : s.fine.settle.toFixed(2) + ' s'],
+      ['Fine aim: went past', pct(s.fine.over)],
+      ['Fine aim: stopped short', pct(s.fine.under)]] : []),
     ...(r.turn && r.turn.stats ? [
       ['Big turn time, per 180°', r.turn.stats.per180 == null ? '–' : r.turn.stats.per180.toFixed(2) + ' s'],
       ['Full stick during big turns', pct(r.turn.stats.fullShare)],
