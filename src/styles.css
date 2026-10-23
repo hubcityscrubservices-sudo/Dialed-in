@@ -477,3 +477,4 @@ body.on-setup .main-col { max-width: 920px; width: 100%; margin-inline: auto; }
 .more-play summary::-webkit-details-marker { display: none; }
 .more-play summary::before { content: '▸'; }
 .more-play[open] summary::before { content: '▾'; }
+.style-opt .rec-badge { justify-self: start; font: 700 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: #0b1118; background: var(--sun); padding: 3px 7px; margin-top: 2px; opacity: 1; }

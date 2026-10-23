@@ -51,6 +51,13 @@ const RATINGS = [
   { v: 1, label: 'A bit fast', key: 'dr', glyph: 'D-pad →' },
   { v: 2, label: 'Way too fast', key: 'rb', glyph: 'R1' }
 ];
+// First calibration: Verify is recommended (settings in about 6 minutes, checked blind). Once someone has
+// finished one, the Full dial-in is: the most precise answer, for people already invested. The recommended
+// route is preselected until the player picks one themselves.
+const DONE_KEY = 'dialed-in:done', PICK_KEY = 'dialed-in:mode-picked';
+const store = { get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* storage blocked */ } } };
+const returning = () => Number(store.get(DONE_KEY)) >= 1;
+const recommendedMode = () => returning() ? 'full' : 'verify';
 const MODE_HINT = { quick: 'About 4 minutes', verify: 'About 6 minutes', deep: 'About 9 minutes', full: 'About 15-18 minutes' };
 // Full dial-in: Deep with about 20 rounds' worth of data in one sitting. Simulated players came out the
 // same with more rounds or longer ones at equal time, so it does a bit of both: 16-18 search rounds of
@@ -845,7 +852,7 @@ function show(name) {
   if (name === 'setup') { renderWarmBests(); showLeader(); }
   else $('#p-leader').hidden = true;
   if (name === 'test') { if (chal) renderChalBrief(true); else renderBrief(true); }
-  if (name === 'results') { renderResults(); if (result && !result.logged) { result.logged = true; logEvent('results'); } }
+  if (name === 'results') { renderResults(); if (result && !result.logged) { result.logged = true; logEvent('results'); store.set(DONE_KEY, String(Number(store.get(DONE_KEY) || 0) + 1)); } }
   if (name === 'chend') { if (chal && chal.duel) renderDuelEnd(); else renderChalEnd(); }
   if (changed) window.scrollTo({ top: 0 });
 }
@@ -1230,6 +1237,7 @@ function renderResults() {
         <tbody>${lines.map(([label, val]) => `<tr><td>${label}</td><td class="num">${val}</td></tr>`).join('')}</tbody>
       </table></div>
     </div>
+    ${!result.deep || !result.deep.full ? `<div class="offer"><p>Want it more precise? The Full dial-in takes about 15–18 minutes and gives the most precise answer, best on a fresh day. Press Use these settings first so it starts from your new values.</p><button class="btn" id="go-full" type="button">Set up a Full dial-in</button></div>` : ''}
     <div class="actions">
       <button class="btn" id="copy" type="button">Copy settings</button>
       <button class="btn" id="export" type="button">Copy test data</button>
@@ -1246,6 +1254,11 @@ function renderResults() {
   const vb = $('#verify');
   if (vb) vb.addEventListener('click', () => start(verifySegments(c, r), result.drift));
   wireChart();
+  const goFull = $('#go-full');
+  if (goFull) goFull.addEventListener('click', () => {
+    cfg.mode = 'full'; store.set(PICK_KEY, '1'); result = null; saveSetup(); syncSetup(); show('setup');
+    $('#mode-full').closest('fieldset').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
   $('#use-recs').addEventListener('click', e => {
     useRecs(c, r);
     e.currentTarget.textContent = 'Saved to setup';
@@ -1526,6 +1539,15 @@ function syncSetup() {
     if (radio) radio.checked = true;
   }
   $('#go-hint').textContent = MODE_HINT[cfg.mode];
+  const recM = recommendedMode();
+  document.querySelectorAll('.rec-badge').forEach(el => el.remove());
+  const badge = document.createElement('span');
+  badge.className = 'rec-badge';
+  badge.textContent = 'Recommended';
+  $('#mode-' + recM).parentElement.querySelector('b').after(badge);
+  $('#route-note').textContent = recM === 'full'
+    ? "You've dialed in before, so the Full dial-in is recommended: it builds the most precise answer. Quick, Verify and Deep are there to check or refine."
+    : 'New here? Verify gets you settings in about 6 minutes and checks them blind. Come back for a Full dial-in when you want the most precise answer.';
   // Deep can add to the rounds saved from an earlier sitting with this game.
   const pool = deepMode(cfg.mode) ? loadDeepSaved() : null;
   $('#deep-pool').hidden = !pool;
@@ -1546,7 +1568,7 @@ document.querySelectorAll('input[name="device"]').forEach(r => r.addEventListene
 document.querySelectorAll('input[name="style"]').forEach(r => r.addEventListener('change', e => { cfg.style = e.target.value; }));
 // readSetup first, so values typed into the form survive the redraw.
 document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', e => {
-  readSetup(); cfg.mode = e.target.value; syncSetup(); renderRail();
+  readSetup(); cfg.mode = e.target.value; store.set(PICK_KEY, '1'); syncSetup(); renderRail();
   // Deep is the thorough route, so it opens the optional settings too.
   if (deepMode(cfg.mode)) $('#advanced').open = true;
 }));
@@ -2836,6 +2858,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) chec
 if (new URLSearchParams(location.search).has('debug')) window.dialedInDebug = { drawStats: () => drawStats.slice(), chal: () => chal, session: () => session, view: () => view, game: () => game() };
 
 restoreSetup();
+if (!store.get(PICK_KEY)) cfg.mode = recommendedMode();
 syncSetup();
 show('setup');
 // Any edit to the setup form is saved as it happens.
