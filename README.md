@@ -253,6 +253,16 @@ reshapes the curve everywhere the range plays, the daily challenge included (the
 server accepts it in that range). Full push stays full speed. Like the turn speed check, it changes
 how faithful the range is, not what it recommends.
 
+## Up-and-down tracking
+
+Every controller route plays an 8-second strafer that jumps, drops and climbs (after tracking in Quick and
+Verify, after the blind screening in Deep and Full): scripted like the side-to-side one, 6-20°/s, inside a
+±10° band with a small sideways bob, drawn with up-and-down arrows (sim.js trackStep with P.vertical).
+Trailing and leading are judged along pitch against the same late-reacting reference player. The vertical
+suggestion (analysis.js recommendVertical) compares its lean with the side-to-side strafer's: trailing it
+more means vertical is slower than horizontal. Tracking is continuous, so when it is there it weighs 60%
+against 40% for the few up-and-down flicks; when the two point opposite ways the balance is kept.
+
 ## Fine aim
 
 Every controller route (after tracking in Quick and Verify, after the blind screening in Deep and Full)

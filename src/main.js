@@ -1,7 +1,7 @@
 import { GAMES, PLAYSTYLES, gameTitle, extraSetting, adsSpecs, fmtAds, codFromOld } from './games.js';
 import { makeCamera, hfov169 } from './camera.js';
 import { makeView, steer, newFlickTarget, flickStep, makeTrack, trackStep, newTurnTarget, turnStep, trackAim, TRACK_V2, CURVE_K, trackScript, flickPlan, finePlan } from './sim.js';
-import { fineStats, summarize, recommend, recommendVertical, recommendAds, turnStats, recommendTurn, driftDeadzone, settingsChanged } from './analysis.js';
+import { fineStats, trackLean, summarize, recommend, recommendVertical, recommendAds, turnStats, recommendTurn, driftDeadzone, settingsChanged } from './analysis.js';
 import { verifyPlan, verifyCompare, ratingSummary, sideOf } from './verify.js';
 import { DEEP, SCREEN, MORE, FEEL, deepNext, deepAnalyze, feelPoint, shuffled, morePlan, screenPlan, altCurve, screenAnalyze } from './deep.js';
 import { emptyReach, recordReach, coverage, stickReport, outerFromReach, hardwareRecs } from './hardware.js';
@@ -119,6 +119,11 @@ const checkedOuter = () => outerFor(session.drift);
 const FINE_N = 12;
 const fineSeg = () => ({ kind: 'flick', rail: 'fine', fine: true, n: FINE_N + 1, warm: 1, settings: settingsOf(cfg), intro: true, title: 'Fine aim',
   text: `${FINE_N + 1} small targets (the first is a warm-up) appear just off your crosshair. Nudge onto each one and fire. This shows how your curve and deadzone handle small adjustments.` });
+// Up-and-down strafer (jumping, dropping, climbing): backs the vertical sensitivity suggestion with a
+// continuous measurement instead of the few up-and-down flicks.
+const VTRACK = { dur: 8, warm: 1 };
+const vtrackSeg = () => ({ kind: 'track', rail: 'track', vertical: true, dur: VTRACK.dur, warm: VTRACK.warm, settings: settingsOf(cfg), intro: true, title: 'Up-and-down tracking',
+  text: `This strafer jumps, drops and climbs. Keep your crosshair on it for ${VTRACK.dur} seconds. No need to fire.` });
 const fineOf = segs => { const f = segs.find(x => x.fine && x.data); return f ? fineStats(f.data.list.slice(f.warm)) : null; };
 
 function quickSegments() {
@@ -129,7 +134,7 @@ function quickSegments() {
       text: `${COUNT_WORDS[styleRange().flicks] || styleRange().flicks} targets appear one at a time, some above or below you. Snap to each ${aimWith()}. Go at the speed you would in a real fight.` },
     { kind: 'track', rail: 'track', tag: 'quick', dur: styleRange().track, warm: 0, settings: s, intro: true, title: 'Tracking test',
       text: `Keep the crosshair on the strafing target for ${styleRange().track} seconds. No need to fire.` },
-    ...(isMouse() ? [] : [fineSeg()]),
+    ...(isMouse() ? [] : [vtrackSeg(), fineSeg()]),
     ...turnSegments(),
     ...adsSegments(),
     ...(isMouse() ? [] : [recoilSeg()]),
@@ -259,7 +264,7 @@ function deepStep() {
     if (D.more) { session.segs.push({ kind: 'deepDone' }); return advance(); }
     const best = D.res && D.res.verdict !== 'flat' ? D.res.best.sens : cfg.sens;
     // Curve and vertical speed screening is about stick shaping; a mouse skips it.
-    session.segs.push(...(isMouse() ? [] : [...screenSegments(D, best), fineSeg()]), ...(D.full ? turnSegments(FULL.turns) : turnSegments()), ...adsSegments(D.full ? FULL.adsScale : 1),
+    session.segs.push(...(isMouse() ? [] : [...screenSegments(D, best), vtrackSeg(), fineSeg()]), ...(D.full ? turnSegments(FULL.turns) : turnSegments()), ...adsSegments(D.full ? FULL.adsScale : 1),
       ...(isMouse() ? [] : [recoilSeg()]), { kind: 'deepDone' });
     return advance();
   }
@@ -512,7 +517,7 @@ function deepDone() {
   const rec = withHardware(recommend(stats, c, session.drift, stats.fine), session.drift);
   if (res) Object.assign(rec, deepPick(res, D.feel, c));
   // Every round scales vertical with horizontal, so the up/down vs side-to-side comparison holds across all of them.
-  Object.assign(rec, verticalRec(now.flatMap(h => h.flicks), c, rec.sens));
+  Object.assign(rec, verticalRec(now.flatMap(h => h.flicks), c, rec.sens, from[0].track));
   applyScreen(rec, c, D);
   rec.ads = adsRecs(c, rec.sens);
   rec.turn = turnRec(c);
@@ -597,7 +602,12 @@ function startRun(s) {
     s.data = { list: [], plan: s.turn ? null : s.fine ? finePlan(Math.random, s.n, s.warm || 0) : flickPlan(Math.random, s.n, s.warm || 0, verticalSlot), flash: null };
     s.data.cur = s.turn ? newTurnTarget(view, Math.random, 1, true) : flickTarget(s, s.data, 0);
   }
-  if (s.kind === 'track') { s.data = makeTrack(s.warm, 1 / (s.zoom || 1), styleTrack()); s.data.script = trackScript(Math.random, (s.warm || 0) + s.dur, s.data.P); }
+  if (s.kind === 'track') {
+    // Up and down: slower than side to side (jumps and drops), inside a ±10° band, with a small sideways bob.
+    const P = s.vertical ? { ...styleTrack(), vertical: true, lo: 6, span: 14, band: 10, vAmp: 2, vFreq: 1.1 } : styleTrack();
+    s.data = makeTrack(s.warm, 1 / (s.zoom || 1), P);
+    s.data.script = trackScript(Math.random, (s.warm || 0) + s.dur, P);
+  }
   // The fire press that started the round shouldn't start a burst; the first one waits for a fresh press.
   if (s.kind === 'recoil') { s.data = makeRecoil(); s.data.wait = true; }
   renderBrief(true);
@@ -616,8 +626,10 @@ function withHardware(rec, check) {
 }
 
 // Mouse games turn the same on both axes and mostly have no separate vertical setting.
-function verticalRec(flicks, c, hSens) {
-  return GAMES[c.game].device === 'mouse' ? { vmult: 1, vWhy: '' } : recommendVertical(flicks, c, hSens);
+function verticalRec(flicks, c, hSens, hTrack = null) {
+  const vs = session && session.segs.find(x => x.vertical && x.data);
+  const vt = vs && hTrack ? { lean: trackLean(vs.data), hLean: trackLean(hTrack) } : null;
+  return GAMES[c.game].device === 'mouse' ? { vmult: 1, vWhy: '' } : recommendVertical(flicks, c, hSens, vt);
 }
 
 function analyze() {
@@ -627,7 +639,7 @@ function analyze() {
   const stats = summarize(fl, tr);
   stats.fine = fineOf(session.segs);
   const rec = withHardware(recommend(stats, c, session.drift, stats.fine), session.drift);
-  Object.assign(rec, verticalRec(fl, c, rec.sens));
+  Object.assign(rec, verticalRec(fl, c, rec.sens, tr));
   rec.ads = adsRecs(c, rec.sens);
   rec.turn = turnRec(c);
   // Verify compares the other settings; look boost stays at the player's values on both sides.
@@ -806,7 +818,7 @@ function tickRecoil(s, dt) {
 
 function tickTrack(s, dt) {
   const st = steer(view, inp, s.settings, game(), dt, 0, trackAim(s.data));
-  trackStep(s.data, view, st.vy, dt);
+  trackStep(s.data, view, s.vertical ? st.vp : st.vy, dt);
   if (s.data.t >= s.warm + s.dur) advance();
 }
 
@@ -841,7 +853,7 @@ function railKeys() {
   if (session && session.curveCheck) return ['setup', 'curve'];
   if (session && session.recoilCheck) return ['setup', 'recoil'];
   const deep = !!((session && session.deep) || (result && result.deep) || (!session && !result && deepMode(cfg.mode)));
-  let keys = deep ? ['setup', 'drift', 'deep', 'screen', 'fine', 'turn', 'ads'] : ['setup', 'drift', 'flick', 'track', 'fine', 'turn', 'ads'];
+  let keys = deep ? ['setup', 'drift', 'deep', 'screen', 'track', 'fine', 'turn', 'ads'] : ['setup', 'drift', 'flick', 'track', 'fine', 'turn', 'ads'];
   if (!isMouse()) keys.push('recoil');
   // Mouse sessions have no screening, turn drill or ADS rounds, and skip the check once DPI is measured.
   if (isMouse()) keys = keys.filter(k => !['screen', 'fine', 'turn', 'ads'].includes(k) && (k !== 'drift' || !(mouseCheck && mouseCheck.cpcm) || (session && session.segs.some(x => x.kind === 'mcheck'))));
@@ -1864,7 +1876,7 @@ function drawScene(c, sc) {
   if (running && sc.track) {
     const pts = trailPoint(w, sc.track.tgt);
     ctx.save(); clipScope(); paintTrail(ctx, pts, sc.track.r * ppd, cam, sc.track.tgt.on); ctx.restore();
-    drawTarget(sc.track.tgt, sc.track.r, { kind: 'track', lit: sc.track.tgt.on, hold: !!sc.hold });
+    drawTarget(sc.track.tgt, sc.track.r, { kind: 'track', lit: sc.track.tgt.on, hold: !!sc.hold, vertical: !!(sc.track.P && sc.track.P.vertical) });
   }
   ctx.save(); clipScope(); paintFx(ctx, cam, w, now, calm); ctx.restore();
 

@@ -171,7 +171,7 @@ export const TRACK_BLUE = '#4FB6FF';
 
 // A target drone. kind: 'flick' | 'turn' | 'track'. lit = crosshair on it (tracking).
 // hold = a challenge moving target that scores only while fire is held: labelled HOLD.
-export function paintDrone(ctx, x, y, R, cam, world, now, { kind = 'flick', lit = false, still = false, hold = false } = {}) {
+export function paintDrone(ctx, x, y, R, cam, world, now, { kind = 'flick', lit = false, still = false, hold = false, vertical = false } = {}) {
   const { d, H } = cam;
   const track = kind === 'track';
   const core = lit ? '#6FE0A6' : track ? TRACK_BLUE : '#FF6A3D';
@@ -200,11 +200,14 @@ export function paintDrone(ctx, x, y, R, cam, world, now, { kind = 'flick', lit 
     ctx.setLineDash([seg * 0.55, seg * 0.45]); ctx.lineDashOffset = -spin * R * 3;
     ctx.beginPath(); ctx.arc(x, y, R * 0.97, 0, Math.PI * 2); ctx.stroke();
     ctx.setLineDash([]); ctx.lineDashOffset = 0;
-    // strafe arrows either side
+    // strafe arrows either side, or above and below for the up-and-down strafer
     const a = Math.max(6 * d, R * 0.42), gap = R * 1.2;
     ctx.fillStyle = hexA(core, 0.9);
     for (const s of [-1, 1]) {
-      ctx.beginPath(); ctx.moveTo(x + s * (gap + a), y); ctx.lineTo(x + s * gap, y - a * 0.8); ctx.lineTo(x + s * gap, y + a * 0.8); ctx.closePath(); ctx.fill();
+      ctx.beginPath();
+      if (vertical) { ctx.moveTo(x, y + s * (gap + a)); ctx.lineTo(x - a * 0.8, y + s * gap); ctx.lineTo(x + a * 0.8, y + s * gap); }
+      else { ctx.moveTo(x + s * (gap + a), y); ctx.lineTo(x + s * gap, y - a * 0.8); ctx.lineTo(x + s * gap, y + a * 0.8); }
+      ctx.closePath(); ctx.fill();
     }
     if (hold) {
       ctx.font = `700 ${Math.max(9, Math.round(10 * d))}px 'Martian Mono', monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';

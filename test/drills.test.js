@@ -87,3 +87,37 @@ test('fine aim decides the curve: going past small targets softens it, stopping 
   assert.equal(keep.curve, 'mid');
   assert.match(keep.curveWhy, /fine-aim test/);
 });
+
+test('up-and-down strafer moves in pitch inside its band, and lean is judged along that axis', async () => {
+  const { trackLean } = await import('../src/analysis.js');
+  const P = { ...TRACK_V2, vertical: true, lo: 6, span: 14, band: 10, vAmp: 2, vFreq: 1.1, accel: 7 };
+  const run = lag => {
+    const rng = mulberry32(5), TR = makeTrack(1, 1, P);
+    TR.script = trackScript(rng, 9, P);
+    const view = { yaw: 0, pitch: 0 }, H = [];
+    let maxP = 0;
+    while (TR.t < 9) {
+      H.push({ p: TR.tgt.pitch, y: TR.tgt.yaw });
+      const d = H[Math.max(0, H.length - 1 - lag)];
+      view.pitch = d.p; view.yaw = d.y;
+      trackStep(TR, view, 0, 1 / 60, rng);
+      maxP = Math.max(maxP, Math.abs(TR.tgt.pitch));
+    }
+    return { TR, maxP };
+  };
+  const exact = run(0), late = run(30);
+  assert.ok(exact.maxP > 5 && exact.maxP < 11, String(exact.maxP));
+  assert.ok(exact.TR.on / exact.TR.T > 0.95);
+  assert.ok(trackLean(late.TR) > trackLean(exact.TR) + 0.1, `${trackLean(late.TR)} vs ${trackLean(exact.TR)}`);
+});
+
+test('vertical suggestion uses the up-and-down strafer: trailing it more than the side-to-side one raises vertical', async () => {
+  const { recommendVertical } = await import('../src/analysis.js');
+  const c = { game: 'arc', style: 'balanced', sens: 80, vsens: 60, curve: 'expo', dz: 0.05 };
+  const up = recommendVertical([], c, 80, { lean: 0.35, hLean: 0.05 });
+  const same = recommendVertical([], c, 80, { lean: 0.06, hLean: 0.05 });
+  const none = recommendVertical([], c, 80, null);
+  assert.ok(up.vsens > 60 && up.vMeasured, JSON.stringify(up));
+  assert.equal(same.vsens, 60);
+  assert.equal(none.vMeasured, false);
+});

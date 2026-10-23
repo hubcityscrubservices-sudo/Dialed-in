@@ -113,8 +113,8 @@ export function assistTurn(vy, vp, mag, view, aim, A, aa) {
 // The strafing target as an aim-assist target: where it is and how fast it moves.
 export function trackAim(TR) {
   const g = TR.tgt;
-  const P = TR.P || TRACK_V1, a = P.vAmp ?? 3, f = P.vFreq ?? 1.3;
-  return { yaw: g.yaw, pitch: g.pitch, r: TR.r, vy: g.v, vp: a * TR.scale * f * Math.cos(TR.t * f) };
+  const P = TR.P || TRACK_V1, a = P.vAmp ?? 3, f = P.vFreq ?? 1.3, bob = a * TR.scale * f * Math.cos(TR.t * f);
+  return P.vertical ? { yaw: g.yaw, pitch: g.pitch, r: TR.r, vy: bob, vp: g.v } : { yaw: g.yaw, pitch: g.pitch, r: TR.r, vy: g.v, vp: bob };
 }
 
 // True angle between the view and a target, in degrees: a sideways gap counts for less when looking
@@ -337,9 +337,9 @@ export function makeTrack(warm = 0, scale = 1, P = TRACK_V1) {
 // It only reads the target's path, so the challenge score and replays are unaffected.
 export const REF = { delay: 0.2, k: 3.5 };
 function refStep(TR, view, dt) {
-  const g = TR.tgt, H = TR.refHist;
-  if (TR.ref == null) TR.ref = view.yaw;
-  H.push({ t: TR.t, y: g.yaw, v: g.v, r: TR.ref });
+  const g = TR.tgt, H = TR.refHist, vert = TR.P && TR.P.vertical;
+  if (TR.ref == null) TR.ref = vert ? view.pitch : view.yaw;
+  H.push({ t: TR.t, y: vert ? g.pitch : g.yaw, v: g.v, r: TR.ref });
   while (H.length > 1 && H[1].t <= TR.t - REF.delay) H.shift();
   const d = H[0].t <= TR.t - REF.delay ? H[0] : null;
   if (d) TR.ref += (d.v + REF.k * (d.y - d.r)) * dt;
@@ -353,7 +353,7 @@ export function trackStep(TR, view, vy, dt, rng = Math.random) {
   if (TR.t >= g.next && TR.script) {
     // A scripted round (calibration): the next segment of a path with fixed difficulty (trackScript).
     const sg = TR.script[Math.min(TR.si = (TR.si ?? -1) + 1, TR.script.length - 1)];
-    g.goal = sg.goal * TR.scale;
+    g.goal = sg.goal * TR.scale * (TR.flip || 1);
     g.next = TR.si >= TR.script.length - 1 ? Infinity : TR.t + sg.dur;
   } else if (TR.t >= g.next) {
     // Same three draws in both versions: direction, speed, duration.
@@ -364,14 +364,27 @@ export function trackStep(TR, view, vy, dt, rng = Math.random) {
   }
   const prevV = g.v;
   g.v += (g.goal - g.v) * Math.min(1, dt * (P.accel ?? 4));
-  g.yaw += g.v * dt;
-  g.pitch = (TR.pitch0 ?? 0) + (P.vAmp ?? 3) * TR.scale * Math.sin(TR.t * (P.vFreq ?? 1.3));
+  const bob = (P.vAmp ?? 3) * TR.scale * Math.sin(TR.t * (P.vFreq ?? 1.3));
+  if (P.vertical) {
+    // Up-and-down strafer (jumping, dropping, climbing): the speed drives pitch inside a band around
+    // where it started, turning back at the band's edge, and yaw bobs a little instead.
+    if (TR.yaw0 == null) TR.yaw0 = g.yaw;
+    g.pitch += g.v * dt;
+    const band = P.band ?? 12, off = g.pitch - (TR.pitch0 ?? 0);
+    if (Math.abs(off) > band && Math.sign(off) === Math.sign(g.v)) { g.v = -g.v; g.goal = -g.goal; if (TR.script) TR.flip = -(TR.flip || 1); }
+    g.yaw = TR.yaw0 + bob;
+  } else {
+    g.yaw += g.v * dt;
+    g.pitch = (TR.pitch0 ?? 0) + bob;
+  }
   const ey = view.yaw - g.yaw, ep = view.pitch - g.pitch, e = P.ang ? angleTo(view, g) : Math.hypot(ey, ep);
+  // Behind or ahead is judged along the strafer's own direction of travel.
+  const ea = P.vertical ? ep : ey, ga = P.vertical ? g.pitch : g.yaw;
   g.on = e <= TR.r;
   const ry = refStep(TR, view, dt);
   if (TR.t <= TR.warm) return;
   // The reference player's trailing and leading, scored the same way as the player's.
-  if (Math.abs(ry - g.yaw) > TR.r && Math.abs(g.v) > 6 * TR.scale) { if ((ry - g.yaw) * Math.sign(g.v) < 0) TR.refBehind += dt; else TR.refAhead += dt; }
+  if (Math.abs(ry - ga) > TR.r && Math.abs(g.v) > 6 * TR.scale) { if ((ry - ga) * Math.sign(g.v) < 0) TR.refBehind += dt; else TR.refAhead += dt; }
 
   TR.T += dt;
   TR.errSum += e * dt;
@@ -379,7 +392,7 @@ export function trackStep(TR, view, vy, dt, rng = Math.random) {
   if (TR.chunk.time >= 1) { TR.chunks.push(TR.chunk.sum / TR.chunk.time); TR.chunk = { sum: 0, time: 0 }; }
   if (prevV && g.v && Math.sign(prevV) !== Math.sign(g.v)) TR.tRev++;
   if (g.on) TR.on += dt;
-  else if (Math.abs(g.v) > 6 * TR.scale) { if (ey * Math.sign(g.v) < 0) TR.behind += dt; else TR.ahead += dt; }
+  else if (Math.abs(g.v) > 6 * TR.scale) { if (ea * Math.sign(g.v) < 0) TR.behind += dt; else TR.ahead += dt; }
   if (e < 5 * TR.scale) {
     TR.near += dt;
     if (Math.abs(vy) > 6 * TR.scale) {

@@ -160,19 +160,40 @@ const MIN_VERTICAL = 3;
 // Vertical speed relative to horizontal: compares error patterns on up/down targets with side-to-side ones,
 // then carries the horizontal change (hSens vs c.sens) across so the ratio holds unless the data says otherwise.
 // Returns { vsens } for games with their own vertical setting, otherwise { vmult } relative to now.
-export function recommendVertical(flicks, c, hSens) {
+// Trailing minus leading on a strafer, beyond what a perfect-speed player with normal reaction time shows.
+export const trackLean = TR => TR && TR.T ? ((TR.behind - TR.ahead) - ((TR.refBehind || 0) - (TR.refAhead || 0))) / TR.T : null;
+
+// vt = { lean, hLean }: the up-and-down strafer's lean and the side-to-side one's. Tracking is a continuous
+// measurement (every second counts), so when it is there it carries more weight than the few up-and-down flicks.
+export function recommendVertical(flicks, c, hSens, vt = null) {
   const g = GAMES[c.game];
   const v = flicks.filter(isVertical), h = flicks.filter(f => !isVertical(f));
   const hMult = g.sens.rate(hSens) / g.sens.rate(c.sens);
-  const measured = v.length >= MIN_VERTICAL && h.length >= MIN_VERTICAL;
+  const flicked = v.length >= MIN_VERTICAL && h.length >= MIN_VERTICAL;
+  const tracked = !!(vt && vt.lean != null && vt.hLean != null);
+  const measured = flicked || tracked;
   let rel = 0, why;
-  if (measured) {
+  const parts = [];
+  let relF = 0, relT = 0;
+  if (flicked) {
     const [oV, uV, oH, uH] = [overRate(v), underRate(v), overRate(h), underRate(h)];
-    rel = clamp(((uV - oV) - (uH - oH)) * 0.4, -0.3, 0.3);
+    relF = clamp(((uV - oV) - (uH - oH)) * 0.4, -0.3, 0.3);
+    parts.push(`On up-and-down targets you overshot ${pct(oV)} and stopped short on ${pct(uV)}, against ${pct(oH)} and ${pct(uH)} side to side.`);
+  }
+  if (tracked) {
+    relT = clamp((vt.lean - vt.hLean) * 0.6, -0.3, 0.3);
+    const d = vt.lean - vt.hLean;
+    parts.push(Math.abs(d) < 0.05 ? 'You tracked the up-and-down strafer about as well as the side-to-side one.'
+      : d > 0 ? `You trailed the up-and-down strafer ${pct(d)} of the time more than the side-to-side one.`
+      : `You ran ahead of the up-and-down strafer ${pct(-d)} of the time more than the side-to-side one.`);
+  }
+  if (measured) {
+    rel = flicked && tracked ? 0.4 * relF + 0.6 * relT : flicked ? relF : relT;
     if (Math.abs(rel) < 0.05) rel = 0;
-    why = `On up-and-down targets you overshot ${pct(oV)} and stopped short on ${pct(uV)}, against ${pct(oH)} and ${pct(uH)} side to side.`;
+    why = parts.join(' ');
     if (rel > 0) why += ' Your vertical aim lags behind your horizontal aim, so raise it relative to horizontal.';
     else if (rel < 0) why += ' Your vertical aim runs ahead of your horizontal aim, so lower it relative to horizontal.';
+    else if (flicked && tracked && Math.abs(relF) >= 0.05 && Math.abs(relT) >= 0.05 && Math.sign(relF) !== Math.sign(relT)) why += ' The flicks and the tracking point opposite ways, so keep the same balance between them.';
     else why += ' The two match, so keep the same balance between them.';
   } else {
     why = 'Too few up-and-down targets to judge, so keep the same balance between vertical and horizontal.';
