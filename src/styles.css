@@ -478,3 +478,9 @@ body.on-setup .main-col { max-width: 920px; width: 100%; margin-inline: auto; }
 .more-play summary::before { content: '▸'; }
 .more-play[open] summary::before { content: '▾'; }
 .style-opt .rec-badge { justify-self: start; font: 700 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: #0b1118; background: var(--sun); padding: 3px 7px; margin-top: 2px; opacity: 1; }
+/* Header shortcut to the daily challenge. */
+.top-right { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.hdr-daily { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 10px 14px; border: 1px solid var(--ember); background: rgba(255, 94, 58, 0.12); color: var(--ink); font: 700 13px var(--display); letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
+.hdr-daily:hover { background: rgba(255, 94, 58, 0.22); }
+.hdr-daily small { font: 500 11px var(--mono); color: var(--sun); letter-spacing: .04em; text-transform: none; }
+@media (max-width: 660px) { .top-right { width: 100%; } .top-right > * { flex: 1 1 100%; justify-content: center; } }

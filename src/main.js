@@ -848,6 +848,7 @@ function show(name) {
   // The step rail belongs to calibration; the warm-up challenge hides it.
   $('#steps').hidden = !!chal || name === 'setup';
   document.body.classList.toggle('on-setup', name === 'setup');
+  $('#hdr-daily').hidden = name === 'test';
   if (!chal) renderRail();
   if (name === 'setup') { renderWarmBests(); showLeader(); }
   else $('#p-leader').hidden = true;
@@ -2406,6 +2407,7 @@ function tickWarmClock() {
   const left = Math.max(0, Math.floor((next - now.getTime()) / 1000));
   const two = n => String(n).padStart(2, '0');
   el.textContent = `${two(Math.floor(left / 3600))}:${two(Math.floor(left / 60) % 60)}:${two(left % 60)}`;
+  $('#hdr-clock').textContent = el.textContent;
 }
 tickWarmClock();
 setInterval(tickWarmClock, 1000);
@@ -2711,6 +2713,8 @@ function startCodeFromInput() {
   startChallenge(code, code === dailyCode() ? 'daily' : 'code');
 }
 $('#ch-daily').addEventListener('click', () => startChallenge(dailyCode(), 'daily'));
+// The header shortcut to the daily challenge, visible everywhere but during a test or challenge run.
+$('#hdr-daily').addEventListener('click', () => startChallenge(dailyCode(), 'daily'));
 const LEVEL_KEY = 'dialed-in:level';
 try { const lv = localStorage.getItem(LEVEL_KEY); if (LEVEL_NAME[lv]) $('#ch-level').value = lv; } catch (e) { /* storage blocked: Standard */ }
 // Full screen: the test panel (brief, range and buttons) takes the whole display. F toggles it too.
