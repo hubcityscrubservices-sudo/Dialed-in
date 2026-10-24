@@ -5,7 +5,9 @@ import { mean } from './util.js';
 // Timings come from a frame-by-frame look at a controller tutorial clip (about 20 fps steps, so
 // ±0.05 s): the roll takes about 0.45 s from going down to being back up, the roll starts about
 // 0.25 s after a shot, the next shot comes about 0.27 s after landing, and a full loop takes about
-// 1.0 s. Through the roll the camera keeps facing forward and the target shifts only a few degrees.
+// 1.0 s. Through the roll the camera keeps facing forward and the target shifts only a few degrees: a
+// closer look at the screen centre shows a dummy about 10-15 m away sliding about 7 degrees across the
+// view during one roll, the horizon staying level, and the crosshair dot staying visible but fainter.
 // The roll moves the player sideways, so the target slides across the view by atan(shift / distance):
 // about 9 degrees at 10 m, 4 degrees at 25 m. Shooting is locked while rolling. On controller the roll
 // is a double press of crouch (Circle / B), within DOUBLE seconds.

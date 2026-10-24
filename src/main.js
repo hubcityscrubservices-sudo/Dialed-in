@@ -467,7 +467,7 @@ function drawRollCue(ctx, D, W, H) {
   ctx.font = `500 ${Math.round(H * 0.03)}px ${tok('--mono')}`;
   ctx.fillStyle = '#F4F1E8';
   ctx.fillText(`${D.loops.length} loops · ${Math.max(0, Math.ceil(D.P.seconds - D.t))} s`, W / 2, H * 0.08 + H * 0.06);
-  if (D.roll) { ctx.fillStyle = 'rgba(5,10,16,0.25)'; ctx.fillRect(0, 0, W, H); ctx.fillStyle = '#F4F1E8'; ctx.fillRect(W * 0.35, H * 0.2, W * 0.3 * D.roll.k, Math.max(3, H * 0.006)); }
+  if (D.roll) { ctx.fillStyle = '#F4F1E8'; ctx.fillRect(W * 0.35, H * 0.2, W * 0.3 * D.roll.k, Math.max(3, H * 0.006)); }
 }
 
 // Picks a finished Deep search back up for MORE extra rounds, keeping every round and check so far.
@@ -1939,15 +1939,15 @@ function drawScene(c, sc) {
   cam.d = d;
   const { cx, cy, ppd } = cam;
   const w = worldFor(sc.worldKey);
-  // Dodge roll: the world dips and tilts with the tumble (slightly enlarged so the edges stay covered).
-  // The crosshair and HUD stay put, as they do in the game.
+  // Dodge roll: the world dips a little as the camera drops with the character (enlarged a touch so the
+  // edges stay covered). In the reference clip the horizon stays level (no tilt) and the crosshair dot
+  // stays on screen through the roll, fainter; the HUD stays put.
   const ra = sc.rollAnim && sc.rollAnim.k != null && !calm ? sc.rollAnim : null;
   ctx.save();
   if (ra) {
     const s = Math.sin(Math.PI * ra.k);
-    ctx.translate(W / 2, H / 2 + s * H * 0.03);
-    ctx.rotate(ra.dir * s * 0.035);
-    ctx.scale(1 + 0.05 * s, 1 + 0.05 * s);
+    ctx.translate(W / 2, H / 2 + s * H * 0.035);
+    ctx.scale(1 + 0.04 * s, 1 + 0.04 * s);
     ctx.translate(-W / 2, -H / 2);
   }
   paintBackground(ctx, sc, view, W, H, d, zoom, w, now, calm);
@@ -1996,7 +1996,9 @@ function drawScene(c, sc) {
   paintLens(ctx, cam, zoom);
   for (const [ex, ey, ang, deg, col] of arrows) paintOffscreen(ctx, ex, ey, ang, deg, cam, col);
   if (zoom === 1 && P !== 'intro') paintCompass(ctx, cam, w);
+  if (sc.rollAnim && sc.rollAnim.k != null) { ctx.save(); ctx.globalAlpha = 0.45; }
   paintCrosshair(ctx, cam, running && sc.track && sc.track.tgt.on);
+  if (sc.rollAnim && sc.rollAnim.k != null) ctx.restore();
   if (sc.hud && running) paintChalHud(ctx, cam, sc.hud);
 
   if (P === 'intro' || P === 'rate') {
