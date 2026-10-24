@@ -418,7 +418,7 @@ let rollResult = null;
 function startRollDrill() {
   readSetup();
   result = null;
-  const pad = inp.src === 'pad', btn = pad ? 'double-press Circle / B' : 'double-press C';
+  const btn = inp.src === 'pad' ? 'double-press Circle / B' : inp.src === 'virtual' ? 'tap ROLL (or double-press C on a keyboard)' : 'double-press C';
   session = { segs: [{ kind: 'roll', rail: 'roll', intro: true, settings: settingsOf(cfg), counter: 'Roll drill', title: 'Dodge-roll drill',
     text: `Shoot the target, then ${btn} to dodge roll, get back on it as you land and shoot again. Repeat for ${ROLL.seconds} seconds. Point the left stick to pick the roll's direction. Shooting is locked while you roll (about ${ROLL.rollT} s). A top player loops about once a second.` }],
     i: 0, phase: 'intro', countLeft: 0, drift: null, deep: null, mouse: mouseCheck, rollDrill: true };
@@ -428,7 +428,7 @@ function startRollDrill() {
 function tickRoll(s, dt, edge) {
   const D = s.data;
   steer(view, inp, s.settings, game(), dt, 0, D.T);
-  const ev = rollStep(D, view, { fireEdge: !!edge.fire, rollPress: !!edge.roll, lx: inp.lx || 0, stick: Math.hypot(inp.rx || 0, inp.ry || 0) }, dt);
+  const ev = rollStep(D, view, { fireEdge: !!edge.fire, rollPress: !!edge.roll, rollNow: !!edge.vroll, lx: inp.lx || 0, stick: Math.hypot(inp.rx || 0, inp.ry || 0) }, dt);
   if (ev === 'hit') D.flash = { yaw: D.T.yaw, pitch: D.T.pitch, t: 0.25, good: true };
   else if (ev === 'miss') D.flash = { yaw: view.yaw, pitch: view.pitch, t: 0.2, good: false };
   if (D.flash) { D.flash.t -= dt; if (D.flash.t <= 0) D.flash = null; }
@@ -910,6 +910,7 @@ function show(name) {
   $('#steps').hidden = !!chal || name === 'setup';
   document.body.classList.toggle('on-setup', name === 'setup');
   $('#hdr-daily').hidden = name === 'test';
+  $('#vroll').hidden = !(name === 'test' && session && session.rollDrill);
   if (!chal) renderRail();
   if (name === 'setup') { renderWarmBests(); showLeader(); }
   else $('#p-leader').hidden = true;
@@ -1783,7 +1784,7 @@ function calibrate() {
   return r;
 }
 
-const vpad = { x: 0, y: 0, drag: false, fire: false };
+const vpad = { x: 0, y: 0, drag: false, fire: false, roll: false };
 const keys = { left: false, right: false, up: false, down: false, fire: false, roll: false };
 
 function readPad() {
@@ -1814,7 +1815,7 @@ function poll() {
     const m = Math.hypot(x, y); if (m > 1) { x /= m; y /= m; }
     x *= 0.6; y *= 0.6;
   }
-  return { src: 'virtual', name: null, lx: 0, ly: 0, rx: x, ry: y, fire: vpad.fire || keys.fire, roll: keys.roll, dl: false, du: false, dr: false, lt: 0, rt: 0 };
+  return { src: 'virtual', name: null, lx: 0, ly: 0, rx: x, ry: y, fire: vpad.fire || keys.fire, roll: keys.roll, vroll: vpad.roll, dl: false, du: false, dr: false, lt: 0, rt: 0 };
 }
 
 const vs = $('#vstick'), knob = $('#vknob');
@@ -1834,6 +1835,9 @@ vs.addEventListener('pointercancel', vsEnd);
 const vf = $('#vfire');
 vf.addEventListener('pointerdown', e => { vpad.fire = true; e.preventDefault(); });
 ['pointerup', 'pointerleave', 'pointercancel'].forEach(t => vf.addEventListener(t, () => { vpad.fire = false; }));
+const vr = $('#vroll');
+vr.addEventListener('pointerdown', e => { vpad.roll = true; e.preventDefault(); });
+['pointerup', 'pointerleave', 'pointercancel'].forEach(t => vr.addEventListener(t, () => { vpad.roll = false; }));
 
 const KEYMAP = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down', KeyA: 'left', KeyD: 'right', KeyW: 'up', KeyS: 'down', Space: 'fire', KeyC: 'roll' };
 const inTest = () => screen === 'test' && ((session && (session.phase === 'count' || session.phase === 'run')) || (chal && chal.phase !== 'intro'));
@@ -2886,7 +2890,7 @@ function frame(ts) {
   if (!css || ++styleAge > 30) { css = getComputedStyle(document.documentElement); styleAge = 0; }
   inp = poll();
   const edge = {};
-  for (const k of ['fire', 'roll', 'dl', 'du', 'dr', 'lb', 'rb']) { edge[k] = inp[k] && !prev[k]; prev[k] = inp[k]; }
+  for (const k of ['fire', 'roll', 'vroll', 'dl', 'du', 'dr', 'lb', 'rb']) { edge[k] = inp[k] && !prev[k]; prev[k] = inp[k]; }
   if (screen === 'test' && chal) chalTick(dt, edge);
   else if (screen === 'test' && session) tick(dt, edge);
   updateStatus();

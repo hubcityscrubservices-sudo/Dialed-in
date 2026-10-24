@@ -487,3 +487,8 @@ body.on-setup .main-col { max-width: 920px; width: 100%; margin-inline: auto; }
 .roll-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
 .roll-result { display: grid; gap: 4px; margin-top: 8px; }
 .roll-result b { color: var(--ink); }
+/* The dodge-roll drill's on-screen roll button: one tap rolls. */
+.vbtns { display: grid; gap: 12px; justify-items: center; }
+.vroll { width: 72px; height: 72px; border-radius: 50%; border: 2px solid var(--sun); background: rgba(255, 209, 102, 0.12); color: var(--ink);
+  font: 900 15px var(--display); letter-spacing: .1em; text-transform: uppercase; touch-action: none; cursor: pointer; }
+.vroll:active { background: rgba(255, 209, 102, 0.3); }

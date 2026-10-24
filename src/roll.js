@@ -22,7 +22,8 @@ export function makeRollDrill(rng = Math.random, P = ROLL) {
     shots: [], loops: [], rolls: 0, hits: 0, misses: 0 };
 }
 
-// One frame, after the view has turned. inp = { fireEdge, rollPress (edge of the roll button), lx, stick }
+// One frame, after the view has turned. inp = { fireEdge, rollPress (edge of the roll button), rollNow (the
+// on-screen ROLL button: one tap rolls), lx, stick }
 // where stick is how far the right stick is pushed (0..1), for "was the thumb on the stick while rolling".
 export function rollStep(D, view, inp, dt) {
   const P = D.P;
@@ -42,8 +43,8 @@ export function rollStep(D, view, inp, dt) {
     D.rollTime += dt;
     if (inp.stick < 0.15) D.rollIdle += dt;
     if (R.k >= 1) { D.roll = null; D.lastLand = D.t; ev = 'land'; }
-  } else if (inp.rollPress) {
-    if (D.t - D.lastPress <= P.double) {
+  } else if (inp.rollPress || inp.rollNow) {
+    if (inp.rollNow || D.t - D.lastPress <= P.double) {
       // The roll goes the way the left stick points, or alternates when it's centred.
       const dir = Math.abs(inp.lx) > 0.3 ? Math.sign(inp.lx) : (D.side = -D.side);
       D.d = P.dists[D.di++ % P.dists.length];
