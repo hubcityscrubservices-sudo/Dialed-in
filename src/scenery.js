@@ -294,6 +294,20 @@ export function paintFx(ctx, cam, world, now, still) {
   }
 }
 
+// Dust kicked up where the character lands from a roll, for t seconds after (fades by 0.45 s).
+export function paintLandDust(ctx, cam, t, dir) {
+  if (t > 0.45) return;
+  const { W, H } = cam, u = t / 0.45, x0 = cam.cx - W * 0.17 + dir * W * 0.02, y0 = H * 0.98;
+  ctx.save();
+  for (let i = 0; i < 7; i++) {
+    const a = Math.PI * (0.15 + 0.7 * i / 6), r = H * (0.03 + 0.12 * u) * (0.7 + 0.3 * ((i * 37) % 5) / 4);
+    ctx.globalAlpha = 0.28 * (1 - u);
+    ctx.fillStyle = '#C9B79A';
+    ctx.beginPath(); ctx.arc(x0 + Math.cos(a) * r * 1.6, y0 - Math.sin(a) * r * 0.5, H * 0.03 * (1 + u), 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
 export function paintCrosshair(ctx, cam, on) {
   const { cx, cy, d } = cam;
   const col = on ? '#6FE0A6' : '#F4F1E8';
@@ -310,11 +324,27 @@ export function paintCrosshair(ctx, cam, on) {
 }
 
 // Over-the-shoulder silhouette for third-person games, rim-lit by the sun. Drawn see-through.
-export function paintFigure(ctx, cam, world) {
+// pose (dodge-roll drill): { k: roll progress 0..1, dir: -1 left / 1 right } tucks the character down
+// and tumbles it sideways through one turn; { land: seconds since landing } settles it back up.
+export function paintFigure(ctx, cam, world, pose = null) {
   const { W, H, d } = cam, p = world.pal;
   const fx = cam.cx - W * 0.17, base = H * 1.02;
   ctx.save();
-  ctx.globalAlpha = 0.55; // see-through, so a target behind the character can still be found
+  if (pose && pose.k != null) {
+    const k = pose.k, s = Math.sin(Math.PI * k), ease = k * k * (3 - 2 * k);
+    const ox = fx, oy = H * 0.84; // turn about the body's middle
+    ctx.translate(ox + pose.dir * W * 0.08 * s, oy + H * 0.035 * s);
+    ctx.rotate(pose.dir * Math.PI * 2 * ease);
+    ctx.scale(1 - 0.2 * s, 1 - 0.2 * s);
+    ctx.translate(-ox, -oy);
+  } else if (pose && pose.land != null && pose.land < 0.2) {
+    // Coming up out of the roll: a short crouch that straightens.
+    const u = 1 - pose.land / 0.2;
+    ctx.translate(0, H * 0.04 * u);
+  }
+  // See-through, so a target behind the character can still be found; mid-roll a little stronger, and
+  // pose.alpha draws a faint motion trail.
+  ctx.globalAlpha = pose && pose.alpha != null ? pose.alpha : pose && pose.k != null ? 0.75 : 0.55;
   ctx.fillStyle = '#060B10';
   ctx.beginPath();
   ctx.moveTo(fx - W * 0.13, base);
@@ -325,7 +355,7 @@ export function paintFigure(ctx, cam, world) {
   ctx.beginPath(); ctx.ellipse(fx + W * 0.008, H * 0.705, H * 0.07, H * 0.082, 0, 0, Math.PI * 2); ctx.fill();
   // rim light along the right shoulder and head
   ctx.strokeStyle = hexA(p.glow, 0.55); ctx.lineWidth = 2 * d;
-  ctx.beginPath(); ctx.ellipse(fx + W * 0.008, H * 0.705, H * 0.07, H * 0.082, 0, -1.3, 0.2); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(fx + W * 0.008, H * 0.705, H * 0.07, H * 0.082, 0, -1.3, pose && pose.k != null ? 4.98 : 0.2); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(fx + W * 0.035, H * 0.776); ctx.bezierCurveTo(fx + W * 0.09, H * 0.782, fx + W * 0.112, H * 0.84, fx + W * 0.118, H * 0.95); ctx.stroke();
   ctx.restore();
 }

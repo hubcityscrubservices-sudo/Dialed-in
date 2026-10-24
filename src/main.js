@@ -12,7 +12,7 @@ import { DT, hashSeed, dailyCode, practiceCode, isCode, quantize, createChalleng
 import { reportCard } from './report.js';
 import { ROLL, makeRollDrill, rollStep, rollSummary } from './roll.js';
 import { RECOIL, makeRecoil, recoilStep, recoilSummary, recommendRecoil } from './recoil.js';
-import { makeWorld, paintSky, paintTerrain, paintCompass, paintDrone, paintOffscreen, trailPoint, paintTrail,
+import { makeWorld, paintSky, paintTerrain, paintCompass, paintDrone, paintOffscreen, trailPoint, paintTrail, paintLandDust,
   noteFlash, paintFx, paintCrosshair, paintFigure, paintLens, paintCountdown, TRACK_BLUE } from './scenery.js';
 import { DUEL, duelPlan, duelCompare } from './duel.js';
 import { createMouse, CARD_CM, SWIPES, MIN_SWIPE, analyzeSwipes, resolveDpi, pollingHz, calibrationK, cm360 } from './mouse.js';
@@ -1890,6 +1890,9 @@ function drawArena() {
     flick: P === 'run' && s.kind === 'flick' ? s.data : P === 'run' && (s.kind === 'recoil' || s.kind === 'roll') ? { cur: s.data.T, flash: s.data.flash || null } : null,
     track: P === 'run' && s.kind === 'track' ? s.data : null,
     figure: s.kind !== 'drift' && s.kind !== 'mcheck',
+    // Dodge-roll drill: the camera dips and tilts with the tumble, and the character rolls and lands.
+    rollAnim: P === 'run' && s.kind === 'roll' && s.data ? (s.data.roll ? { k: s.data.roll.k, dir: -Math.sign(s.data.roll.shiftDeg) || 1 }
+      : s.data.lastLand != null ? { land: s.data.t - s.data.lastLand, dir: s.data.lastDir || 1 } : null) : null,
     overlay: mousePaused(P) ? drawPaused
       : P === 'run' && s.kind === 'drift' ? (ctx, W, H, d) => drawDrift(ctx, s.data, W, H, d)
       : P === 'run' && s.kind === 'mcheck' ? (ctx, W, H, d) => drawMouseCheck(ctx, s.data, W, H, d)
@@ -1936,6 +1939,17 @@ function drawScene(c, sc) {
   cam.d = d;
   const { cx, cy, ppd } = cam;
   const w = worldFor(sc.worldKey);
+  // Dodge roll: the world dips and tilts with the tumble (slightly enlarged so the edges stay covered).
+  // The crosshair and HUD stay put, as they do in the game.
+  const ra = sc.rollAnim && sc.rollAnim.k != null && !calm ? sc.rollAnim : null;
+  ctx.save();
+  if (ra) {
+    const s = Math.sin(Math.PI * ra.k);
+    ctx.translate(W / 2, H / 2 + s * H * 0.03);
+    ctx.rotate(ra.dir * s * 0.035);
+    ctx.scale(1 + 0.05 * s, 1 + 0.05 * s);
+    ctx.translate(-W / 2, -H / 2);
+  }
   paintBackground(ctx, sc, view, W, H, d, zoom, w, now, calm);
 
   const running = P === 'run';
@@ -1971,8 +1985,14 @@ function drawScene(c, sc) {
   }
   ctx.save(); clipScope(); paintFx(ctx, cam, w, now, calm); ctx.restore();
 
+  ctx.restore();
   // Third-person games: the character sits left of the crosshair and blocks part of the view.
-  if (GAMES[sc.gameId].camera === 'third' && sc.figure && zoom === 1) paintFigure(ctx, cam, w);
+  if (GAMES[sc.gameId].camera === 'third' && sc.figure && zoom === 1) {
+    if (sc.rollAnim && sc.rollAnim.land != null && !calm) paintLandDust(ctx, cam, sc.rollAnim.land, sc.rollAnim.dir);
+    const ra2 = calm ? null : sc.rollAnim;
+    if (ra2 && ra2.k != null && ra2.k > 0.1) paintFigure(ctx, cam, w, { ...ra2, k: Math.max(0, ra2.k - 0.12), alpha: 0.22 });
+    paintFigure(ctx, cam, w, ra2);
+  }
   paintLens(ctx, cam, zoom);
   for (const [ex, ey, ang, deg, col] of arrows) paintOffscreen(ctx, ex, ey, ang, deg, cam, col);
   if (zoom === 1 && P !== 'intro') paintCompass(ctx, cam, w);

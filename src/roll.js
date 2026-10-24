@@ -42,7 +42,7 @@ export function rollStep(D, view, inp, dt) {
     D.T.yaw += (ease(R.k) - ease(prev)) * R.shiftDeg;
     D.rollTime += dt;
     if (inp.stick < 0.15) D.rollIdle += dt;
-    if (R.k >= 1) { D.roll = null; D.lastLand = D.t; ev = 'land'; }
+    if (R.k >= 1) { D.lastDir = -Math.sign(R.shiftDeg) || 1; D.roll = null; D.lastLand = D.t; ev = 'land'; }
   } else if (inp.rollPress || inp.rollNow) {
     if (inp.rollNow || D.t - D.lastPress <= P.double) {
       // The roll goes the way the left stick points, or alternates when it's centred.
