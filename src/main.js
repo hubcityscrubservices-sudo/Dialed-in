@@ -10,6 +10,7 @@ import { buildExport } from './export.js';
 import { DT, hashSeed, dailyCode, practiceCode, isCode, quantize, createChallenge, step as chStep, summary as chSummary,
   newRecording, record, encodeReplay, V3_FROM } from './challenge.js';
 import { reportCard } from './report.js';
+import { ROLL, makeRollDrill, rollStep, rollSummary } from './roll.js';
 import { RECOIL, makeRecoil, recoilStep, recoilSummary, recommendRecoil } from './recoil.js';
 import { makeWorld, paintSky, paintTerrain, paintCompass, paintDrone, paintOffscreen, trailPoint, paintTrail,
   noteFlash, paintFx, paintCrosshair, paintFigure, paintLens, paintCountdown, TRACK_BLUE } from './scenery.js';
@@ -39,7 +40,7 @@ const verticalSlot = i => i % 5 === 1 || i % 5 === 3;
 const VERIFY = { flicks: 7, warmFlicks: 1, trackSeconds: 9, warmSeconds: 1.5 };
 const DEEP_ROUND = { flicks: 8, warmFlicks: 1, trackSeconds: 8, warmSeconds: 1.5 };
 const DRIFT_SECONDS = 4, ROLL_SECONDS = 10, SQUEEZE_SECONDS = 8;
-const RAIL = { curve: 'Curve feel', recoil: 'Recoil', fine: 'Fine aim', setup: 'Setup', drift: 'Sticks', flick: 'Flicks', track: 'Tracking', deep: 'Search', screen: 'Screen', turn: 'Turns', ads: 'ADS', verify: 'Verify', results: 'Results' };
+const RAIL = { roll: 'Roll drill', curve: 'Curve feel', recoil: 'Recoil', fine: 'Fine aim', setup: 'Setup', drift: 'Sticks', flick: 'Flicks', track: 'Tracking', deep: 'Search', screen: 'Screen', turn: 'Turns', ads: 'ADS', verify: 'Verify', results: 'Results' };
 const ADS = { flicks: 8, seconds: 8, scopedFlicks: 6, scopedSeconds: 6 };
 const TURNS = 6;
 // How a round's speed felt, -2 (way too slow) to +2 (way too fast). Deep mode finds where the ratings
@@ -411,6 +412,64 @@ function recoilRow(g, c, r, row) {
   return row('Recoil check (aimed in)', g.vsens ? c.vsens : 'Now', recoilVal, tg, `${recoilText(rr)} ${note}`);
 }
 
+// Dodge-roll drill (roll.js): fire, double-press the roll button, get back on target, fire again, for
+// ROLL.seconds. Practice only; the result shows next to the button that started it.
+let rollResult = null;
+function startRollDrill() {
+  readSetup();
+  result = null;
+  const pad = inp.src === 'pad', btn = pad ? 'double-press Circle / B' : 'double-press C';
+  session = { segs: [{ kind: 'roll', rail: 'roll', intro: true, settings: settingsOf(cfg), counter: 'Roll drill', title: 'Dodge-roll drill',
+    text: `Shoot the target, then ${btn} to dodge roll, get back on it as you land and shoot again. Repeat for ${ROLL.seconds} seconds. Point the left stick to pick the roll's direction. Shooting is locked while you roll (about ${ROLL.rollT} s). A top player loops about once a second.` }],
+    i: 0, phase: 'intro', countLeft: 0, drift: null, deep: null, mouse: mouseCheck, rollDrill: true };
+  calibrate();
+  enter();
+}
+function tickRoll(s, dt, edge) {
+  const D = s.data;
+  steer(view, inp, s.settings, game(), dt, 0, D.T);
+  const ev = rollStep(D, view, { fireEdge: !!edge.fire, rollPress: !!edge.roll, lx: inp.lx || 0, stick: Math.hypot(inp.rx || 0, inp.ry || 0) }, dt);
+  if (ev === 'hit') D.flash = { yaw: D.T.yaw, pitch: D.T.pitch, t: 0.25, good: true };
+  else if (ev === 'miss') D.flash = { yaw: view.yaw, pitch: view.pitch, t: 0.2, good: false };
+  if (D.flash) { D.flash.t -= dt; if (D.flash.t <= 0) D.flash = null; }
+  if (D.done) rollDone(D);
+}
+function rollDone(D) {
+  rollResult = rollSummary(D);
+  session = null;
+  mouse.unlock();
+  show('setup');
+  renderRollResult();
+  $('#more-play').open = true;
+  $('#roll-result').scrollIntoView({ block: 'center' });
+}
+function renderRollResult() {
+  const el = $('#roll-result'), r = rollResult;
+  el.hidden = !r;
+  if (!r) return;
+  const s = x => x == null ? '–' : x.toFixed(2) + ' s';
+  const tips = [];
+  if (r.loops === 0) tips.push('No full loops yet: hit, roll, then hit again within a second or so of landing.');
+  if (r.snap != null && r.snap > ROLL.pro.snap * 1.6) tips.push('Your shot after landing comes late: start moving the stick back on target before you land.');
+  if (r.firstHit != null && r.firstHit < 0.6) tips.push('Many first shots after a roll missed: take a split second longer to settle before firing.');
+  if (r.idle != null && r.idle > 0.8) tips.push('Your aim stick sat still through most rolls, so your thumb leaves it to press roll. Claw grip, back paddles or putting roll on a paddle lets you correct while rolling.');
+  el.innerHTML = `<b>Roll drill: ${r.loops} loops, ${r.hits} hits (${Math.round(r.perMin)} a minute)</b>
+    <span>Loop ${s(r.loop)} (top player ≈ ${ROLL.pro.loop.toFixed(1)} s) · Back on target after landing ${s(r.snap)} (≈ ${ROLL.pro.snap} s) · First shot after a roll hit ${r.firstHit == null ? '–' : Math.round(r.firstHit * 100) + '%'}</span>
+    ${tips.length ? `<span>${tips.join(' ')}</span>` : ''}`;
+}
+// What to do now, the roll's progress, and the loop clock.
+function drawRollCue(ctx, D, W, H) {
+  const text = D.roll ? 'ROLLING' : D.lastHit != null && (D.lastLand == null || D.lastHit > D.lastLand) ? 'ROLL' : 'SHOOT';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.font = `800 ${Math.round(H * 0.045)}px ${tok('--display')}`;
+  ctx.fillStyle = text === 'SHOOT' ? '#FFD34D' : '#F4F1E8';
+  ctx.fillText(text, W / 2, H * 0.08);
+  ctx.font = `500 ${Math.round(H * 0.03)}px ${tok('--mono')}`;
+  ctx.fillStyle = '#F4F1E8';
+  ctx.fillText(`${D.loops.length} loops · ${Math.max(0, Math.ceil(D.P.seconds - D.t))} s`, W / 2, H * 0.08 + H * 0.06);
+  if (D.roll) { ctx.fillStyle = 'rgba(5,10,16,0.25)'; ctx.fillRect(0, 0, W, H); ctx.fillStyle = '#F4F1E8'; ctx.fillRect(W * 0.35, H * 0.2, W * 0.3 * D.roll.k, Math.max(3, H * 0.006)); }
+}
+
 // Picks a finished Deep search back up for MORE extra rounds, keeping every round and check so far.
 function deepMore() {
   const D = result.deepState;
@@ -617,6 +676,7 @@ function startRun(s) {
   }
   // The fire press that started the round shouldn't start a burst; the first one waits for a fresh press.
   if (s.kind === 'recoil') { s.data = makeRecoil(); s.data.wait = true; }
+  if (s.kind === 'roll') s.data = makeRollDrill();
   renderBrief(true);
 }
 function stop() {
@@ -714,6 +774,7 @@ function tick(dt, edge) {
   else if (s.kind === 'flick') tickFlick(s, dt, edge.fire);
   else if (s.kind === 'track') tickTrack(s, dt);
   else if (s.kind === 'recoil') tickRecoil(s, dt);
+  else if (s.kind === 'roll') tickRoll(s, dt, edge);
 }
 
 function rate(v) { seg().data = v; advance(); }
@@ -861,6 +922,7 @@ function show(name) {
 function railKeys() {
   if (session && session.curveCheck) return ['setup', 'curve'];
   if (session && session.recoilCheck) return ['setup', 'recoil'];
+  if (session && session.rollDrill) return ['setup', 'roll'];
   const deep = !!((session && session.deep) || (result && result.deep) || (!session && !result && deepMode(cfg.mode)));
   let keys = deep ? ['setup', 'drift', 'deep', 'screen', 'track', 'fine', 'turn', 'ads'] : ['setup', 'drift', 'flick', 'track', 'fine', 'turn', 'ads'];
   if (!isMouse()) keys.push('recoil');
@@ -1680,6 +1742,7 @@ function spinHelp() {
 $('#spin').addEventListener('input', spinHelp);
 $('#curvefeel-go').addEventListener('click', startCurveCheck);
 $('#recoil-go').addEventListener('click', startRecoilCheck);
+$('#roll-go').addEventListener('click', startRollDrill);
 $('#recoil-use').addEventListener('click', () => { cfg.vsens = recoilResult.rec.vsens; $('#vsens').value = cfg.vsens; saveSetup(); syncSetup(); });
 $('#curvefeel-reset').addEventListener('click', () => { cfg.curveK = null; cfg.curveChecked = false; saveSetup(); syncSetup(); });
 $('#spin-how').addEventListener('click', e => {
@@ -1721,7 +1784,7 @@ function calibrate() {
 }
 
 const vpad = { x: 0, y: 0, drag: false, fire: false };
-const keys = { left: false, right: false, up: false, down: false, fire: false };
+const keys = { left: false, right: false, up: false, down: false, fire: false, roll: false };
 
 function readPad() {
   let pads = [];
@@ -1734,14 +1797,14 @@ function poll() {
   if (isMouse()) {
     const { mx, my } = mouse.take();
     const fire = mouse.fire() || keys.fire;
-    return { src: 'mouse', name: null, lx: 0, ly: 0, rx: 0, ry: 0, mx, my, fire, dl: false, du: false, dr: false, lt: 0, rt: 0 };
+    return { src: 'mouse', name: null, lx: 0, ly: 0, rx: 0, ry: 0, mx, my, fire, roll: keys.roll, dl: false, du: false, dr: false, lt: 0, rt: 0 };
   }
   const p = readPad();
   if (p) {
     const b = p.buttons;
     const pressed = i => !!b[i] && (b[i].pressed || b[i].value > 0.5);
     return { src: 'pad', name: p.id, lx: p.axes[0], ly: p.axes[1], rx: p.axes[2], ry: p.axes[3],
-      fire: pressed(7) || pressed(0) || pressed(5), dl: pressed(14), du: pressed(12), dr: pressed(15), lb: pressed(4), rb: pressed(5),
+      fire: pressed(7) || pressed(0) || pressed(5), roll: pressed(1), dl: pressed(14), du: pressed(12), dr: pressed(15), lb: pressed(4), rb: pressed(5),
       lt: b[6] ? b[6].value : 0, rt: b[7] ? b[7].value : 0 };
   }
   let x = vpad.x, y = vpad.y;
@@ -1751,7 +1814,7 @@ function poll() {
     const m = Math.hypot(x, y); if (m > 1) { x /= m; y /= m; }
     x *= 0.6; y *= 0.6;
   }
-  return { src: 'virtual', name: null, lx: 0, ly: 0, rx: x, ry: y, fire: vpad.fire || keys.fire, dl: false, du: false, dr: false, lt: 0, rt: 0 };
+  return { src: 'virtual', name: null, lx: 0, ly: 0, rx: x, ry: y, fire: vpad.fire || keys.fire, roll: keys.roll, dl: false, du: false, dr: false, lt: 0, rt: 0 };
 }
 
 const vs = $('#vstick'), knob = $('#vknob');
@@ -1772,7 +1835,7 @@ const vf = $('#vfire');
 vf.addEventListener('pointerdown', e => { vpad.fire = true; e.preventDefault(); });
 ['pointerup', 'pointerleave', 'pointercancel'].forEach(t => vf.addEventListener(t, () => { vpad.fire = false; }));
 
-const KEYMAP = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down', KeyA: 'left', KeyD: 'right', KeyW: 'up', KeyS: 'down', Space: 'fire' };
+const KEYMAP = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down', KeyA: 'left', KeyD: 'right', KeyW: 'up', KeyS: 'down', Space: 'fire', KeyC: 'roll' };
 const inTest = () => screen === 'test' && ((session && (session.phase === 'count' || session.phase === 'run')) || (chal && chal.phase !== 'intro'));
 window.addEventListener('keydown', e => {
   const k = KEYMAP[e.code];
@@ -1820,13 +1883,14 @@ function drawArena() {
   drawScene(c, {
     view, zoom: s.zoom || 1, phase: P, countLeft: session.countLeft, worldKey: 'range-' + cfg.game, gameId: cfg.game,
     hfov: hfovFor(cfg.game),
-    flick: P === 'run' && s.kind === 'flick' ? s.data : P === 'run' && s.kind === 'recoil' ? { cur: s.data.T, flash: null } : null,
+    flick: P === 'run' && s.kind === 'flick' ? s.data : P === 'run' && (s.kind === 'recoil' || s.kind === 'roll') ? { cur: s.data.T, flash: s.data.flash || null } : null,
     track: P === 'run' && s.kind === 'track' ? s.data : null,
     figure: s.kind !== 'drift' && s.kind !== 'mcheck',
     overlay: mousePaused(P) ? drawPaused
       : P === 'run' && s.kind === 'drift' ? (ctx, W, H, d) => drawDrift(ctx, s.data, W, H, d)
       : P === 'run' && s.kind === 'mcheck' ? (ctx, W, H, d) => drawMouseCheck(ctx, s.data, W, H, d)
-      : P === 'run' && s.kind === 'recoil' ? (ctx, W, H) => drawRecoilCue(ctx, s.data, W, H) : null
+      : P === 'run' && s.kind === 'recoil' ? (ctx, W, H) => drawRecoilCue(ctx, s.data, W, H)
+      : P === 'run' && s.kind === 'roll' ? (ctx, W, H) => drawRollCue(ctx, s.data, W, H) : null
   });
 }
 
@@ -2822,7 +2886,7 @@ function frame(ts) {
   if (!css || ++styleAge > 30) { css = getComputedStyle(document.documentElement); styleAge = 0; }
   inp = poll();
   const edge = {};
-  for (const k of ['fire', 'dl', 'du', 'dr', 'lb', 'rb']) { edge[k] = inp[k] && !prev[k]; prev[k] = inp[k]; }
+  for (const k of ['fire', 'roll', 'dl', 'du', 'dr', 'lb', 'rb']) { edge[k] = inp[k] && !prev[k]; prev[k] = inp[k]; }
   if (screen === 'test' && chal) chalTick(dt, edge);
   else if (screen === 'test' && session) tick(dt, edge);
   updateStatus();

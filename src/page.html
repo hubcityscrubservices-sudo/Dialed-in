@@ -213,7 +213,7 @@
             <button class="btn primary" id="ch-daily" type="button">Play today's challenge</button>
             <button class="btn" id="leader-toggle" type="button" aria-expanded="false" aria-controls="p-leader">Leaderboard</button>
           </div>
-          <details class="more-play">
+          <details class="more-play" id="more-play">
             <summary>More ways to play</summary>
             <div class="actions">
             <span class="practice-pick">
@@ -231,6 +231,8 @@
               <button class="btn" id="ch-code-go" type="button">Play code</button>
             </span>
             </div>
+            <div class="roll-row"><button class="btn" id="roll-go" type="button">Dodge-roll drill</button><small class="hint">Shoot, roll, shoot: the loop top ARC players use. 45 seconds, practice only.</small></div>
+            <p class="hint roll-result" id="roll-result" hidden></p>
           </details>
           <small class="hint" id="ch-note"></small>
         </div>

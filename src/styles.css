@@ -484,3 +484,6 @@ body.on-setup .main-col { max-width: 920px; width: 100%; margin-inline: auto; }
 .hdr-daily:hover { background: rgba(255, 94, 58, 0.22); }
 .hdr-daily small { font: 500 11px var(--mono); color: var(--sun); letter-spacing: .04em; text-transform: none; }
 @media (max-width: 660px) { .top-right { width: 100%; } .top-right > * { flex: 1 1 100%; justify-content: center; } }
+.roll-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.roll-result { display: grid; gap: 4px; margin-top: 8px; }
+.roll-result b { color: var(--ink); }

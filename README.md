@@ -253,6 +253,19 @@ reshapes the curve everywhere the range plays, the daily challenge included (the
 server accepts it in that range). Full push stays full speed. Like the turn speed check, it changes
 how faithful the range is, not what it recommends.
 
+## Dodge-roll drill
+
+A 45-second practice drill under "More ways to play" (src/roll.js): shoot the target, double-press the
+roll button (Circle / B on controller, C on keyboard, within 0.3 s, like ARC's double-press crouch), get
+back on target as you land and shoot again. Timings come from stepping through a controller tutorial clip
+at 20 fps (±0.05 s): the roll takes about 0.45 s, it starts about 0.25 s after a shot, the next shot comes
+about 0.27 s after landing, and a loop takes about 1.0 s. Shooting is locked while rolling; the roll moves
+the player 1.6 m sideways, so the target slides atan(1.6 / distance) across the view (about 9° at 10 m,
+4° at 25 m; distances cycle 10/14/18/25 m), and the enemy drifts slowly. The left stick picks the roll's
+direction. The result shows loops, hits a minute, loop time and landing-to-shot time against the clip's
+player, how often the first shot after a roll hit, and a tip when the aim stick sat still through most
+rolls (the thumb leaves it to press roll: claw grip or a paddle for roll helps).
+
 ## Up-and-down tracking
 
 Every controller route plays an 8-second strafer that jumps, drops and climbs (after tracking in Quick and
